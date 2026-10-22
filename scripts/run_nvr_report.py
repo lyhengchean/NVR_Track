@@ -2,8 +2,8 @@
 
 import argparse
 from datetime import datetime, timezone
-from getpass import getpass
 import json
+from getpass import getpass
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -13,6 +13,7 @@ from app.isapi import (
     get_channel_statuses,
     get_device_info,
 )
+from app.recording import check_recording_evidence
 from app.reporting import determine_overall_status
 from app.storage import get_storage_check
 
@@ -28,10 +29,16 @@ def now_local() -> datetime:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Generate a one-NVR JSON monitoring snapshot."
+        description="Generate one NVR's JSON monitoring snapshot."
     )
     parser.add_argument("--ip", default="10.233.220.51")
     parser.add_argument("--port", type=int, default=80)
+    parser.add_argument(
+        "--recording-track-id",
+        type=int,
+        default=None,
+        help="Verified recording track to test, e.g. 201 for NVR nvr-01.",
+    )
     args = parser.parse_args()
 
     started_at = now_local()
@@ -49,7 +56,6 @@ def main() -> int:
 
     if configured_nvr is None:
         print("NVR IP is not present in the local inventory.")
-        print("Add it to config/nvrs.local.json before generating a report.")
         return 2
 
     username = input("NVR username [admin]: ").strip() or "admin"
@@ -74,8 +80,35 @@ def main() -> int:
         args.ip, username, password, args.port
     )
 
+    if args.recording_track_id is not None:
+        recording = check_recording_evidence(
+            ip=args.ip,
+            username=username,
+            password=password,
+            port=args.port,
+            track_id=args.recording_track_id,
+            minutes=60,
+            max_results=10,
+        )
+    else:
+        recording = {
+            "status": "NOT_CHECKED_TRACK_ID_NOT_CONFIGURED",
+            "message": (
+                "No verified recording track ID was supplied. "
+                "Recording search was not performed."
+            ),
+            "http_status": None,
+            "track_id": None,
+            "requested_window_utc": {"start": None, "end": None},
+            "num_matches": None,
+            "total_matches": None,
+            "matches": [],
+            "anomalies": [],
+        }
+
     inventory_ok = inventory.status == "CHANNELS_RETRIEVED"
-    channel_status_ok = (
+
+    status_ok = (
         channel_status_result.status == "CHANNEL_STATUS_RETRIEVED"
     )
 
@@ -85,6 +118,7 @@ def main() -> int:
     }
 
     channel_rows = []
+
     for channel in inventory.channels:
         online = status_by_id.get(channel.channel_id)
 
@@ -97,15 +131,13 @@ def main() -> int:
         else:
             state = "UNKNOWN"
 
-        channel_rows.append(
-            {
-                "channel_id": channel.channel_id,
-                "name": channel.name,
-                "camera_ip": channel.camera_ip,
-                "management_port": channel.management_port,
-                "reported_status": state,
-            }
-        )
+        channel_rows.append({
+            "channel_id": channel.channel_id,
+            "name": channel.name,
+            "camera_ip": channel.camera_ip,
+            "management_port": channel.management_port,
+            "reported_status": state,
+        })
 
     online_count = sum(
         item.online is True for item in channel_status_result.channels
@@ -117,13 +149,7 @@ def main() -> int:
         item.online is None for item in channel_status_result.channels
     )
 
-    actual_count = (
-        len(inventory.channels) if inventory_ok else None
-    )
-
-    # The prior search returned a segment extending past the NVR clock.
-    # Keep this unresolved until a validated recording check is integrated.
-    recording_status = "UNKNOWN"
+    actual_count = len(inventory.channels) if inventory_ok else None
 
     overall = determine_overall_status(
         device_info_status=device.status,
@@ -133,7 +159,7 @@ def main() -> int:
         offline_count=offline_count,
         expected_count=configured_nvr.expected_channels,
         actual_count=actual_count,
-        recording_status=recording_status,
+        recording_status=recording["status"],
     )
 
     completed_at = now_local()
@@ -196,23 +222,15 @@ def main() -> int:
                 for disk in storage.disks
             ],
         },
-        "recording": {
-            "status": recording_status,
-            "message": (
-                "Recording-search segment end exceeded the NVR clock. "
-                "Playback-time verification is required."
-            ),
-        },
+        "recording": recording,
         "overall": overall,
     }
 
     report_dir = ROOT / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = completed_at.strftime("%Y%m%dT%H%M%S%z")
-    output_path = report_dir / (
-        f"{configured_nvr.id}_{timestamp}.json"
-    )
+    timestamp = completed_at.strftime("%Y%m%dT%H%M%S%f%z")
+    output_path = report_dir / f"{configured_nvr.id}_{timestamp}.json"
 
     output_path.write_text(
         json.dumps(report, indent=2, ensure_ascii=False),
@@ -225,10 +243,10 @@ def main() -> int:
     print(f"Channel inventory: {inventory.status}")
     print(f"Channel status: {channel_status_result.status}")
     print(f"Storage: {storage.status}")
+    print(f"Recording: {recording['status']}")
     print(f"Online channels: {online_count}")
     print(f"Offline channels: {offline_count}")
     print(f"Unknown channel statuses: {unknown_count}")
-    print(f"Recording: {recording_status}")
     print(f"JSON report saved: {output_path}")
     print("Credentials were not written to the report.")
 

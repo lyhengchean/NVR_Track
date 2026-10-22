@@ -14,8 +14,6 @@ def determine_overall_status(
     actual_count: int | None,
     recording_status: str,
 ) -> dict[str, Any]:
-    """Calculate overall status without hiding failed or incomplete checks."""
-
     critical: list[str] = []
     warnings: list[str] = []
     unknown: list[str] = []
@@ -65,7 +63,17 @@ def determine_overall_status(
     elif storage_status not in {"HEALTHY", "CRITICAL", "WARNING"}:
         unknown.append(f"Storage status not verified: {storage_status}.")
 
-    if recording_status != "RECORDING_EVIDENCE_FOUND":
+    if recording_status == "RECORDING_EVIDENCE_FOUND":
+        pass
+    elif recording_status == "RECORDING_EVIDENCE_FOUND_WITH_TIME_ANOMALY":
+        warnings.append(
+            "Recording evidence was found, but segment time boundaries need verification."
+        )
+    elif recording_status == "NO_MATCHES_IN_WINDOW":
+        warnings.append(
+            "No recording matches were returned for the tested window; verify the schedule."
+        )
+    else:
         unknown.append(
             f"Recording check is not verified: {recording_status}."
         )
