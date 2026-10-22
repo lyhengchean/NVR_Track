@@ -1,0 +1,1 @@
+﻿"""Hikvision CCTV monitoring application."""

@@ -1,0 +1,15 @@
+﻿.git/
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.env
+.env.*
+config/nvrs.local.json
+config/nvrs.production.json
+logs/
+reports/
+state/
+*.log
+tests/
+.vscode/

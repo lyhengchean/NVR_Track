@@ -1,0 +1,33 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Real CCTV inventory — never commit
+config/nvrs.local.json
+config/nvrs.production.json
+
+# Runtime data
+logs/
+reports/
+state/
+*.log
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Editor and OS files
+.vscode/
+.DS_Store
+Thumbs.db

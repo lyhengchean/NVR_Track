@@ -1,0 +1,1 @@
+﻿# Initial inventory-validation stage uses Python standard library only.
