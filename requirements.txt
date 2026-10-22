@@ -1,1 +1,2 @@
-﻿# Initial inventory-validation stage uses Python standard library only.
+requests==2.34.2
+tzdata==2026.5
