@@ -1,17 +1,17 @@
 ﻿{
   "schema_version": 1,
   "nvrs": [
-    {"id": "nvr-01", "ip": "192.0.2.51", "expected_channels": 56},
-    {"id": "nvr-02", "ip": "192.0.2.11", "expected_channels": 12},
-    {"id": "nvr-03", "ip": "192.0.2.54", "expected_channels": 28},
-    {"id": "nvr-04", "ip": "192.0.2.190", "expected_channels": 46},
-    {"id": "nvr-05", "ip": "192.0.2.20", "expected_channels": 46},
-    {"id": "nvr-06", "ip": "192.0.2.9", "expected_channels": 32},
-    {"id": "nvr-07", "ip": "192.0.2.202", "expected_channels": 29},
-    {"id": "nvr-08", "ip": "192.0.2.8", "expected_channels": 24},
-    {"id": "nvr-09", "ip": "192.0.2.10", "expected_channels": 16},
-    {"id": "nvr-10", "ip": "192.0.2.13", "expected_channels": 8},
-    {"id": "nvr-11", "ip": "198.51.100.11", "expected_channels": 16},
-    {"id": "nvr-12", "ip": "203.0.113.10", "expected_channels": 47}
+    {"id": "nvr-01", "ip": "192.0.2.51", "http_port": 80, "server_port": 8000, "recording_track_id": 201, "expected_channels": 56},
+    {"id": "nvr-02", "ip": "192.0.2.11", "http_port": 80, "server_port": 8000, "expected_channels": 12},
+    {"id": "nvr-03", "ip": "192.0.2.54", "http_port": 80, "server_port": 8000, "expected_channels": 28},
+    {"id": "nvr-04", "ip": "192.0.2.190", "http_port": 80, "server_port": 8000, "expected_channels": 46},
+    {"id": "nvr-05", "ip": "192.0.2.20", "http_port": 80, "server_port": 8000, "expected_channels": 46},
+    {"id": "nvr-06", "ip": "192.0.2.9", "http_port": 80, "server_port": 8000, "expected_channels": 32},
+    {"id": "nvr-07", "ip": "192.0.2.202", "http_port": 80, "server_port": 8000, "expected_channels": 29},
+    {"id": "nvr-08", "ip": "192.0.2.8", "http_port": 80, "server_port": 8000, "expected_channels": 24},
+    {"id": "nvr-09", "ip": "192.0.2.10", "http_port": 80, "server_port": 8000, "expected_channels": 16},
+    {"id": "nvr-10", "ip": "192.0.2.13", "http_port": 80, "server_port": 8000, "expected_channels": 8},
+    {"id": "nvr-11", "ip": "198.51.100.11", "http_port": 80, "server_port": 8000, "expected_channels": 16},
+    {"id": "nvr-12", "ip": "203.0.113.10", "http_port": 80, "server_port": 8000, "expected_channels": 47}
   ]
 }
