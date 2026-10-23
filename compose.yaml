@@ -1,14 +1,19 @@
-
 services:
   nvr-report:
     build:
       context: .
     image: nvr-track:local
+
+    env_file:
+      - .env
+
     environment:
       TZ: Asia/Phnom_Penh
       PYTHONUNBUFFERED: "1"
+
     volumes:
       - ./config/nvrs.local.json:/app/config/nvrs.local.json:ro
       - ./reports:/app/reports
+
     stdin_open: true
     tty: true

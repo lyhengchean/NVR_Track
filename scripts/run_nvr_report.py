@@ -1,5 +1,6 @@
 """Generate a JSON snapshot for one NVR."""
-
+import os
+import sys
 import argparse
 from datetime import datetime, timezone
 import json
@@ -57,13 +58,47 @@ def main() -> int:
     if configured_nvr is None:
         print("NVR IP is not present in the local inventory.")
         return 2
+    
+    # Select credentials for this specific NVR.
+    # Example: nvr-01 -> NVR_01_USERNAME / NVR_01_PASSWORD
+    env_suffix = (
+        configured_nvr.id.upper()
+        .removeprefix("NVR-")
+        .replace("-", "_")
+    )
 
-    username = input("NVR username [admin]: ").strip() or "admin"
-    password = getpass("Password (input hidden): ")
+    username_key = f"NVR_{env_suffix}_USERNAME"
+    password_key = f"NVR_{env_suffix}_PASSWORD"
+
+    # Prefer per-NVR credentials; fall back to shared credentials.
+    username = (
+        os.environ.get(username_key, "").strip()
+        or os.environ.get("NVR_USERNAME", "").strip()
+    )
+    password = (
+        os.environ.get(password_key, "")
+        or os.environ.get("NVR_PASSWORD", "")
+    )
+
+    if not username or not password:
+        if not sys.stdin.isatty():
+            print(
+                f"Missing credentials for {configured_nvr.id}. "
+                f"Configure {username_key} and {password_key} "
+                "or shared credentials in .env."
+            )
+            return 2
+
+        if not username:
+            username = input("NVR username [admin]: ").strip() or "admin"
+
+        if not password:
+            password = getpass("Password (input hidden): ")
 
     if not password:
         print("Password cannot be empty.")
         return 2
+
 
     print(f"\nChecking NVR {configured_nvr.id} at {args.ip}:{args.port}...")
 
