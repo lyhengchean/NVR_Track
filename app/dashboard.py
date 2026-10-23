@@ -27,7 +27,7 @@ HTML = r"""<!doctype html>
 <style>
 :root {
   color-scheme: light;
-  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  font-family: "Noto Sans Khmer", "Noto Sans", Arial, sans-serif;
   background: #f3f6fb;
   color: #172033;
 }
