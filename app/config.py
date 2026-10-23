@@ -16,6 +16,9 @@ class NVRConfig:
     id: str
     ip: str
     expected_channels: int
+    http_port: int = 80
+    server_port: int | None = None
+    recording_track_id: int | None = None
 
 
 def load_inventory(path: str | Path) -> list[NVRConfig]:
@@ -94,6 +97,36 @@ def load_inventory(path: str | Path) -> list[NVRConfig]:
             raise InventoryError(
                 f"{label}: expected_channels must be an integer from 1 to 512."
             )
+        
+        http_port = entry.get("http_port", 80)
+        if (
+            isinstance(http_port, bool)
+            or not isinstance(http_port, int)
+            or not 1 <= http_port <= 65535
+        ):
+            raise InventoryError(
+                f"{label}: http_port must be an integer from 1 to 65535."
+            )
+
+        server_port = entry.get("server_port")
+        if server_port is not None and (
+            isinstance(server_port, bool)
+            or not isinstance(server_port, int)
+            or not 1 <= server_port <= 65535
+        ):
+            raise InventoryError(
+                f"{label}: server_port must be an integer from 1 to 65535."
+            )
+
+        recording_track_id = entry.get("recording_track_id")
+        if recording_track_id is not None and (
+            isinstance(recording_track_id, bool)
+            or not isinstance(recording_track_id, int)
+            or recording_track_id <= 0
+        ):
+            raise InventoryError(
+                f"{label}: recording_track_id must be a positive integer."
+            )
 
         seen_ids.add(device_id)
         seen_ips.add(normalized_ip)
@@ -103,6 +136,9 @@ def load_inventory(path: str | Path) -> list[NVRConfig]:
                 id=device_id,
                 ip=normalized_ip,
                 expected_channels=channel_count,
+                http_port=http_port,
+                server_port=server_port,
+                recording_track_id=recording_track_id,
             )
         )
 

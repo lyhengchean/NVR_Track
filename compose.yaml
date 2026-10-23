@@ -17,3 +17,19 @@ services:
 
     stdin_open: true
     tty: true
+  nvr-report-all:
+    build:
+      context: .
+    image: nvr-track:local
+    entrypoint: ["python", "-m", "scripts.run_all_nvr_reports"]
+
+    env_file:
+      - .env
+
+    environment:
+      TZ: Asia/Phnom_Penh
+      PYTHONUNBUFFERED: "1"
+
+    volumes:
+      - ./config/nvrs.local.json:/app/config/nvrs.local.json:ro
+      - ./reports:/app/reports

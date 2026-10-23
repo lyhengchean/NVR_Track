@@ -32,8 +32,19 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate one NVR's JSON monitoring snapshot."
     )
-    parser.add_argument("--ip", default="10.233.220.51")
-    parser.add_argument("--port", type=int, default=80)
+    parser.add_argument(
+        "--ip",
+        default=None,
+        help="NVR IP address. Defaults to the first inventory entry.",
+    )
+    parser.add_argument(
+        "--http-port",
+        "--port",
+        dest="http_port",
+        type=int,
+        default=None,
+        help="Override the configured NVR HTTP port.",
+    )
     parser.add_argument(
         "--recording-track-id",
         type=int,
@@ -50,14 +61,29 @@ def main() -> int:
         print(f"Cannot load local NVR inventory: {exc}")
         return 2
 
-    configured_nvr = next(
-        (nvr for nvr in nvrs if nvr.ip == args.ip),
-        None,
-    )
+    if args.ip is None:
+        configured_nvr = nvrs[0]
+    else:
+        configured_nvr = next(
+            (nvr for nvr in nvrs if nvr.ip == args.ip),
+            None,
+        )
 
     if configured_nvr is None:
         print("NVR IP is not present in the local inventory.")
         return 2
+
+    http_port = (
+        args.http_port
+        if args.http_port is not None
+        else configured_nvr.http_port
+    )
+
+    recording_track_id = (
+        args.recording_track_id
+        if args.recording_track_id is not None
+        else configured_nvr.recording_track_id
+    )
     
     # Select credentials for this specific NVR.
     # Example: nvr-01 -> NVR_01_USERNAME / NVR_01_PASSWORD
@@ -99,29 +125,31 @@ def main() -> int:
         print("Password cannot be empty.")
         return 2
 
-
-    print(f"\nChecking NVR {configured_nvr.id} at {args.ip}:{args.port}...")
+    print(
+        f"\nChecking NVR {configured_nvr.id} "
+        f"at {configured_nvr.ip}:{http_port}..."
+    )
 
     device = get_device_info(
-        args.ip, username, password, args.port
+        configured_nvr.ip, username, password, http_port
     )
     inventory = get_channel_inventory(
-        args.ip, username, password, args.port
+        configured_nvr.ip, username, password, http_port
     )
     channel_status_result = get_channel_statuses(
-        args.ip, username, password, args.port
+        configured_nvr.ip, username, password, http_port
     )
     storage = get_storage_check(
-        args.ip, username, password, args.port
+        configured_nvr.ip, username, password, http_port
     )
 
-    if args.recording_track_id is not None:
+    if recording_track_id is not None:
         recording = check_recording_evidence(
-            ip=args.ip,
+            ip=configured_nvr.ip,
             username=username,
             password=password,
-            port=args.port,
-            track_id=args.recording_track_id,
+            port=http_port,
+            track_id=recording_track_id,
             minutes=60,
             max_results=10,
         )
@@ -203,7 +231,9 @@ def main() -> int:
         "schema_version": 1,
         "nvr": {
             "id": configured_nvr.id,
-            "ip": args.ip,
+            "ip": configured_nvr.ip,
+            "http_port": http_port,
+            "server_port": configured_nvr.server_port,
             "expected_channels": configured_nvr.expected_channels,
         },
         "check_started_at": started_at.isoformat(),
