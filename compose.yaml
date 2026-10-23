@@ -33,3 +33,23 @@ services:
     volumes:
       - ./config/nvrs.local.json:/app/config/nvrs.local.json:ro
       - ./reports:/app/reports
+  nvr-dashboard:
+    build:
+      context: .
+    image: nvr-track:local
+    entrypoint: ["python", "-m", "app.dashboard"]
+
+    environment:
+      TZ: Asia/Phnom_Penh
+      PYTHONUNBUFFERED: "1"
+      REPORTS_DIR: /app/reports
+      DASHBOARD_USERNAME: "${DASHBOARD_USERNAME:?Set DASHBOARD_USERNAME in .env}"
+      DASHBOARD_PASSWORD: "${DASHBOARD_PASSWORD:?Set DASHBOARD_PASSWORD in .env}"
+
+    ports:
+      - "${DASHBOARD_BIND_IP:-127.0.0.1}:8080:8080"
+
+    volumes:
+      - ./reports:/app/reports:ro
+
+    restart: unless-stopped
