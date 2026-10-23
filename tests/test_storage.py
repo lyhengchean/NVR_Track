@@ -87,6 +87,44 @@ class StorageTests(unittest.TestCase):
     def test_wrong_xml_root_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "root"):
             parse_hdd_list(b"<ResponseStatus/>")
+    def test_duplicate_id_across_virtual_and_sata_disks(self):
+        xml = b"""
+        <hddList version="2.0">
+        <hdd>
+            <id>1</id>
+            <hddName>hdd1</hddName>
+            <hddType>Virtual Disk</hddType>
+            <status>ok</status>
+            <capacity>40054997</capacity>
+            <freeSpace>0</freeSpace>
+            <property>RW</property>
+            <group>1</group>
+        </hdd>
+        <hdd>
+            <id>1</id>
+            <hddName></hddName>
+            <hddType>SATA</hddType>
+            <status>ok</status>
+            <capacity>5723166</capacity>
+            <freeSpace>0</freeSpace>
+            <property>RO</property>
+            <group>0</group>
+        </hdd>
+        </hddList>
+        """
+
+        disks = parse_hdd_list(xml)
+
+        self.assertEqual(
+            [disk.id for disk in disks],
+            ["1 (Virtual Disk)", "1 (SATA)"],
+        )
+
+        status, message = classify_storage(disks)
+
+        self.assertEqual(status, "WARNING")
+        self.assertIn("1 (Virtual Disk)", message)
+        self.assertNotIn("1 (SATA)", message)
 
 
 if __name__ == "__main__":

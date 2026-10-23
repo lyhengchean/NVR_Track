@@ -70,7 +70,7 @@ def _number(value: str) -> float | None:
 
 
 def parse_hdd_list(content: bytes) -> tuple[HDDEntry, ...]:
-    """Parse the read-only /ISAPI/ContentMgmt/Storage/hdd response."""
+    """Parse HDD entries while disambiguating IDs reused across disk types."""
 
     try:
         root = ET.fromstring(content)
@@ -80,7 +80,7 @@ def parse_hdd_list(content: bytes) -> tuple[HDDEntry, ...]:
     if _name(root.tag) != "hddlist":
         raise ValueError("Unexpected HDD-list XML root.")
 
-    disks: list[HDDEntry] = []
+    raw_disks = []
 
     for node in root:
         if _name(node.tag) != "hdd":
@@ -88,32 +88,59 @@ def parse_hdd_list(content: bytes) -> tuple[HDDEntry, ...]:
 
         disk_id = _child_text(node, "id")
         status = _child_text(node, "status")
+        disk_type = _child_text(node, "hddType") or "NOT_RETURNED"
 
         if not disk_id or not status:
             raise ValueError("An HDD entry lacks its ID or status.")
 
+        raw_disks.append({
+            "raw_id": disk_id,
+            "name": _child_text(node, "hddName") or "NOT_RETURNED",
+            "disk_type": disk_type,
+            "status": status.strip().lower(),
+            "capacity_mb": _number(_child_text(node, "capacity")),
+            "free_space_mb": _number(_child_text(node, "freeSpace")),
+            "property": _child_text(node, "property") or "NOT_RETURNED",
+            "group": _child_text(node, "group") or "NOT_RETURNED",
+        })
+
+    if not raw_disks:
+        raise ValueError("No HDD entries were returned.")
+
+    id_counts = {}
+    for disk in raw_disks:
+        raw_id = disk["raw_id"]
+        id_counts[raw_id] = id_counts.get(raw_id, 0) + 1
+
+    disks = []
+
+    for raw in raw_disks:
+        disk_id = raw["raw_id"]
+
+        # Hikvision may reuse an ID for different storage types.
+        # Preserve the distinction rather than silently dropping a disk.
+        if id_counts[disk_id] > 1:
+            disk_id = f"{disk_id} ({raw['disk_type']})"
+
         disks.append(
             HDDEntry(
                 id=disk_id,
-                name=_child_text(node, "hddName") or "NOT_RETURNED",
-                disk_type=_child_text(node, "hddType") or "NOT_RETURNED",
-                status=status.strip().lower(),
-                capacity_mb=_number(_child_text(node, "capacity")),
-                free_space_mb=_number(_child_text(node, "freeSpace")),
-                property=_child_text(node, "property") or "NOT_RETURNED",
-                group=_child_text(node, "group") or "NOT_RETURNED",
+                name=raw["name"],
+                disk_type=raw["disk_type"],
+                status=raw["status"],
+                capacity_mb=raw["capacity_mb"],
+                free_space_mb=raw["free_space_mb"],
+                property=raw["property"],
+                group=raw["group"],
             )
         )
 
-    if not disks:
-        raise ValueError("No HDD entries were returned.")
-
+    # Repeated IDs of the same type are still treated as ambiguous.
     ids = [disk.id for disk in disks]
     if len(ids) != len(set(ids)):
-        raise ValueError("HDD inventory contains duplicate IDs.")
+        raise ValueError("HDD inventory contains duplicate IDs of the same type.")
 
     return tuple(disks)
-
 
 def classify_storage(disks: tuple[HDDEntry, ...]) -> tuple[str, str]:
     """Classify storage conservatively: an unknown state is never healthy."""
@@ -157,9 +184,21 @@ def classify_storage(disks: tuple[HDDEntry, ...]) -> tuple[str, str]:
             f"Capacity or free-space information is missing for HDD IDs: {ids}.",
         )
 
+    writable_disks = [
+        disk for disk in disks
+        if disk.property.strip().upper() == "RW"
+    ]
+
+    if not writable_disks:
+        return (
+            "UNKNOWN",
+            "No writable HDD or logical storage volumes were reported.",
+        )
+    
     no_free_space = [
         disk for disk in disks
-        if disk.free_space_mb is not None
+        if disk.property.strip().upper() == "RW"
+        and disk.free_space_mb is not None
         and disk.free_space_mb <= 0
     ]
 

@@ -5,7 +5,7 @@
     {"id": "nvr-02", "ip": "192.0.2.11", "http_port": 80, "server_port": 8000, "expected_channels": 12},
     {"id": "nvr-03", "ip": "192.0.2.54", "http_port": 80, "server_port": 8000, "expected_channels": 28},
     {"id": "nvr-04", "ip": "192.0.2.190", "http_port": 80, "server_port": 8000, "expected_channels": 46},
-    {"id": "nvr-05", "ip": "192.0.2.20", "http_port": 80, "server_port": 8000, "expected_channels": 46},
+    {"id": "nvr-05", "ip": "192.0.2.20", "http_port": 80, "server_port": 8000, "expected_channels": 16},
     {"id": "nvr-06", "ip": "192.0.2.9", "http_port": 80, "server_port": 8000, "expected_channels": 32},
     {"id": "nvr-07", "ip": "192.0.2.202", "http_port": 80, "server_port": 8000, "expected_channels": 29},
     {"id": "nvr-08", "ip": "192.0.2.8", "http_port": 80, "server_port": 8000, "expected_channels": 24},
