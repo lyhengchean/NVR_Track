@@ -501,16 +501,23 @@ def check_recording_evidence(
             response_status = parsed["response_status"]
             search_status = parsed["search_status"]
             matches = parsed["matches"]
+            # Accept a validated NO MATCHES response with either
+            # responseStatus value, including optional trailing punctuation.
+            normalized_status = search_status.strip().rstrip(".").strip()
 
-            if (
-                response_status == "false"
-                and search_status in {"NO MATCHES", "NO MATCH"}
-                and not matches
-            ):
+            if normalized_status in {"NO MATCHES", "NO MATCH"}:
+                if not matches and parsed["total_matches"] in (None, 0):
+                    return _result(
+                        "NO_MATCHES_IN_WINDOW",
+                        "The search completed without matching recording segments.",
+                        matches=[],
+                        **shared,
+                    )
+
                 return _result(
-                    "NO_MATCHES_IN_WINDOW",
-                    "The search completed without matching recording segments.",
-                    matches=[],
+                    "INCONSISTENT_OR_UNEXPECTED_RESPONSE",
+                    "NVR returned NO MATCHES with contradictory match counts.",
+                    matches=matches,
                     **shared,
                 )
 
@@ -538,6 +545,13 @@ def check_recording_evidence(
                 )
 
             if not matches:
+                if parsed["total_matches"] not in (None, 0):
+                    return _result(
+                        "INCONSISTENT_OR_UNEXPECTED_RESPONSE",
+                        "NVR returned no segments but reported a nonzero total.",
+                        **shared,
+                    )
+
                 return _result(
                     "NO_MATCHES_IN_WINDOW",
                     "The successful search returned no recording segments.",
