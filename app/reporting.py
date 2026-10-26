@@ -13,6 +13,7 @@ def determine_overall_status(
     expected_count: int | None,
     actual_count: int | None,
     recording_status: str,
+    per_camera_summary: dict | None = None,
 ) -> dict[str, Any]:
     critical: list[str] = []
     warnings: list[str] = []
@@ -77,6 +78,19 @@ def determine_overall_status(
         unknown.append(
             f"Recording check is not verified: {recording_status}."
         )
+
+    if per_camera_summary and per_camera_summary.get("enabled"):
+        missing = per_camera_summary.get("no_recent_evidence", 0)
+        errors = per_camera_summary.get("search_errors", 0)
+        ambiguous = (per_camera_summary.get("inconclusive", 0)
+                     + per_camera_summary.get("track_mapping_problems", 0)
+                     + per_camera_summary.get("not_checked", 0))
+        if missing:
+            warnings.append(f"{missing} cameras have no recording evidence in the configured window.")
+        if errors:
+            unknown.append(f"{errors} per-camera recording searches failed.")
+        if ambiguous:
+            unknown.append(f"{ambiguous} per-camera recording checks were unverified or not run.")
 
     if critical:
         overall = "CRITICAL"

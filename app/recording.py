@@ -244,6 +244,7 @@ def check_recording_evidence(
     track_id: int = 201,
     minutes: int = 60,
     max_results: int = 10,
+    clock_snapshot: tuple[datetime, tzinfo] | None = None,
 ) -> dict:
     """Search a recent time window and classify the result conservatively."""
     try:
@@ -285,55 +286,66 @@ def check_recording_evidence(
         with requests.Session() as session:
             session.trust_env = False
 
-            clock_response = session.get(
-                f"{base_url}/ISAPI/System/time",
-                auth=auth,
-                headers={"Accept": "application/xml"},
-                timeout=(3, 8),
-                allow_redirects=False,
-            )
-
-            if clock_response.status_code in (401, 403):
-                status = (
-                    "AUTHENTICATION_FAILED"
-                    if clock_response.status_code == 401
-                    else "PERMISSION_DENIED"
-                )
-                return _result(
-                    status,
-                    "NVR time request was not authorized.",
-                    track_id=track_id,
-                    http_status=clock_response.status_code,
+            if clock_snapshot is None:
+                clock_response = session.get(
+                    f"{base_url}/ISAPI/System/time",
+                    auth=auth,
+                    headers={"Accept": "application/xml"},
+                    timeout=(3, 8),
+                    allow_redirects=False,
                 )
 
-            if clock_response.status_code != 200:
-                return _result(
-                    "NVR_TIME_UNAVAILABLE",
-                    "NVR time could not be retrieved.",
-                    track_id=track_id,
-                    http_status=clock_response.status_code,
-                )
+                if clock_response.status_code in (401, 403):
+                    status = (
+                        "AUTHENTICATION_FAILED"
+                        if clock_response.status_code == 401
+                        else "PERMISSION_DENIED"
+                    )
+                    return _result(
+                        status,
+                        "NVR time request was not authorized.",
+                        track_id=track_id,
+                        http_status=clock_response.status_code,
+                    )
 
-            try:
-                clock_root = ET.fromstring(clock_response.content)
+                if clock_response.status_code != 200:
+                    return _result(
+                        "NVR_TIME_UNAVAILABLE",
+                        "NVR time could not be retrieved.",
+                        track_id=track_id,
+                        http_status=clock_response.status_code,
+                    )
 
-                raw_local_time = child_text(clock_root, "localTime")
-                nvr_local = datetime.fromisoformat(
-                    raw_local_time.strip().replace("Z", "+00:00")
-                )
+                try:
+                    clock_root = ET.fromstring(clock_response.content)
 
-                if nvr_local.tzinfo is None:
-                    raise ValueError("NVR clock has no timezone offset.")
+                    raw_local_time = child_text(clock_root, "localTime")
+                    nvr_local = datetime.fromisoformat(
+                        raw_local_time.strip().replace("Z", "+00:00")
+                    )
 
-                nvr_timezone = nvr_local.tzinfo
-                nvr_now = nvr_local.astimezone(timezone.utc)
+                    if nvr_local.tzinfo is None:
+                        raise ValueError("NVR clock has no timezone offset.")
 
-            except (ET.ParseError, ValueError):
-                return _result(
-                    "NVR_TIME_UNVERIFIED",
-                    "NVR time was not valid timezone-aware XML.",
-                    track_id=track_id,
-                )
+                    nvr_timezone = nvr_local.tzinfo
+                    nvr_now = nvr_local.astimezone(timezone.utc)
+
+                except (ET.ParseError, ValueError):
+                    return _result(
+                        "NVR_TIME_UNVERIFIED",
+                        "NVR time was not valid timezone-aware XML.",
+                        track_id=track_id,
+                    )
+
+            else:
+                nvr_now, nvr_timezone = clock_snapshot
+                if nvr_now.tzinfo is None or nvr_timezone is None:
+                    return _result(
+                        "NVR_TIME_UNVERIFIED",
+                        "NVR clock snapshot is not timezone-aware.",
+                        track_id=track_id,
+                    )
+                nvr_now = nvr_now.astimezone(timezone.utc)
 
             end_utc = nvr_now.replace(microsecond=0)
             start_utc = end_utc - timedelta(minutes=minutes)
@@ -430,7 +442,7 @@ def check_recording_evidence(
                     end_utc=end_utc,
                 )
 
-                        # Parse the successful HTTP response before inspecting its root.
+            # Parse the successful HTTP response before inspecting its root.
             try:
                 response_root = ET.fromstring(response.content)
             except ET.ParseError:
@@ -515,6 +527,13 @@ def check_recording_evidence(
                     "UNKNOWN_SEARCH_STATUS",
                     f"Unrecognized successful response status: {search_status}.",
                     matches=matches,
+                    **shared,
+                )
+
+            if not matches and search_status == "MORE":
+                return _result(
+                    "RECORDING_EVIDENCE_NOT_CONFIRMED",
+                    "Additional search pages are indicated but this page has no matches.",
                     **shared,
                 )
 

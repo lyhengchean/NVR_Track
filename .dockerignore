@@ -1,4 +1,4 @@
-﻿.git/
+.git/
 .venv/
 venv/
 __pycache__/
@@ -12,5 +12,4 @@ logs/
 reports/
 state/
 *.log
-tests/
 .vscode/

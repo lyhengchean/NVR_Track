@@ -15,7 +15,9 @@ from app.isapi import (
     get_device_info,
 )
 from app.recording import check_recording_evidence
+from app.camera_recording import check_all_cameras
 from app.reporting import determine_overall_status
+from app.report_lock import acquire_report_lock
 from app.storage import get_storage_check
 
 
@@ -125,6 +127,15 @@ def main() -> int:
         print("Password cannot be empty.")
         return 2
 
+    # Lock report generation for this NVR across Compose invocations.
+    # The shared reports volume makes this effective across reporter containers.
+    report_dir = ROOT / "reports"
+    report_dir.mkdir(parents=True, exist_ok=True)
+    lock_handle = acquire_report_lock(report_dir, configured_nvr.id)
+    if lock_handle is False:
+        print(f"Another report is already running for {configured_nvr.id}; no queries sent.")
+        return 2
+
     print(
         f"\nChecking NVR {configured_nvr.id} "
         f"at {configured_nvr.ip}:{http_port}..."
@@ -143,6 +154,19 @@ def main() -> int:
         configured_nvr.ip, username, password, http_port
     )
 
+    def integer_setting(name: str, default: int, lower: int, upper: int) -> int:
+        try:
+            value = int(os.environ.get(name, str(default)))
+            if lower <= value <= upper:
+                return value
+        except ValueError:
+            pass
+        print(f"Invalid {name}; using safe default {default}.")
+        return default
+
+    window_minutes = integer_setting("NVR_RECORDING_WINDOW_MINUTES", 60, 1, 1440)
+    max_results = integer_setting("NVR_RECORDING_MAX_RESULTS", 10, 1, 64)
+    time_budget = integer_setting("NVR_RECORDING_MAX_NVR_SECONDS", 300, 15, 3600)
     if recording_track_id is not None:
         recording = check_recording_evidence(
             ip=configured_nvr.ip,
@@ -150,8 +174,8 @@ def main() -> int:
             password=password,
             port=http_port,
             track_id=recording_track_id,
-            minutes=60,
-            max_results=10,
+            minutes=window_minutes,
+            max_results=max_results,
         )
     else:
         recording = {
@@ -214,6 +238,18 @@ def main() -> int:
 
     actual_count = len(inventory.channels) if inventory_ok else None
 
+    allowed = {
+        item.strip().lower()
+        for item in os.environ.get("NVR_PER_CAMERA_RECORDING_IDS", "").split(",")
+        if item.strip()
+    }
+    per_camera_summary = check_all_cameras(
+        ip=configured_nvr.ip, port=http_port, username=username, password=password,
+        channels=channel_rows, enabled=configured_nvr.id.lower() in allowed,
+        minutes=window_minutes, max_results=max_results,
+        budget_seconds=time_budget,
+    )
+
     overall = determine_overall_status(
         device_info_status=device.status,
         inventory_status=inventory.status,
@@ -223,12 +259,13 @@ def main() -> int:
         expected_count=configured_nvr.expected_channels,
         actual_count=actual_count,
         recording_status=recording["status"],
+        per_camera_summary=per_camera_summary,
     )
 
     completed_at = now_local()
 
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "nvr": {
             "id": configured_nvr.id,
             "ip": configured_nvr.ip,
@@ -288,11 +325,9 @@ def main() -> int:
             ],
         },
         "recording": recording,
+        "per_camera_recording": per_camera_summary,
         "overall": overall,
     }
-
-    report_dir = ROOT / "reports"
-    report_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = completed_at.strftime("%Y%m%dT%H%M%S%f%z")
     output_path = report_dir / f"{configured_nvr.id}_{timestamp}.json"
@@ -308,13 +343,18 @@ def main() -> int:
     print(f"Channel inventory: {inventory.status}")
     print(f"Channel status: {channel_status_result.status}")
     print(f"Storage: {storage.status}")
-    print(f"Recording: {recording['status']}")
+    print(f"NVR-wide recording: {recording['status']}")
+    print(f"Per-camera recording: {per_camera_summary['evidence']} evidence; "
+          f"{per_camera_summary['no_recent_evidence']} no recent evidence; "
+          f"{per_camera_summary['not_checked']} not checked")
     print(f"Online channels: {online_count}")
     print(f"Offline channels: {offline_count}")
     print(f"Unknown channel statuses: {unknown_count}")
     print(f"JSON report saved: {output_path}")
     print("Credentials were not written to the report.")
 
+    if lock_handle:
+        lock_handle.close()
     return 0 if overall["status"] == "HEALTHY" else 1
 
 

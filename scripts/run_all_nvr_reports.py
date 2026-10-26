@@ -90,6 +90,9 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     }
     online = sum(int(row.get("online", 0) or 0) for row in summary)
     offline = sum(int(row.get("offline", 0) or 0) for row in summary)
+    evidence = sum(int(row.get("recording_evidence", 0) or 0) for row in summary)
+    missing_evidence = sum(int(row.get("recording_missing", 0) or 0) for row in summary)
+    recording_errors = sum(int(row.get("recording_errors", 0) or 0) for row in summary)
 
     subject = (
         f"[NVR Report] {counts['CRITICAL']} critical, "
@@ -99,7 +102,8 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     headers = (
         "<tr><th>NVR</th><th>IP address</th><th>Overall</th>"
         "<th>Storage</th><th>Recording</th>"
-        "<th>Online</th><th>Offline</th></tr>"
+        "<th>Online</th><th>Offline</th><th>Evidence</th>"
+        "<th>No recent evidence</th><th>Check errors</th></tr>"
     )
     rows = []
 
@@ -121,6 +125,9 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
             item.get("recording", "UNKNOWN"),
             item.get("online", 0),
             item.get("offline", 0),
+            item.get("recording_evidence", 0),
+            item.get("recording_missing", 0),
+            item.get("recording_errors", 0),
         ]
         escaped = [escape(str(value)) for value in cells]
         escaped[2] = (
@@ -143,6 +150,9 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         <td>Critical</td><td>{counts['CRITICAL']}</td></tr>
     <tr><td>Cameras online</td><td>{online}</td>
         <td>Cameras offline</td><td>{offline}</td></tr>
+    <tr><td>Recent recording evidence</td><td>{evidence}</td>
+        <td>No recent evidence</td><td>{missing_evidence}</td></tr>
+    <tr><td>Recording search errors</td><td>{recording_errors}</td></tr>
   </table>
   <h3>Per-NVR results</h3>
   <table border="1" cellpadding="7" cellspacing="0"
@@ -164,6 +174,8 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         f"Healthy: {counts['HEALTHY']}; Warnings: {counts['WARNING']}; "
         f"Critical: {counts['CRITICAL']}; Errors: {counts['ERROR']}",
         f"Cameras online: {online}; Cameras offline: {offline}",
+        f"Recording evidence: {evidence}; no recent evidence: {missing_evidence}; "
+        f"search errors: {recording_errors}",
         "",
     ]
 
@@ -172,7 +184,9 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
             f"{item.get('id')} ({item.get('ip')}): "
             f"{item.get('overall')} | storage={item.get('storage')} | "
             f"recording={item.get('recording')} | "
-            f"online={item.get('online')} | offline={item.get('offline')}"
+            f"online={item.get('online')} | offline={item.get('offline')} | "
+            f"evidence={item.get('recording_evidence', 0)} | "
+            f"no_recent={item.get('recording_missing', 0)}"
         )
 
     message = EmailMessage()
@@ -201,17 +215,8 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
                 smtp.send_message(message)
 
     except (OSError, smtplib.SMTPException, ssl.SSLError) as exc:
-        try:
-            smtp_debug = getattr(exc, "smtp_error", None)
-        except Exception:
-            smtp_debug = None
-
-        detail = f"{type(exc).__name__}: {exc}"
-
-        if smtp_debug:
-            detail += f" | SMTP detail: {smtp_debug!r}"
-
-        return False, f"FAILED: {detail}"
+        # Do not log SMTP server responses: they may echo credential material.
+        return False, f"FAILED: SMTP {type(exc).__name__}; check SMTP configuration and connectivity."
 
     return True, f"SENT to {len(recipients)} recipient(s)."
 
@@ -243,19 +248,34 @@ def main() -> int:
             str(nvr.http_port),
         ]
 
-        result = subprocess.run(
-            command,
-            cwd=ROOT,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        try:
+            result = subprocess.run(
+                command,
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=max(
+                    150,
+                    int(os.environ.get("NVR_RECORDING_MAX_NVR_SECONDS", "300")) + 120,
+                ),
+            )
+        except (subprocess.TimeoutExpired, ValueError):
+            execution_errors += 1
+            summary.append({"id": nvr.id, "ip": nvr.ip, "overall": "ERROR",
+                            "storage": "UNKNOWN", "recording": "NOT_REPORTED",
+                            "online": 0, "offline": 0})
+            print(f"Report process timed out for {nvr.id}.", file=sys.stderr)
+            continue
 
         if result.stdout:
             print(result.stdout, end="" if result.stdout.endswith("\n") else "\n")
 
         if result.stderr:
-            print(result.stderr, file=sys.stderr, end="")
+            # Child traceback or device diagnostics might contain secrets.
+            # Do not relay raw stderr into cron, Docker or email logs.
+            print(f"Reporter {nvr.id} returned diagnostics on stderr; "
+                  "check the saved report status.", file=sys.stderr)
 
         # A report can return exit code 1 because a device is WARNING
         # or CRITICAL. That is a health finding, not a runner failure.
@@ -312,6 +332,9 @@ def main() -> int:
             ),
             "online": channel_status.get("online_count", 0),
             "offline": channel_status.get("offline_count", 0),
+            "recording_evidence": report.get("per_camera_recording", {}).get("evidence", 0),
+            "recording_missing": report.get("per_camera_recording", {}).get("no_recent_evidence", 0),
+            "recording_errors": report.get("per_camera_recording", {}).get("search_errors", 0),
         })
 
     print("\n" + "=" * 100)
