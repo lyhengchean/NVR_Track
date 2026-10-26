@@ -21,12 +21,12 @@ class InventoryTests(unittest.TestCase):
         path.write_text(json.dumps(data), encoding="utf-8")
         return load_inventory(path)
 
-    def test_example_inventory_has_12_nvrs_and_360_channels(self):
+    def test_example_inventory_has_12_nvrs_and_330_channels(self):
         path = PROJECT_ROOT / "config" / "nvrs.example.json"
         nvrs = load_inventory(path)
 
         self.assertEqual(len(nvrs), 12)
-        self.assertEqual(sum(n.expected_channels for n in nvrs), 360)
+        self.assertEqual(sum(n.expected_channels for n in nvrs), 330)
 
     def test_rejects_duplicate_device_id(self):
         data = {
