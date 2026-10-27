@@ -183,6 +183,50 @@ class HistoricalTests(unittest.TestCase):
 
     @patch('app.camera_recording.get_clock')
     @patch('app.camera_recording.get_tracks')
+    def test_daily_rotation_does_not_forget_deferred_check_age(self, tracks, clock):
+        """With six offline channels and two/day, every camera gets a turn."""
+        tracks.return_value = {
+            "status": "VERIFIED", "tracks": {i * 100 + 1: None for i in range(1, 7)},
+        }
+        clock.return_value = (NOW, TZ)
+        previous = {}
+        examined = []
+        for day in range(3):
+            channels = [
+                {"channel_id": str(i), "reported_status": "OFFLINE"}
+                for i in range(1, 7)
+            ]
+            queried = []
+            def historical(**kwargs):
+                queried.append(kwargs["track_id"])
+                return no_match(**kwargs)
+            check_all_cameras(
+                ip="192.0.2.1", port=80, username="test", password="test",
+                channels=channels, enabled=True, search=no_match,
+                historical_enabled=True, historical_max_cameras=2,
+                historical_ttl_hours=12, historical_search=historical,
+                previous_history=previous,
+            )
+            examined.append(set(queried))
+            previous = {
+                c["channel_id"]: c["historical_recording_result"]
+                for c in channels
+            }
+            # Each subsequent cron run is 24h later: invalidate the *cache*
+            # while keeping the last actual attempt for scheduling fairness.
+            for result in previous.values():
+                if result.get("checked_at"):
+                    result["checked_at"] = (
+                        datetime.now(timezone.utc) - timedelta(days=day + 1)
+                    ).isoformat()
+            if day == 1:
+                self.assertEqual(previous["1"]["status"], NOT_CHECKED)
+                self.assertIsNone(previous["1"]["checked_at"])
+                self.assertIsNotNone(previous["1"]["last_attempted_at"])
+        self.assertEqual(examined, [{101, 201}, {301, 401}, {501, 601}])
+
+    @patch('app.camera_recording.get_clock')
+    @patch('app.camera_recording.get_tracks')
     def test_valid_historical_cache_does_not_consume_camera_budget(self, tracks, clock):
         tracks.return_value = {"status": "VERIFIED", "tracks": {101: None, 201: None}}
         clock.return_value = (NOW, TZ)

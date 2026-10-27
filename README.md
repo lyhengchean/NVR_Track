@@ -167,9 +167,14 @@ fleet automatically. At most two candidates per enabled NVR are selected by
 default each run; each receives up to seven sequential one-day ISAPI queries.
 A successful check can be reused from the latest saved report for up to 12
 hours, clearly labeled with its original timestamp. When the cache has expired,
-new historical searches prioritize cameras that were not checked in the
-previous report, then the oldest previous checks. This rotates the bounded
-search budget across cameras even when the report is scheduled every 24 hours.
+new historical searches prioritize cameras that have never received a check,
+then the oldest previous checks. If the per-report limit defers a previously
+checked camera, `last_attempted_at` preserves its most recent actual search
+across saved reports while `checked_at` remains `null` (no new request ran).
+This prevents old, expired cache entries from repeatedly taking slots ahead of
+cameras that have never been investigated during 24-hour reporting cycles.
+An inconclusive historical result is never treated as proof of missing footage;
+the next eligible scheduled check can retry it.
 The dashboard shows `Historical pending (no recent)` separately from the
 legacy `historical_unverified` API count: skipping history for a camera with
 recent evidence is an intentional optimization, not a monitoring error. Finding a segment stops
