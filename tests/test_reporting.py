@@ -29,6 +29,20 @@ class OverallStatusTests(unittest.TestCase):
         result = determine_overall_status(**inputs)
         self.assertEqual(result["status"], "CRITICAL")
 
+    def test_critical_storage_reason_does_not_claim_every_issue_is_disk_failure(self):
+        inputs = healthy_inputs()
+        inputs["storage_status"] = "CRITICAL"
+        result = determine_overall_status(**inputs)
+        self.assertEqual(result["status"], "CRITICAL")
+        self.assertTrue(any("expected disks missing" in item for item in result["critical_reasons"]))
+
+    def test_storage_warning_has_actionable_explanation(self):
+        inputs = healthy_inputs()
+        inputs["storage_status"] = "WARNING"
+        result = determine_overall_status(**inputs)
+        self.assertEqual(result["status"], "WARNING")
+        self.assertTrue(any("overwrite/quota" in item for item in result["warnings"]))
+
     def test_offline_channels_are_warning(self):
         inputs = healthy_inputs()
         inputs["offline_count"] = 3

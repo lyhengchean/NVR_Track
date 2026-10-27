@@ -170,7 +170,8 @@ def main() -> int:
         configured_nvr.ip, username, password, http_port
     )
     storage = get_storage_check(
-        configured_nvr.ip, username, password, http_port
+        configured_nvr.ip, username, password, http_port,
+        expected_sata_hdd_ids=configured_nvr.expected_sata_hdd_ids,
     )
 
     def integer_setting(name: str, default: int, lower: int, upper: int) -> int:

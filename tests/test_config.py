@@ -1,4 +1,4 @@
-﻿"""Unit tests for NVR inventory validation."""
+"""Unit tests for NVR inventory validation."""
 
 import json
 import tempfile
@@ -87,6 +87,22 @@ if __name__ == "__main__":
     unittest.main()
 
 class ExpectationTests(InventoryTests):
+    def test_expected_sata_disk_ids_are_optional_and_validated(self):
+        base = {"schema_version": 1, "nvrs": [{
+            "id": "nvr-01", "ip": "192.0.2.10", "expected_channels": 16,
+        }]}
+        self.assertEqual(self.load_test_data(base)[0].expected_sata_hdd_ids, ())
+        base["nvrs"][0]["expected_sata_hdd_ids"] = [1, 3, 6]
+        self.assertEqual(
+            self.load_test_data(base)[0].expected_sata_hdd_ids,
+            (1, 3, 6),
+        )
+        for invalid in ([1, 1], [True], [0], [-2], ["1"], 3, None):
+            with self.subTest(invalid=invalid):
+                base["nvrs"][0]["expected_sata_hdd_ids"] = invalid
+                with self.assertRaisesRegex(InventoryError, "expected_sata_hdd_ids"):
+                    self.load_test_data(base)
+
     def test_expectation_modes_are_validated(self):
         base = {"schema_version": 1, "nvrs": [{
             "id": "nvr-01", "ip": "192.0.2.10", "expected_channels": 16,

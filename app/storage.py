@@ -10,16 +10,13 @@ from requests.auth import HTTPDigestAuth
 from requests.exceptions import RequestException
 
 
+# Disk failures and absent slots need separate classification. "notexist" may
+# describe an unused bay; the installed SATA IDs must be confirmed separately.
 CRITICAL_DISK_STATES = {
-    "error",
-    "offline",
-    "smartfailed",
-    "unformatted",
-    "mismatch",
-    "notexist",
+    "error", "offline", "smartfailed", "unformatted", "mismatch",
 }
-
-NORMAL_DISK_STATES = {"ok", "normal"}
+ABSENT_DISK_STATES = {"notexist"}
+NORMAL_DISK_STATES = {"ok", "normal", "idle"}
 
 
 @dataclass(frozen=True)
@@ -142,79 +139,100 @@ def parse_hdd_list(content: bytes) -> tuple[HDDEntry, ...]:
 
     return tuple(disks)
 
-def classify_storage(disks: tuple[HDDEntry, ...]) -> tuple[str, str]:
-    """Classify storage conservatively: an unknown state is never healthy."""
+def classify_storage(
+    disks: tuple[HDDEntry, ...],
+    *,
+    expected_sata_hdd_ids: tuple[int, ...] = (),
+) -> tuple[str, str]:
+    """Classify read-only HDD evidence without confusing empty bays and failures.
 
+    The optional expected SATA IDs describe drives independently confirmed as
+    installed. Without that configuration, an undetected slot is a warning,
+    except when *no* usable disks at all are returned.
+    """
     if not disks:
         return "UNKNOWN", "No HDD entries were available."
 
-    errors = [
-        disk for disk in disks
-        if disk.status in CRITICAL_DISK_STATES
-    ]
+    failures = [disk for disk in disks if disk.status in CRITICAL_DISK_STATES]
+    if failures:
+        details = ", ".join(f"{disk.id} ({disk.status})" for disk in failures)
+        return "CRITICAL", f"NVR reports abnormal HDD states: {details}."
 
-    if errors:
-        ids = ", ".join(disk.id for disk in errors)
+    # The ISAPI list may mix SATA and virtual disk IDs. Expectations refer to
+    # physical SATA IDs only, not similarly numbered virtual/logical disks.
+    sata_by_id: dict[int, list[HDDEntry]] = {}
+    for disk in disks:
+        if disk.disk_type.strip().lower() != "sata":
+            continue
+        numeric_id = disk.id.split(" (", 1)[0]
+        if numeric_id.isdecimal():
+            sata_by_id.setdefault(int(numeric_id), []).append(disk)
+
+    absent_expected = [
+        disk_id for disk_id in expected_sata_hdd_ids
+        if disk_id not in sata_by_id
+        or all(entry.status in ABSENT_DISK_STATES for entry in sata_by_id[disk_id])
+    ]
+    if absent_expected:
         return (
             "CRITICAL",
-            f"NVR reports disk errors or unavailable states for HDD IDs: {ids}.",
+            "Expected installed SATA HDD IDs are missing or not detected: "
+            + ", ".join(str(disk_id) for disk_id in absent_expected) + ".",
         )
 
-    uncertain = [
+    unrecognized = [
         disk for disk in disks
-        if disk.status not in NORMAL_DISK_STATES
+        if disk.status not in (NORMAL_DISK_STATES | ABSENT_DISK_STATES)
     ]
+    if unrecognized:
+        ids = ", ".join(disk.id for disk in unrecognized)
+        return "UNKNOWN", f"Unrecognized or transitional HDD states require review: {ids}."
 
-    if uncertain:
-        ids = ", ".join(disk.id for disk in uncertain)
+    available = [disk for disk in disks if disk.status in NORMAL_DISK_STATES]
+    absent = [disk for disk in disks if disk.status in ABSENT_DISK_STATES]
+    if not available:
         return (
-            "UNKNOWN",
-            f"Unrecognized or non-normal HDD states require review: {ids}.",
+            "CRITICAL",
+            "No detected operational HDDs were returned; verify the storage inventory.",
         )
 
     incomplete = [
-        disk for disk in disks
+        disk for disk in available
         if disk.capacity_mb is None or disk.free_space_mb is None
     ]
-
     if incomplete:
         ids = ", ".join(disk.id for disk in incomplete)
-        return (
-            "UNKNOWN",
-            f"Capacity or free-space information is missing for HDD IDs: {ids}.",
-        )
+        return "UNKNOWN", f"Capacity or free-space information is missing for HDD IDs: {ids}."
 
-    inconsistent = [disk for disk in disks if disk.free_space_mb > disk.capacity_mb]
+    inconsistent = [disk for disk in available if disk.free_space_mb > disk.capacity_mb]
     if inconsistent:
         ids = ", ".join(disk.id for disk in inconsistent)
         return "UNKNOWN", f"Reported free capacity exceeds total capacity for HDD IDs: {ids}."
 
-    writable_disks = [
-        disk for disk in disks
-        if disk.property.strip().upper() == "RW"
+    writable = [
+        disk for disk in available if disk.property.strip().upper() == "RW"
     ]
+    if not writable:
+        return "UNKNOWN", "No detected writable HDD or logical storage volumes were reported."
 
-    if not writable_disks:
-        return (
-            "UNKNOWN",
-            "No writable HDD or logical storage volumes were reported.",
+    findings = []
+    if absent:
+        ids = ", ".join(disk.id for disk in absent)
+        findings.append(
+            f"HDD slots reported not detected ({ids}); confirm whether drives are expected"
         )
-    
-    no_free_space = [
-        disk for disk in disks
-        if disk.property.strip().upper() == "RW"
-        and disk.free_space_mb is not None
-        and disk.free_space_mb <= 0
-    ]
 
+    no_free_space = [disk for disk in writable if disk.free_space_mb <= 0]
     if no_free_space:
         ids = ", ".join(disk.id for disk in no_free_space)
-        return (
-            "WARNING",
-            f"NVR reports zero free space for HDD IDs: {ids}; verify quota and overwrite settings.",
+        findings.append(
+            f"Zero free space on writable HDD IDs: {ids}; verify overwrite and quota policy"
         )
 
-    return "HEALTHY", "All reported HDDs appear normal and have free space."
+    if findings:
+        return "WARNING", "; ".join(findings) + "."
+
+    return "HEALTHY", "All detected HDDs have normal/idle states and writable free space."
 
 
 def get_storage_check(
@@ -222,6 +240,8 @@ def get_storage_check(
     username: str,
     password: str,
     port: int = 80,
+    *,
+    expected_sata_hdd_ids: tuple[int, ...] = (),
 ) -> StorageCheck:
     """Retrieve HDD state via GET; never changes storage configuration."""
 
@@ -269,7 +289,9 @@ def get_storage_check(
                 )
 
             disks = parse_hdd_list(response.content)
-            status, message = classify_storage(disks)
+            status, message = classify_storage(
+                disks, expected_sata_hdd_ids=expected_sata_hdd_ids,
+            )
 
             return StorageCheck(
                 status=status,
