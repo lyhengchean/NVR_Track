@@ -329,26 +329,35 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
                 continue
         ch["historical_recording_result"] = historic
 
-    def historical_priority(candidate: tuple) -> tuple[int, float]:
-        """Never/recently-unchecked candidates before older expired checks.
+    def previous_attempt_at(previous: object) -> str | None:
+        """Retain the last *actual* search time through deferred reports.
 
-        Cron may run less often than the historical cache TTL. Always
-        choosing channel order would otherwise recheck the same first few
-        channels indefinitely and starve cameras later in the inventory.
+        The cache can expire between daily runs. A deferred camera must not
+        lose its prior check age and subsequently outrank never-checked ones.
         """
-        old = candidate[3]
-        if not isinstance(old, dict):
+        if not isinstance(previous, dict):
+            return None
+        for field in ("checked_at", "last_attempted_at"):
+            value = previous.get(field)
+            if not isinstance(value, str):
+                continue
+            try:
+                checked = datetime.fromisoformat(value)
+                if checked.tzinfo is not None:
+                    return checked.astimezone(timezone.utc).isoformat()
+            except (ValueError, OverflowError):
+                continue
+        return None
+
+    def historical_priority(candidate: tuple) -> tuple[int, float]:
+        """Search never-checked cameras before those with an older attempt."""
+        last_attempt = previous_attempt_at(candidate[3])
+        if last_attempt is None:
             return (0, 0.0)
-        try:
-            checked = datetime.fromisoformat(old["checked_at"])
-            if checked.tzinfo is not None:
-                return (1, checked.timestamp())  # Oldest successful/attempted check first.
-        except (KeyError, ValueError, TypeError, OverflowError):
-            pass
-        return (0, 0.0)
+        return (1, datetime.fromisoformat(last_attempt).timestamp())
 
     history_checked = 0
-    for ch, track_id, device_now, _ in sorted(pending_history, key=historical_priority):
+    for ch, track_id, device_now, old in sorted(pending_history, key=historical_priority):
         if history_checked >= historical_max_cameras:
             historic = empty_result(HIST_NOT_CHECKED, "Historical per-report camera limit reached.", track_id)
         elif time.monotonic() >= history_budget:
@@ -362,6 +371,10 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
                 max_results=max_results, deadline=history_budget,
                 search=historical_search,
             )
+        if historic["status"] == HIST_NOT_CHECKED:
+            # `checked_at` remains None: no new request was made. This separate
+            # field preserves fair ordering on subsequent 24-hour cron runs.
+            historic["last_attempted_at"] = previous_attempt_at(old)
         ch["historical_recording_result"] = historic
     summary = summarize(channels, True, minutes, mapping)
     summary["historical"] = summarize_history(channels, historical_enabled)
