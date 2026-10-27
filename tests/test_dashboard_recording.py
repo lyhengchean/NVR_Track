@@ -150,3 +150,36 @@ class HistoricalDashboardTests(unittest.TestCase):
             "channel_inventory": {"channels": [{"channel_id": "1"}]}
         }, Path("nvr-01_old.json"))["channels"][0]
         self.assertEqual(row["historical_recording_result"]["status"], "HISTORICAL_NOT_CHECKED")
+
+class HistoricalBacklogDashboardTests(unittest.TestCase):
+    def test_intentional_skip_is_not_displayed_as_pending_offline_search(self):
+        rows = [
+            {"channel_id": "1", "reported_status": "ONLINE",
+             "recording_result": {"status": "RECORDING"},
+             "historical_recording_result": {"status": "HISTORICAL_NOT_CHECKED"}},
+            {"channel_id": "2", "reported_status": "OFFLINE",
+             "recording_result": {"status": "NO_RECENT_RECORDING_EVIDENCE"},
+             "historical_recording_result": {"status": "HISTORICAL_NOT_CHECKED"}},
+            {"channel_id": "3", "reported_status": "OFFLINE",
+             "recording_result": {"status": "NO_RECENT_RECORDING_EVIDENCE"},
+             "historical_recording_result": {"status": "NO_HISTORICAL_EVIDENCE_IN_WINDOW"}},
+            {"channel_id": "4", "reported_status": "OFFLINE",
+             "recording_result": {"status": "NO_RECENT_RECORDING_EVIDENCE"},
+             "historical_recording_result": {"status": "HISTORICAL_CHECK_INCONCLUSIVE"}},
+        ]
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "nvr-01_test.json"
+            path.write_text(json.dumps({
+                "nvr": {"id": "nvr-01"},
+                "check_completed_at": "2026-10-27T09:46:00+07:00",
+                "channel_inventory": {"channels": rows},
+            }), encoding="utf-8")
+            with patch.object(dashboard, "REPORTS_DIR", Path(temp)):
+                summary = dashboard.read_dashboard_data()["summary"]
+        self.assertEqual(summary["historical_skipped_recent"], 1)
+        self.assertEqual(summary["historical_pending_no_recent"], 1)
+        self.assertEqual(summary["historical_no_evidence"], 1)
+        self.assertEqual(summary["historical_inconclusive"], 1)
+        # Keep the original count for older API consumers.
+        self.assertEqual(summary["historical_unverified"], 3)
+        self.assertIn('Historical pending (no recent)', dashboard.HTML)

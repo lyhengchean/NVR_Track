@@ -308,6 +308,21 @@ def read_dashboard_data() -> dict:
         "historical_no_evidence": historical_statuses.count("NO_HISTORICAL_EVIDENCE_IN_WINDOW"),
         "historical_unverified": sum(s not in {"HISTORICAL_RECORDING_FOUND", "NO_HISTORICAL_EVIDENCE_IN_WINDOW"} for s in historical_statuses),
         "historical_errors": historical_statuses.count("HISTORICAL_CHECK_ERROR"),
+        # A deferred historical search is not a failed search. Expose the
+        # operational backlog separately from the legacy aggregate field.
+        "historical_pending_no_recent": sum(
+            ch["recording_result"]["status"] == "NO_RECENT_RECORDING_EVIDENCE"
+            and ch["historical_recording_result"]["status"] in {
+                "HISTORICAL_NOT_CHECKED", "HISTORICAL_NOT_CONFIGURED",
+            }
+            for ch in all_channels
+        ),
+        "historical_inconclusive": historical_statuses.count("HISTORICAL_CHECK_INCONCLUSIVE"),
+        "historical_skipped_recent": sum(
+            ch["recording_result"]["status"] in EVIDENCE_STATUSES
+            and ch["historical_recording_result"]["status"] == "HISTORICAL_NOT_CHECKED"
+            for ch in all_channels
+        ),
         "stale_reports": sum(
             not nvr["last_check"] or not _is_fresh(nvr["last_check"]) for nvr in nvrs
         ),

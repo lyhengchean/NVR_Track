@@ -166,7 +166,13 @@ OFFLINE cameras with verified tracks, and do not scan the full 330-camera
 fleet automatically. At most two candidates per enabled NVR are selected by
 default each run; each receives up to seven sequential one-day ISAPI queries.
 A successful check can be reused from the latest saved report for up to 12
-hours, clearly labeled with its original timestamp. Finding a segment stops
+hours, clearly labeled with its original timestamp. When the cache has expired,
+new historical searches prioritize cameras that were not checked in the
+previous report, then the oldest previous checks. This rotates the bounded
+search budget across cameras even when the report is scheduled every 24 hours.
+The dashboard shows `Historical pending (no recent)` separately from the
+legacy `historical_unverified` API count: skipping history for a camera with
+recent evidence is an intentional optimization, not a monitoring error. Finding a segment stops
 the search; therefore `search_complete=false` means *not all older intervals
 were searched*, not that the found recording is unverified. No-result status
 requires completion of every interval. Queries never modify recordings.
@@ -305,10 +311,11 @@ succeeds. No emails are sent by the unit tests.
 Before pulling, inspect `git status --short --branch`, `git log -5 --oneline`,
 `git diff --stat`, and confirm `.env` has permissions `600` with
 `stat -c '%a %n' .env`. If the Ubuntu tree has local edits, review and back
-them up before merging anything. From VS Code on Windows, first use
-`git apply --check --ignore-space-change NVR_Track_updates.patch`, inspect
-the patch, apply it with `git apply --ignore-space-change NVR_Track_updates.patch`,
-run tests, then commit on your own review branch before pushing.
+them up before merging anything. In Windows VS Code, create a review branch,
+copy only the reviewed CREATE/UPDATE files while preserving folder paths,
+run unit tests and `git diff --check`, then commit and push the branch.
+Review and merge on GitHub before using `git pull --ff-only` on Ubuntu.
+Never replace the private `.env`, inventory, or reports from a file package.
 
 After Ubuntu `git pull --ff-only`, build only the shared NVR application image:
 
