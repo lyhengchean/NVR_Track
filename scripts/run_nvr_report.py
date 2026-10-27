@@ -30,6 +30,25 @@ def now_local() -> datetime:
     return datetime.now(TIMEZONE)
 
 
+def read_previous_history(report_dir: Path, nvr_id: str) -> dict:
+    """Reuse results from the newest saved report without touching old snapshots."""
+    candidates = sorted(report_dir.glob(f"{nvr_id}_*.json"), reverse=True)
+    for path in candidates:
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                report = json.load(handle)
+            if report.get("nvr", {}).get("id") != nvr_id:
+                continue
+            return {
+                str(ch.get("channel_id")): ch.get("historical_recording_result")
+                for ch in report.get("channel_inventory", {}).get("channels", [])
+                if isinstance(ch, dict)
+            }
+        except (OSError, ValueError, AttributeError, TypeError):
+            continue
+    return {}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Generate one NVR's JSON monitoring snapshot."
@@ -224,6 +243,9 @@ def main() -> int:
             "camera_ip": channel.camera_ip,
             "management_port": channel.management_port,
             "reported_status": state,
+            "recording_expectation": configured_nvr.recording_expectations.get(
+                str(channel.channel_id), "unspecified"
+            ),
         })
 
     online_count = sum(
@@ -248,6 +270,11 @@ def main() -> int:
         channels=channel_rows, enabled=configured_nvr.id.lower() in allowed,
         minutes=window_minutes, max_results=max_results,
         budget_seconds=time_budget,
+        historical_enabled=os.environ.get("NVR_HISTORICAL_ENABLED", "true").lower() == "true",
+        historical_days=integer_setting("NVR_HISTORICAL_LOOKBACK_DAYS", 7, 1, 7),
+        historical_max_cameras=integer_setting("NVR_HISTORICAL_MAX_CAMERAS_PER_RUN", 2, 0, 32),
+        historical_ttl_hours=integer_setting("NVR_HISTORICAL_CACHE_HOURS", 12, 1, 72),
+        previous_history=read_previous_history(report_dir, configured_nvr.id),
     )
 
     overall = determine_overall_status(

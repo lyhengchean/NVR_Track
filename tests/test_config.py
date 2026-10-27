@@ -85,3 +85,14 @@ class InventoryTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ExpectationTests(InventoryTests):
+    def test_expectation_modes_are_validated(self):
+        base = {"schema_version": 1, "nvrs": [{
+            "id": "nvr-01", "ip": "192.0.2.10", "expected_channels": 16,
+            "recording_expectations": {"12": "continuous", "13": "event"},
+        }]}
+        self.assertEqual(self.load_test_data(base)[0].recording_expectations["12"], "continuous")
+        base["nvrs"][0]["recording_expectations"]["13"] = "always"
+        with self.assertRaisesRegex(InventoryError, "recording_expectations"):
+            self.load_test_data(base)

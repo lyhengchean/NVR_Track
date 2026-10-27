@@ -2,7 +2,7 @@
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from ipaddress import ip_address
 from pathlib import Path
 
@@ -19,6 +19,7 @@ class NVRConfig:
     http_port: int = 80
     server_port: int | None = None
     recording_track_id: int | None = None
+    recording_expectations: dict[str, str] = field(default_factory=dict)
 
 
 def load_inventory(path: str | Path) -> list[NVRConfig]:
@@ -128,6 +129,16 @@ def load_inventory(path: str | Path) -> list[NVRConfig]:
                 f"{label}: recording_track_id must be a positive integer."
             )
 
+        expectations = entry.get("recording_expectations", {})
+        if not isinstance(expectations, dict) or any(
+            not isinstance(k, str) or not k.isdecimal() or int(k) <= 0
+            or not isinstance(v, str) or v not in {"continuous", "event", "unspecified"}
+            for k, v in expectations.items()
+        ):
+            raise InventoryError(
+                f"{label}: recording_expectations must map channel IDs to continuous, event or unspecified."
+            )
+
         seen_ids.add(device_id)
         seen_ips.add(normalized_ip)
 
@@ -139,6 +150,7 @@ def load_inventory(path: str | Path) -> list[NVRConfig]:
                 http_port=http_port,
                 server_port=server_port,
                 recording_track_id=recording_track_id,
+                recording_expectations=expectations,
             )
         )
 

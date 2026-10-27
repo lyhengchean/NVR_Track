@@ -245,8 +245,15 @@ def check_recording_evidence(
     minutes: int = 60,
     max_results: int = 10,
     clock_snapshot: tuple[datetime, tzinfo] | None = None,
+    *,
+    window_start_utc: datetime | None = None,
+    window_end_utc: datetime | None = None,
 ) -> dict:
-    """Search a recent time window and classify the result conservatively."""
+    """Search a bounded read-only interval; defaults to the recent window.
+
+    Explicit intervals enable historical searches without changing the verified
+    legacy request format or the NVR-local timestamp interpretation.
+    """
     try:
         address = ip_address(ip)
 
@@ -264,6 +271,14 @@ def check_recording_evidence(
 
         if isinstance(max_results, bool) or not 1 <= max_results <= 64:
             raise ValueError("Maximum results must be between 1 and 64.")
+
+        if (window_start_utc is None) != (window_end_utc is None):
+            raise ValueError("Both historical window boundaries are required.")
+        if window_start_utc is not None:
+            if (window_start_utc.tzinfo is None or window_end_utc.tzinfo is None
+                    or window_start_utc >= window_end_utc
+                    or window_end_utc - window_start_utc > timedelta(days=1)):
+                raise ValueError("Search interval must be aware, ordered, and at most one day.")
 
     except ValueError:
         return _result(
@@ -347,8 +362,10 @@ def check_recording_evidence(
                     )
                 nvr_now = nvr_now.astimezone(timezone.utc)
 
-            end_utc = nvr_now.replace(microsecond=0)
-            start_utc = end_utc - timedelta(minutes=minutes)
+            end_utc = (window_end_utc.astimezone(timezone.utc)
+                       if window_end_utc is not None else nvr_now.replace(microsecond=0))
+            start_utc = (window_start_utc.astimezone(timezone.utc)
+                         if window_start_utc is not None else end_utc - timedelta(minutes=minutes))
 
             payload = make_search_xml(
                 track_id,

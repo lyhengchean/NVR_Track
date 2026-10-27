@@ -53,6 +53,30 @@ class OverallStatusTests(unittest.TestCase):
         result = determine_overall_status(**inputs)
         self.assertEqual(result["status"], "WARNING")
 
+    def test_event_recording_gap_is_not_automatically_a_failure(self):
+        inputs = healthy_inputs()
+        inputs["recording_status"] = "NO_MATCHES_IN_WINDOW"
+        inputs["per_camera_summary"] = {
+            "enabled": True, "no_recent_evidence": 1,
+            "missing_expected": 0, "online_missing_expected": 0,
+            "search_errors": 0, "inconclusive": 0,
+            "track_mapping_problems": 0, "not_checked": 0,
+        }
+        result = determine_overall_status(**inputs)
+        self.assertEqual(result["status"], "HEALTHY")
+
+    def test_online_continuous_recording_gap_triggers_warning(self):
+        inputs = healthy_inputs()
+        inputs["per_camera_summary"] = {
+            "enabled": True, "no_recent_evidence": 1,
+            "missing_expected": 1, "online_missing_expected": 1,
+            "search_errors": 0, "inconclusive": 0,
+            "track_mapping_problems": 0, "not_checked": 0,
+        }
+        result = determine_overall_status(**inputs)
+        self.assertEqual(result["status"], "WARNING")
+        self.assertTrue(any("ONLINE" in text for text in result["warnings"]))
+
 
 if __name__ == "__main__":
     unittest.main()

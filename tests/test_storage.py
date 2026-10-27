@@ -74,6 +74,12 @@ class StorageTests(unittest.TestCase):
 
         self.assertEqual(status, "UNKNOWN")
 
+    def test_impossible_free_space_is_unverified(self):
+        disks = parse_hdd_list(hdd_list(("1", "ok", "999999999")))
+        status, message = classify_storage(disks)
+        self.assertEqual(status, "UNKNOWN")
+        self.assertIn("exceeds", message)
+
     def test_duplicate_hdd_ids_are_rejected(self):
         content = hdd_list(("2", "ok", "100"), ("2", "ok", "100"))
 
