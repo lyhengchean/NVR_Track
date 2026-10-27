@@ -136,6 +136,74 @@ class HistoricalTests(unittest.TestCase):
         self.assertEqual(len(history_calls), 7)
         self.assertEqual({c["track_id"] for c in history_calls}, {101})
 
+    @patch('app.camera_recording.get_clock')
+    @patch('app.camera_recording.get_tracks')
+    def test_daily_reporting_rotates_unchecked_historical_candidates(self, tracks, clock):
+        """Expired 12-hour caches must not starve later channels at 08:00."""
+        tracks.return_value = {
+            "status": "VERIFIED", "tracks": {101: None, 201: None, 301: None, 401: None},
+        }
+        clock.return_value = (NOW, TZ)
+        def run(previous=None):
+            channels = [
+                {"channel_id": str(i), "reported_status": "OFFLINE",
+                 "recording_expectation": "unspecified"}
+                for i in range(1, 5)
+            ]
+            calls = []
+            def historical(**kwargs):
+                calls.append(kwargs["track_id"])
+                return no_match(**kwargs)
+            check_all_cameras(
+                ip="192.0.2.1", port=80, username="test", password="test",
+                channels=channels, enabled=True, search=no_match,
+                historical_enabled=True, historical_max_cameras=2,
+                historical_ttl_hours=12, historical_search=historical,
+                previous_history=previous,
+            )
+            return channels, calls
+
+        first, calls = run()
+        self.assertEqual(set(calls), {101, 201})
+        previous = {c["channel_id"]: c["historical_recording_result"] for c in first}
+        for i in ("1", "2"):
+            # Simulate an 08:00 report from the previous day.
+            previous[i]["checked_at"] = (
+                datetime.now(timezone.utc) - timedelta(hours=24)
+            ).isoformat()
+        second, calls = run(previous)
+        self.assertEqual(set(calls), {301, 401})
+        self.assertEqual(second[0]["historical_recording_result"]["status"], NOT_CHECKED)
+        self.assertEqual(second[2]["historical_recording_result"]["status"], ABSENT)
+
+        third_previous = {c["channel_id"]: c["historical_recording_result"] for c in second}
+        third, calls = run(third_previous)
+        self.assertEqual(set(calls), {101, 201})
+        self.assertTrue(third[2]["historical_recording_result"]["from_cache"])
+
+    @patch('app.camera_recording.get_clock')
+    @patch('app.camera_recording.get_tracks')
+    def test_valid_historical_cache_does_not_consume_camera_budget(self, tracks, clock):
+        tracks.return_value = {"status": "VERIFIED", "tracks": {101: None, 201: None}}
+        clock.return_value = (NOW, TZ)
+        previous = {
+            "1": {"status": ABSENT, "track_id": 101,
+                  "checked_at": datetime.now(timezone.utc).isoformat(),
+                  "search_complete": True},
+        }
+        calls = []
+        channels = [{"channel_id": str(i), "reported_status": "OFFLINE"} for i in (1, 2)]
+        check_all_cameras(
+            ip="192.0.2.1", port=80, username="test", password="test",
+            channels=channels, enabled=True, search=no_match,
+            historical_enabled=True, historical_max_cameras=1,
+            historical_search=lambda **kwargs: (calls.append(kwargs["track_id"]) or no_match(**kwargs)),
+            previous_history=previous,
+        )
+        self.assertEqual(set(calls), {201})
+        self.assertTrue(channels[0]["historical_recording_result"]["from_cache"])
+        self.assertEqual(channels[1]["historical_recording_result"]["status"], ABSENT)
+
     def test_explicit_search_windows_reject_invalid_inputs_without_request(self):
         result = check_recording_evidence(
             ip="192.0.2.1", username="test", password="test",

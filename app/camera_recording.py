@@ -303,8 +303,10 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
                 )
                 ch["recording_result"]["track_verified"] = True
     history_budget = time.monotonic() + max(0, budget_seconds - (time.monotonic() - started))
-    history_checked = 0
     previous_history = previous_history or {}
+    pending_history = []
+    # First retain valid cached results and handle ineligible cameras. Defer
+    # new searches until we can prioritize cameras across the entire NVR.
     for ch in channels:
         recent = ch["recording_result"]
         track_id = recent.get("track_id") if recent.get("track_verified") else None
@@ -322,19 +324,44 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
             )
             if historic is None and recent["status"] != "NO_RECENT_RECORDING_EVIDENCE":
                 historic = empty_result(HIST_NOT_CHECKED, "Historical searches prioritize cameras lacking recent recording evidence.", track_id)
-            elif historic is None and history_checked >= historical_max_cameras:
-                historic = empty_result(HIST_NOT_CHECKED, "Historical per-report camera limit reached.", track_id)
-            elif historic is None and time.monotonic() >= history_budget:
-                historic = empty_result(HIST_NOT_CHECKED, "NVR recording-search time budget exhausted.", track_id)
             elif historic is None:
-                history_checked += 1
-                historic = search_history(
-                    ip=ip, port=port, username=username, password=password,
-                    track_id=track_id, clock_snapshot=(device_now, clock[1]),
-                    recent_minutes=minutes, lookback_days=historical_days,
-                    max_results=max_results, deadline=history_budget,
-                    search=historical_search,
-                )
+                pending_history.append((ch, track_id, device_now, old))
+                continue
+        ch["historical_recording_result"] = historic
+
+    def historical_priority(candidate: tuple) -> tuple[int, float]:
+        """Never/recently-unchecked candidates before older expired checks.
+
+        Cron may run less often than the historical cache TTL. Always
+        choosing channel order would otherwise recheck the same first few
+        channels indefinitely and starve cameras later in the inventory.
+        """
+        old = candidate[3]
+        if not isinstance(old, dict):
+            return (0, 0.0)
+        try:
+            checked = datetime.fromisoformat(old["checked_at"])
+            if checked.tzinfo is not None:
+                return (1, checked.timestamp())  # Oldest successful/attempted check first.
+        except (KeyError, ValueError, TypeError, OverflowError):
+            pass
+        return (0, 0.0)
+
+    history_checked = 0
+    for ch, track_id, device_now, _ in sorted(pending_history, key=historical_priority):
+        if history_checked >= historical_max_cameras:
+            historic = empty_result(HIST_NOT_CHECKED, "Historical per-report camera limit reached.", track_id)
+        elif time.monotonic() >= history_budget:
+            historic = empty_result(HIST_NOT_CHECKED, "NVR recording-search time budget exhausted.", track_id)
+        else:
+            history_checked += 1
+            historic = search_history(
+                ip=ip, port=port, username=username, password=password,
+                track_id=track_id, clock_snapshot=(device_now, clock[1]),
+                recent_minutes=minutes, lookback_days=historical_days,
+                max_results=max_results, deadline=history_budget,
+                search=historical_search,
+            )
         ch["historical_recording_result"] = historic
     summary = summarize(channels, True, minutes, mapping)
     summary["historical"] = summarize_history(channels, historical_enabled)
