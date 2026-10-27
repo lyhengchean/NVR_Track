@@ -64,29 +64,35 @@ def determine_overall_status(
     elif storage_status not in {"HEALTHY", "CRITICAL", "WARNING"}:
         unknown.append(f"Storage status not verified: {storage_status}.")
 
-    if recording_status == "RECORDING_EVIDENCE_FOUND":
-        pass
-    elif recording_status == "RECORDING_EVIDENCE_FOUND_WITH_TIME_ANOMALY":
-        warnings.append(
-            "Recording evidence was found, but segment time boundaries need verification."
-        )
-    elif recording_status == "NO_MATCHES_IN_WINDOW":
-        warnings.append(
-            "No recording matches were returned for the tested window; verify the schedule."
-        )
-    else:
-        unknown.append(
-            f"Recording check is not verified: {recording_status}."
-        )
+    # The old NVR-wide probe verifies just one track. When independent camera
+    # checks are enabled, it must not override their more precise assessment.
+    if not (per_camera_summary and per_camera_summary.get("enabled")):
+        if recording_status == "RECORDING_EVIDENCE_FOUND":
+            pass
+        elif recording_status == "RECORDING_EVIDENCE_FOUND_WITH_TIME_ANOMALY":
+            warnings.append(
+                "Recording evidence was found, but segment time boundaries need verification."
+            )
+        elif recording_status == "NO_MATCHES_IN_WINDOW":
+            warnings.append(
+                "No recording matches were returned for the tested window; verify the schedule."
+            )
+        else:
+            unknown.append(
+                f"Recording check is not verified: {recording_status}."
+            )
 
     if per_camera_summary and per_camera_summary.get("enabled"):
-        missing = per_camera_summary.get("no_recent_evidence", 0)
+        missing = per_camera_summary.get("missing_expected", 0)
+        online_missing = per_camera_summary.get("online_missing_expected", 0)
         errors = per_camera_summary.get("search_errors", 0)
         ambiguous = (per_camera_summary.get("inconclusive", 0)
                      + per_camera_summary.get("track_mapping_problems", 0)
                      + per_camera_summary.get("not_checked", 0))
         if missing:
-            warnings.append(f"{missing} cameras have no recording evidence in the configured window.")
+            warnings.append(f"{missing} continuous-recording cameras have no evidence in the configured window.")
+        if online_missing:
+            warnings.append(f"{online_missing} ONLINE cameras are missing expected continuous recording evidence.")
         if errors:
             unknown.append(f"{errors} per-camera recording searches failed.")
         if ambiguous:

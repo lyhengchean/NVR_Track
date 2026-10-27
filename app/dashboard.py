@@ -54,6 +54,11 @@ UNVERIFIED_STATUSES = {
     "TRACK_NOT_FOUND", "TRACK_MAPPING_UNVERIFIED", "CHECK_INCONCLUSIVE",
     "CHECK_ERROR", "NOT_CHECKED", "NOT_CONFIGURED",
 }
+HISTORICAL_STATUSES = {
+    "HISTORICAL_RECORDING_FOUND", "NO_HISTORICAL_EVIDENCE_IN_WINDOW",
+    "HISTORICAL_CHECK_INCONCLUSIVE", "HISTORICAL_CHECK_ERROR",
+    "HISTORICAL_NOT_CHECKED", "HISTORICAL_NOT_CONFIGURED",
+}
 
 
 def _public_recording(value: object) -> dict:
@@ -66,6 +71,7 @@ def _public_recording(value: object) -> dict:
         "SKIPPED_CAMERA_OFFLINE": "NOT_CHECKED",
         "NOT_CHECKED_TRACK_ID_NOT_CONFIGURED": "NOT_CONFIGURED",
     }
+
     raw = str(recording.get("status") or "NOT_CHECKED")
     status = legacy.get(raw, raw)
     if status not in (EVIDENCE_STATUSES | UNVERIFIED_STATUSES | {"NO_RECENT_RECORDING_EVIDENCE"}):
@@ -89,6 +95,33 @@ def _public_recording(value: object) -> dict:
     }
 
 
+def _public_historical(value: object) -> dict:
+    """Expose a small, trusted historical schema; legacy reports stay unverified."""
+    raw = _as_dict(value)
+    status = raw.get("status", "HISTORICAL_NOT_CHECKED")
+    if not isinstance(status, str) or status not in HISTORICAL_STATUSES:
+        status = "HISTORICAL_CHECK_INCONCLUSIVE"
+    window = _as_dict(raw.get("requested_window_utc"))
+    intervals = raw.get("intervals_examined")
+    if not isinstance(intervals, list):
+        intervals = []
+    return {
+        "status": status,
+        "message": str(raw.get("message") or "Historical check not included in this report.")[:500],
+        "track_id": raw.get("track_id"),
+        "checked_at": raw.get("checked_at"),
+        "num_matches": raw.get("num_matches"),
+        "most_recent_segment_end": raw.get("most_recent_segment_end"),
+        "most_recent_segment_start": raw.get("most_recent_segment_start"),
+        "search_complete": raw.get("search_complete") is True,
+        "from_cache": raw.get("from_cache") is True,
+        "requested_window_utc": {"start": window.get("start"), "end": window.get("end")},
+        "intervals_examined": [{
+            "start": _as_dict(i).get("start"), "end": _as_dict(i).get("end"),
+            "status": str(_as_dict(i).get("status", ""))[:80],
+        } for i in intervals[:8]],
+    }
+
 def _public_camera_summary(value: object) -> dict:
     """Whitelist summary metadata; keep credentials and arbitrary JSON out of the API."""
     raw = _as_dict(value)
@@ -96,6 +129,9 @@ def _public_camera_summary(value: object) -> dict:
         "enabled": raw.get("enabled") is True,
         "window_minutes": _safe_count(raw.get("window_minutes")),
         "track_mapping_status": str(raw.get("track_mapping_status") or "UNVERIFIED")[:80],
+        "nvr_clock_offset_seconds_approx": raw.get("nvr_clock_offset_seconds_approx")
+        if type(raw.get("nvr_clock_offset_seconds_approx")) is int
+        and -86400 <= raw["nvr_clock_offset_seconds_approx"] <= 86400 else None,
     }
 
 
@@ -127,6 +163,13 @@ def _public_report(report: dict, path: Path) -> dict:
                 "camera_ip": str(channel.get("camera_ip", "")),
                 "management_port": channel.get("management_port"),
                 "recording_result": _public_recording(per_camera),
+                "historical_recording_result": _public_historical(
+                    channel.get("historical_recording_result")
+                ),
+                "recording_expectation": (channel.get("recording_expectation")
+                                          if isinstance(channel.get("recording_expectation"), str)
+                                          and channel.get("recording_expectation") in {"continuous", "event", "unspecified"}
+                                          else "unspecified"),
                 "reported_status": str(
                     channel.get("reported_status", "UNKNOWN")
                 ),
@@ -189,6 +232,15 @@ def _public_report(report: dict, path: Path) -> dict:
     }
 
 
+def _is_fresh(timestamp: str) -> bool:
+    try:
+        checked = datetime.fromisoformat(timestamp)
+        age = datetime.now(timezone.utc) - checked.astimezone(timezone.utc)
+        return checked.tzinfo is not None and 0 <= age.total_seconds() < 26 * 3600
+    except (ValueError, TypeError):
+        return False
+
+
 def read_dashboard_data() -> dict:
     """Read the newest JSON report for each NVR."""
     latest: dict[str, tuple[int, dict, Path]] = {}
@@ -233,6 +285,7 @@ def read_dashboard_data() -> dict:
 
     all_channels = [ch for nvr in nvrs for ch in nvr["channels"]]
     rec_statuses = [ch["recording_result"]["status"] for ch in all_channels]
+    historical_statuses = [ch["historical_recording_result"]["status"] for ch in all_channels]
     summary = {
         "total_nvrs": len(nvrs),
         "healthy": sum(nvr["overall_status"] == "HEALTHY" for nvr in nvrs),
@@ -246,8 +299,26 @@ def read_dashboard_data() -> dict:
         "recording_unverified": sum(s in UNVERIFIED_STATUSES for s in rec_statuses),
         "recording_errors": rec_statuses.count("CHECK_ERROR"),
         "recording_not_checked": sum(s in {"NOT_CHECKED", "NOT_CONFIGURED"} for s in rec_statuses),
+        "online_missing_expected": sum(
+            ch["reported_status"] == "ONLINE" and ch["recording_expectation"] == "continuous"
+            and ch["recording_result"]["status"] == "NO_RECENT_RECORDING_EVIDENCE"
+            for ch in all_channels
+        ),
+        "historical_evidence": historical_statuses.count("HISTORICAL_RECORDING_FOUND"),
+        "historical_no_evidence": historical_statuses.count("NO_HISTORICAL_EVIDENCE_IN_WINDOW"),
+        "historical_unverified": sum(s not in {"HISTORICAL_RECORDING_FOUND", "NO_HISTORICAL_EVIDENCE_IN_WINDOW"} for s in historical_statuses),
+        "historical_errors": historical_statuses.count("HISTORICAL_CHECK_ERROR"),
+        "stale_reports": sum(
+            not nvr["last_check"] or not _is_fresh(nvr["last_check"]) for nvr in nvrs
+        ),
+        "last_successful_report": max(
+            (nvr["last_check"] for nvr in nvrs if nvr["last_check"] and
+             nvr["overall_status"] in {"HEALTHY", "WARNING", "CRITICAL"}),
+            default=None,
+        ),
         "offline_with_evidence": sum(ch["reported_status"] == "OFFLINE"
-                                     and ch["recording_result"]["status"] in EVIDENCE_STATUSES
+                                     and (ch["recording_result"]["status"] in EVIDENCE_STATUSES
+                                          or ch["historical_recording_result"]["status"] == "HISTORICAL_RECORDING_FOUND")
                                      for ch in all_channels),
         "storage_warnings": sum(nvr["storage_status"] == "WARNING" for nvr in nvrs),
         "storage_critical": sum(nvr["storage_status"] == "CRITICAL" for nvr in nvrs),

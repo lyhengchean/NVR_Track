@@ -42,6 +42,15 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn('innerHTML', dashboard.HTML)
         self.assertIn('textContent', dashboard.HTML)
 
+    def test_offline_historical_footage_counts_as_stored_recording(self):
+        self.write('history',[{'channel_id':'1','reported_status':'OFFLINE',
+                               'recording_result':{'status':'NO_RECENT_RECORDING_EVIDENCE'},
+                               'historical_recording_result':{'status':'HISTORICAL_RECORDING_FOUND'}}])
+        with patch.object(dashboard,'REPORTS_DIR',self.root):
+            data = dashboard.read_dashboard_data()
+        self.assertEqual(data['summary']['offline_with_evidence'],1)
+        self.assertEqual(data['summary']['historical_evidence'],1)
+
     def test_old_reports_do_not_inherit_nvr_wide_recording_success(self):
         path = self.write('old',[{'channel_id':'1','reported_status':'ONLINE'}])
         report=json.loads(path.read_text())
@@ -112,3 +121,32 @@ class IncompleteReportsTests(unittest.TestCase):
             self.assertEqual(result['summary']['cameras_online'],0)
             self.assertEqual(result['summary']['recording_evidence'],0)
             self.assertEqual(result['refresh_seconds'],60)
+
+class HistoricalDashboardTests(unittest.TestCase):
+    def test_historical_status_is_independent_of_recent_state(self):
+        from pathlib import Path
+        report = dashboard._public_report({
+            "nvr": {"id": "nvr-11"},
+            "channel_inventory": {"channels": [{
+                "channel_id": "12", "reported_status": "ONLINE",
+                "recording_expectation": "continuous",
+                "recording_result": {"status": "NO_RECENT_RECORDING_EVIDENCE"},
+                "historical_recording_result": {
+                    "status": "HISTORICAL_RECORDING_FOUND", "track_id": 1201,
+                    "most_recent_segment_end": "2026-10-25T00:00:00+00:00",
+                    "password": "private-data",
+                    "intervals_examined": [{"start": "example", "secret": "private-data"}],
+                },
+            }]},
+        }, Path("nvr-11_20261026.json"))
+        row = report["channels"][0]
+        self.assertEqual(row["recording_result"]["status"], "NO_RECENT_RECORDING_EVIDENCE")
+        self.assertEqual(row["historical_recording_result"]["status"], "HISTORICAL_RECORDING_FOUND")
+        self.assertNotIn("password", row["historical_recording_result"])
+        self.assertNotIn("secret", row["historical_recording_result"]["intervals_examined"][0])
+
+    def test_old_reports_have_no_false_historical_evidence(self):
+        row = dashboard._public_report({
+            "channel_inventory": {"channels": [{"channel_id": "1"}]}
+        }, Path("nvr-01_old.json"))["channels"][0]
+        self.assertEqual(row["historical_recording_result"]["status"], "HISTORICAL_NOT_CHECKED")

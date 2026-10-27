@@ -15,6 +15,10 @@ from requests.auth import HTTPDigestAuth
 from requests.exceptions import RequestException
 
 from app.recording import check_recording_evidence, child_text, local_name
+from app.historical_recording import (
+    empty_result, search_history, summarize_history, valid_cache,
+    NOT_CHECKED as HIST_NOT_CHECKED, NOT_CONFIGURED as HIST_NOT_CONFIGURED,
+)
 
 EVIDENCE = {"RECORDING", "RECORDING_EVIDENCE_WITH_ANOMALY"}
 PROBLEMS = {"CHECK_ERROR", "CHECK_INCONCLUSIVE", "TRACK_NOT_FOUND", "TRACK_MAPPING_UNVERIFIED"}
@@ -203,12 +207,24 @@ def summarize(channels: list[dict], enabled: bool, minutes: int, mapping: dict) 
         "enabled": enabled, "window_minutes": minutes,
         "track_mapping_status": mapping.get("status", "NOT_CONFIGURED"),
         "track_list_count": mapping.get("track_count"),
+        "nvr_clock_offset_seconds_approx": mapping.get("nvr_clock_offset_seconds_approx"),
         "total_cameras": len(channels),
         "checked": sum(counts[k] for k in (
             "RECORDING", "RECORDING_EVIDENCE_WITH_ANOMALY", "NO_RECENT_RECORDING_EVIDENCE",
             "CHECK_INCONCLUSIVE", "CHECK_ERROR")),
         "evidence": counts["RECORDING"] + counts["RECORDING_EVIDENCE_WITH_ANOMALY"],
         "no_recent_evidence": counts["NO_RECENT_RECORDING_EVIDENCE"],
+        "online_missing_expected": sum(
+            ch.get("reported_status") == "ONLINE"
+            and ch.get("recording_expectation") == "continuous"
+            and ch["recording_result"]["status"] == "NO_RECENT_RECORDING_EVIDENCE"
+            for ch in channels
+        ),
+        "missing_expected": sum(
+            ch.get("recording_expectation") == "continuous"
+            and ch["recording_result"]["status"] == "NO_RECENT_RECORDING_EVIDENCE"
+            for ch in channels
+        ),
         "offline_with_evidence": sum(ch["recording_result"]["status"] in EVIDENCE for ch in offline),
         "offline_without_recent_evidence": sum(ch["recording_result"]["status"] == "NO_RECENT_RECORDING_EVIDENCE" for ch in offline),
         "track_mapping_problems": counts["TRACK_NOT_FOUND"] + counts["TRACK_MAPPING_UNVERIFIED"],
@@ -222,12 +238,17 @@ def summarize(channels: list[dict], enabled: bool, minutes: int, mapping: dict) 
 def check_all_cameras(*, ip: str, port: int, username: str, password: str,
                       channels: list[dict], enabled: bool, minutes: int = 60,
                       max_results: int = 10, budget_seconds: int = 300,
-                      search=check_recording_evidence) -> dict:
+                      search=check_recording_evidence, historical_enabled: bool = False,
+                      historical_days: int = 7, historical_max_cameras: int = 2,
+                      historical_ttl_hours: int = 12,
+                      previous_history: dict | None = None,
+                      historical_search=check_recording_evidence) -> dict:
     """Process cameras sequentially; searches include offline cameras."""
     mapping = {"status": "NOT_CONFIGURED", "track_count": None}
     if not enabled:
         for ch in channels:
             ch["recording_result"] = new_result("NOT_CONFIGURED", "Per-camera checks not enabled for this NVR.", minutes=minutes)
+            ch["historical_recording_result"] = empty_result(HIST_NOT_CONFIGURED, "Per-camera recording monitoring disabled.")
         return summarize(channels, False, minutes, mapping)
 
     if not channels:
@@ -241,10 +262,15 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
     if tracks_response["status"] != "VERIFIED":
         for ch in channels:
             ch["recording_result"] = new_result("TRACK_MAPPING_UNVERIFIED", tracks_response["message"], minutes=minutes)
+            ch["historical_recording_result"] = empty_result(HIST_NOT_CHECKED, "Recording track mapping unavailable.")
         return summarize(channels, True, minutes, mapping)
 
     clock = get_clock(ip, port, username, password)
     clock_read_at = time.monotonic()
+    mapping["nvr_clock_offset_seconds_approx"] = (
+        round((clock[0] - datetime.now(timezone.utc)).total_seconds())
+        if clock is not None else None
+    )
     disabled_search_reason = None
     for ch in channels:
         verified, track_id, reason = resolve_track(str(ch.get("channel_id", "")), tracks_response["tracks"])
@@ -276,4 +302,40 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
                     track_id, minutes=minutes, checked_at=datetime.now(timezone.utc).isoformat(),
                 )
                 ch["recording_result"]["track_verified"] = True
-    return summarize(channels, True, minutes, mapping)
+    history_budget = time.monotonic() + max(0, budget_seconds - (time.monotonic() - started))
+    history_checked = 0
+    previous_history = previous_history or {}
+    for ch in channels:
+        recent = ch["recording_result"]
+        track_id = recent.get("track_id") if recent.get("track_verified") else None
+        if not historical_enabled:
+            historic = empty_result(HIST_NOT_CONFIGURED, "Historical monitoring disabled.", track_id)
+        elif track_id is None or clock is None:
+            historic = empty_result(HIST_NOT_CHECKED, "Historical check requires a verified track and device clock.", track_id)
+        else:
+            device_now = clock[0] + timedelta(seconds=time.monotonic() - clock_read_at)
+            old = previous_history.get(str(ch.get("channel_id")))
+            historic = valid_cache(
+                old, track_id, now=datetime.now(timezone.utc),
+                ttl_hours=historical_ttl_hours,
+                oldest=device_now - timedelta(days=historical_days),
+            )
+            if historic is None and recent["status"] != "NO_RECENT_RECORDING_EVIDENCE":
+                historic = empty_result(HIST_NOT_CHECKED, "Historical searches prioritize cameras lacking recent recording evidence.", track_id)
+            elif historic is None and history_checked >= historical_max_cameras:
+                historic = empty_result(HIST_NOT_CHECKED, "Historical per-report camera limit reached.", track_id)
+            elif historic is None and time.monotonic() >= history_budget:
+                historic = empty_result(HIST_NOT_CHECKED, "NVR recording-search time budget exhausted.", track_id)
+            elif historic is None:
+                history_checked += 1
+                historic = search_history(
+                    ip=ip, port=port, username=username, password=password,
+                    track_id=track_id, clock_snapshot=(device_now, clock[1]),
+                    recent_minutes=minutes, lookback_days=historical_days,
+                    max_results=max_results, deadline=history_budget,
+                    search=historical_search,
+                )
+        ch["historical_recording_result"] = historic
+    summary = summarize(channels, True, minutes, mapping)
+    summary["historical"] = summarize_history(channels, historical_enabled)
+    return summary

@@ -92,6 +92,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     offline = sum(int(row.get("offline", 0) or 0) for row in summary)
     evidence = sum(int(row.get("recording_evidence", 0) or 0) for row in summary)
     missing_evidence = sum(int(row.get("recording_missing", 0) or 0) for row in summary)
+    online_missing_expected = sum(int(row.get("online_missing_expected", 0) or 0) for row in summary)
     recording_errors = sum(int(row.get("recording_errors", 0) or 0) for row in summary)
 
     subject = (
@@ -103,7 +104,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         "<tr><th>NVR</th><th>IP address</th><th>Overall</th>"
         "<th>Storage</th><th>Recording</th>"
         "<th>Online</th><th>Offline</th><th>Evidence</th>"
-        "<th>No recent evidence</th><th>Check errors</th></tr>"
+        "<th>No recent evidence</th><th>Online missing expected</th><th>Check errors</th></tr>"
     )
     rows = []
 
@@ -127,6 +128,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
             item.get("offline", 0),
             item.get("recording_evidence", 0),
             item.get("recording_missing", 0),
+            item.get("online_missing_expected", 0),
             item.get("recording_errors", 0),
         ]
         escaped = [escape(str(value)) for value in cells]
@@ -152,6 +154,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         <td>Cameras offline</td><td>{offline}</td></tr>
     <tr><td>Recent recording evidence</td><td>{evidence}</td>
         <td>No recent evidence</td><td>{missing_evidence}</td></tr>
+    <tr><td>ONLINE missing expected recordings</td><td>{online_missing_expected}</td></tr>
     <tr><td>Recording search errors</td><td>{recording_errors}</td></tr>
   </table>
   <h3>Per-NVR results</h3>
@@ -175,7 +178,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         f"Critical: {counts['CRITICAL']}; Errors: {counts['ERROR']}",
         f"Cameras online: {online}; Cameras offline: {offline}",
         f"Recording evidence: {evidence}; no recent evidence: {missing_evidence}; "
-        f"search errors: {recording_errors}",
+        f"online missing expected: {online_missing_expected}; search errors: {recording_errors}",
         "",
     ]
 
@@ -187,6 +190,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
             f"online={item.get('online')} | offline={item.get('offline')} | "
             f"evidence={item.get('recording_evidence', 0)} | "
             f"no_recent={item.get('recording_missing', 0)}"
+            f" | online_missing_expected={item.get('online_missing_expected', 0)}"
         )
 
     message = EmailMessage()
@@ -335,6 +339,7 @@ def main() -> int:
             "recording_evidence": report.get("per_camera_recording", {}).get("evidence", 0),
             "recording_missing": report.get("per_camera_recording", {}).get("no_recent_evidence", 0),
             "recording_errors": report.get("per_camera_recording", {}).get("search_errors", 0),
+            "online_missing_expected": report.get("per_camera_recording", {}).get("online_missing_expected", 0),
         })
 
     print("\n" + "=" * 100)

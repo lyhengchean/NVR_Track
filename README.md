@@ -27,9 +27,8 @@ private inventory, while the dashboard only mounts `reports/` read-only.
 ## Recording feature flags
 
 Add the following **keys and non-secret values** to the existing `.env`
-without replacing any credentials. The server's `.env.example` was not included
-in the inspection archive; review it separately before updating that tracked
-example file:
+without replacing any credentials. The tracked `.env.example` contains placeholders only. Review it without
+replacing your server's real `.env`:
 
 | Setting | Example | Meaning |
 |---|---|---|
@@ -38,6 +37,10 @@ example file:
 | `NVR_RECORDING_MAX_RESULTS` | `10` | Max returned segments per camera, 1–64 |
 | `NVR_RECORDING_MAX_NVR_SECONDS` | `300` | Time budget per NVR for camera searches, 15–3600 seconds |
 | `DASHBOARD_REFRESH_SECONDS` | `60` | Browser re-reads saved reports, 0 disables auto-refresh |
+| `NVR_HISTORICAL_ENABLED` | `true` | Enable historical checks on NVRs with per-camera checks enabled |
+| `NVR_HISTORICAL_LOOKBACK_DAYS` | `7` | Historical lookback (1–7 days), excluding the recent window |
+| `NVR_HISTORICAL_MAX_CAMERAS_PER_RUN` | `2` | Upper bound of cameras receiving new historical queries per NVR report |
+| `NVR_HISTORICAL_CACHE_HOURS` | `12` | Reuse a completed successful historical result for this many hours |
 
 **Start with `nvr-01` only.** Expansion requires verifying the target NVR's
 track listing in the report. Each enabled NVR calls
@@ -83,10 +86,75 @@ non-continuous cameras. Offline cameras with recent footage remain
 
 The report also retains the existing **NVR-wide** `recording` check. Its
 success must **never** be counted as proof for every camera. Health priority:
-critical HDD/device failures are critical; missing recording evidence and
-camera offline findings are warnings; recording errors and unverifiable
+critical HDD/device failures are critical; missing expected **continuous** recording
+evidence and camera offline findings are warnings; recording errors and unverifiable
 checks are unknown findings. Old schema v1 reports remain readable; missing
 per-camera results are **not** treated as recording.
+
+### Recording expectations (continuous versus event)
+
+Configure expectations in your **private** `config/nvrs.local.json` under the
+appropriate NVR (no camera IPs or passwords belong in the tracked examples):
+
+```json
+"recording_expectations": {"12": "continuous", "13": "event"}
+```
+
+Allowed values are `continuous`, `event`, and `unspecified`. Unspecified is
+the default. Only cameras marked `continuous` raise a missing-*expected*
+recording warning after a verified no-match search. An event camera can
+legitimately have no segment during a quiet 60-minute period. Its status
+continues to show the evidence, but absence does not automatically alert.
+For NVR-11, mark channels 12–16 `continuous` only if their actual recording
+expectation is continuous. Live ONLINE/OFFLINE and recording evidence remain
+independent.
+
+### Separate historical checks
+
+Historical status is saved as `channel_inventory.channels[].historical_recording_result`
+next to each `recording_result` (recent). The historical field includes its own
+verified track, timestamp, selected UTC window, examined intervals, completeness,
+latest matching segment, and failure explanation.
+
+| Historical status | Meaning |
+|---|---|
+| `HISTORICAL_RECORDING_FOUND` | At least one verified older segment overlaps a checked historical interval |
+| `NO_HISTORICAL_EVIDENCE_IN_WINDOW` | All bounded intervals were checked successfully, without matching footage |
+| `HISTORICAL_CHECK_INCONCLUSIVE` | Not all checked intervals could be verified or time budget expired mid-search |
+| `HISTORICAL_CHECK_ERROR` | Endpoint, authorization, request, or unexpected search failure |
+| `HISTORICAL_NOT_CHECKED` | Deferred by prioritization, budget, or unverifiable clock/track |
+| `HISTORICAL_NOT_CONFIGURED` | Monitoring disabled |
+
+Historical checks prioritize cameras with **no recent evidence**, including
+OFFLINE cameras with verified tracks, and do not scan the full 330-camera
+fleet automatically. At most two candidates per enabled NVR are selected by
+default each run; each receives up to seven sequential one-day ISAPI queries.
+A successful check can be reused from the latest saved report for up to 12
+hours, clearly labeled with its original timestamp. Finding a segment stops
+the search; therefore `search_complete=false` means *not all older intervals
+were searched*, not that the found recording is unverified. No-result status
+requires completion of every interval. Queries never modify recordings.
+
+**Verify NVR-11 after enabling recording:** generate a fresh report, then
+inspect only the five target channels using the saved JSON inspector:
+
+```bash
+cd /opt/NVR_Track
+# Replace this example IP with the private address for nvr-11
+# docker compose run --rm -T nvr-report --ip <NVR_11_IP>
+docker compose run --rm -T --entrypoint python nvr-report \
+  -m scripts.inspect_recording_report --nvr-id nvr-11 --channels 12,13,14,15,16
+```
+
+The inspector reports ONLINE state, track verification, recent status,
+verified overlap, newest segment end, historical status, and the approximate
+NVR-versus-system clock offset. It prints no camera names or camera IPs.
+It exits 0 only if all five are ONLINE with verified recent segments. If a
+camera still reports `NO_RECENT_RECORDING_EVIDENCE`, investigate its playback
+recordings, timestamp differences, and expected schedule separately; do not
+change NVR configuration from the monitoring system. A five-minute-plus clock
+offset requires independent device/Ubuntu clock inspection, not an automatic
+clock adjustment.
 
 ### Check mappings on the remaining 11 NVRs (GET-only)
 
@@ -115,12 +183,12 @@ Run from the deployment directory:
 ```bash
 cd /opt/NVR_Track
 # One NVR (read-only live monitoring; will save a JSON report)
-docker compose run --rm -T nvr-report --ip 10.233.220.51
+docker compose run --rm -T nvr-report --ip 192.0.2.51  # Replace with an address from your private inventory
 # All configured NVRs, sequentially (uses same updated reporter)
-docker compose run --rm -T nvr-report-all
+docker compose run --rm -T -e SMTP_TO= nvr-report-all  # Do not email recipients during validation
 # Build report and dashboard images
 # Do this only after server changes are reconciled and validated.
-docker compose build nvr-report nvr-report-all nvr-dashboard
+docker compose build nvr-report  # All 3 app services share the same image tag
 # Replace only the dashboard container; do not restart unrelated services.
 docker compose up -d --no-deps nvr-dashboard
 # Check dashboard startup, latest reports and compose service status
@@ -162,8 +230,8 @@ Do **not** add pytest to the runtime image to work around the earlier
 
 ## Daily schedule and email
 
-The existing production cron entry is reported to run at **08:00
-Asia/Phnom_Penh**. The project does not install cron; inspect the existing
+The desired production schedule is **08:00 Asia/Phnom_Penh**; this
+archive cannot establish whether Ubuntu cron or systemd actually runs it. The project does not install cron; inspect the existing
 root/user crontabs and scripts before editing, and preserve them if already
 correct. `nvr-report-all` runs the same `scripts/run_nvr_report.py` for each
 NVR then builds the consolidated SMTP HTML+text email. An email is attempted
@@ -191,10 +259,47 @@ succeeds. No emails are sent by the unit tests.
   administrator; **do not** format or change HDD settings from this app.
 - Missing NVR cards: confirm inventory, per-NVR report generation, report
   directory mount and JSON syntax. Dashboard cannot invent missing reports.
+- Missing footage on a normal full disk: zero free space is a warning requiring
+  overwrite/quota review, **not proof of disk failure**. The current ISAPI
+  HDD response does not by itself verify whether overwrite is enabled or
+  whether an expected disk is missing; inspect those facts read-only.
+
+## Ubuntu verification checklist (without changing unrelated services)
+
+Before pulling, inspect `git status --short --branch`, `git log -5 --oneline`,
+`git diff --stat`, and confirm `.env` has permissions `600` with
+`stat -c '%a %n' .env`. If the Ubuntu tree has local edits, review and back
+them up before merging anything. From VS Code on Windows, first use
+`git apply --check --ignore-space-change NVR_Track_updates.patch`, inspect
+the patch, apply it with `git apply --ignore-space-change NVR_Track_updates.patch`,
+run tests, then commit on your own review branch before pushing.
+
+After Ubuntu `git pull --ff-only`, build only the shared NVR application image:
+
+```bash
+cd /opt/NVR_Track
+docker compose config --quiet
+docker compose build nvr-report
+docker build --target test -t nvr-track:test .
+docker run --rm nvr-track:test
+# Only the NVR dashboard is a continuously running service:
+docker compose up -d --no-deps nvr-dashboard
+docker compose ps nvr-dashboard
+docker compose logs --tail=40 nvr-dashboard
+```
+
+Report commands are one-shot services. The server must have the real private
+inventory and `.env` already in place; neither belongs in Git. To verify the
+daily schedule without editing it, inspect `timedatectl`, `crontab -l`,
+`sudo crontab -l`, and `systemctl list-timers --all`, and confirm the actual
+08:00 entry and timezone. Run an all-NVR manual validation with
+`-e SMTP_TO=` to suppress email during checks. Only test email delivery after
+you have confirmed the intended recipient and explicitly approved sending.
+No service, networking, firewall, or Traccar changes are necessary.
 
 ## Source-of-truth reconciliation
 
-The October 26 Ubuntu patch may be **newer** than the provided RAR/Git commit.
+Your Ubuntu working tree may be **newer** than the uploaded ZIP commit.
 Before applying this package, inspect `git status --short --branch`,
 `git diff --stat`, and the existing per-camera pilot code. Save uncommitted
 work and backups. A patch included with a distribution may not apply cleanly

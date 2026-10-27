@@ -184,6 +184,11 @@ def classify_storage(disks: tuple[HDDEntry, ...]) -> tuple[str, str]:
             f"Capacity or free-space information is missing for HDD IDs: {ids}.",
         )
 
+    inconsistent = [disk for disk in disks if disk.free_space_mb > disk.capacity_mb]
+    if inconsistent:
+        ids = ", ".join(disk.id for disk in inconsistent)
+        return "UNKNOWN", f"Reported free capacity exceeds total capacity for HDD IDs: {ids}."
+
     writable_disks = [
         disk for disk in disks
         if disk.property.strip().upper() == "RW"
