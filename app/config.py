@@ -1,4 +1,4 @@
-﻿"""Load and validate the NVR inventory without contacting devices."""
+"""Load and validate the NVR inventory without contacting devices."""
 
 import json
 import re
@@ -20,6 +20,7 @@ class NVRConfig:
     server_port: int | None = None
     recording_track_id: int | None = None
     recording_expectations: dict[str, str] = field(default_factory=dict)
+    expected_sata_hdd_ids: tuple[int, ...] = ()
 
 
 def load_inventory(path: str | Path) -> list[NVRConfig]:
@@ -139,6 +140,23 @@ def load_inventory(path: str | Path) -> list[NVRConfig]:
                 f"{label}: recording_expectations must map channel IDs to continuous, event or unspecified."
             )
 
+        # Only list SATA disks independently confirmed as physically installed.
+        # Empty/unconfirmed slots must not be guessed from the NVR's HDD list.
+        raw_expected_hdds = entry.get("expected_sata_hdd_ids", [])
+        if (
+            not isinstance(raw_expected_hdds, list)
+            or len(raw_expected_hdds) > 64
+            or any(
+                isinstance(i, bool) or not isinstance(i, int) or not 1 <= i <= 256
+                for i in raw_expected_hdds
+            )
+            or len(set(raw_expected_hdds)) != len(raw_expected_hdds)
+        ):
+            raise InventoryError(
+                f"{label}: expected_sata_hdd_ids must be a unique list "
+                "of positive SATA disk IDs (1-256)."
+            )
+
         seen_ids.add(device_id)
         seen_ips.add(normalized_ip)
 
@@ -151,6 +169,7 @@ def load_inventory(path: str | Path) -> list[NVRConfig]:
                 server_port=server_port,
                 recording_track_id=recording_track_id,
                 recording_expectations=expectations,
+                expected_sata_hdd_ids=tuple(raw_expected_hdds),
             )
         )
 

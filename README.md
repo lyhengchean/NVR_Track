@@ -6,6 +6,7 @@ produces timestamped JSON reports, and serves an authenticated, responsive
 integration is **read-only** (GET endpoints plus POST for ISAPI recording
 search only); no recording schedules, settings, media or storage are modified.
 
+
 ## Setup and safeguards
 
 Python 3.12 and Docker Compose are used in production. Deploy under
@@ -23,6 +24,41 @@ private inventory, while the dashboard only mounts `reports/` read-only.
 - Dashboard Basic Authentication must remain configured. It is HTTP Basic;
   restrict access to the trusted management network or place it behind your
   existing HTTPS reverse proxy without changing other services.
+
+### Storage alerts: detected disks versus undetected slots
+
+Storage monitoring uses read-only `GET /ISAPI/ContentMgmt/Storage/hdd` responses.
+Disk states `error`, `offline`, `smartfailed`, `unformatted`, and `mismatch`
+are **CRITICAL**. `idle` is an accepted operational state (subject to its
+capacity and write access); a writable disk with zero free space is a
+**WARNING**, not proof of failure.
+
+`notexist` means the NVR did not detect a disk at the reported entry; it
+**does not prove that a drive was installed**. When other usable disks exist,
+uncorroborated `notexist` entries are **WARNING** until the expected disk
+inventory has been verified. If no operational disk is detected, the result
+is **CRITICAL**. Unknown states remain **UNKNOWN** rather than healthy.
+
+To identify missing drives that *should* be present, configure physical SATA
+disk IDs only in the **private, gitignored** `config/nvrs.local.json`, for
+example within a single NVR object:
+
+```json
+"expected_sata_hdd_ids": [1, 2]
+```
+
+**Do not copy these sample IDs into production as facts.** Only add IDs after
+checking the device's installation records or observing the physical disk
+inventory. A configured expected SATA ID absent from the device response or
+reported `notexist` is **CRITICAL**. An absent virtual disk entry does not
+satisfy or falsify a physical SATA expectation. Older inventory files without
+this field remain valid. No storage device is modified by this check.
+
+The overall health summary uses a generic urgent-storage message when a
+critical finding is present; the saved `storage.message` and disk table give
+the more precise diagnosis. Old reports are not rewritten, and the dashboard
+always loads the newest saved report.
+
 
 ## Recording feature flags
 

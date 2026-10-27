@@ -20,7 +20,7 @@ def determine_overall_status(
     unknown: list[str] = []
 
     if storage_status == "CRITICAL":
-        critical.append("Storage has reported critical HDD errors.")
+        critical.append("Storage needs urgent review: abnormal disks, expected disks missing, or no operational storage.")
 
     if device_info_status in {
         "AUTHENTICATION_FAILED",
@@ -60,7 +60,7 @@ def determine_overall_status(
         )
 
     if storage_status == "WARNING":
-        warnings.append("Storage has a warning that requires investigation.")
+        warnings.append("Storage warning: review disk detection, free space, and overwrite/quota policy.")
     elif storage_status not in {"HEALTHY", "CRITICAL", "WARNING"}:
         unknown.append(f"Storage status not verified: {storage_status}.")
 
