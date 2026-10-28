@@ -15,6 +15,12 @@ from requests.auth import HTTPDigestAuth
 from requests.exceptions import RequestException
 
 from app.recording import check_recording_evidence, child_text, local_name
+from app.retention import (
+    scan_calendar, empty_result as empty_retention, cached_result as retention_cache,
+    deferred_result as retention_deferred, previous_attempt_at as retention_attempt_at,
+    summarize_retention, NOT_CONFIGURED as RET_NOT_CONFIGURED,
+    UNVERIFIED as RET_UNVERIFIED, UNSUPPORTED as RET_UNSUPPORTED,
+)
 from app.historical_recording import (
     empty_result, search_history, summarize_history, valid_cache,
     NOT_CHECKED as HIST_NOT_CHECKED, NOT_CONFIGURED as HIST_NOT_CONFIGURED,
@@ -242,18 +248,27 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
                       historical_days: int = 7, historical_max_cameras: int = 2,
                       historical_ttl_hours: int = 12,
                       previous_history: dict | None = None,
-                      historical_search=check_recording_evidence) -> dict:
+                      historical_search=check_recording_evidence,
+                      retention_enabled: bool = False, retention_days: int = 30,
+                      retention_max_cameras: int = 2, retention_ttl_hours: int = 168,
+                      previous_retention: dict | None = None,
+                      retention_scan=scan_calendar) -> dict:
     """Process cameras sequentially; searches include offline cameras."""
     mapping = {"status": "NOT_CONFIGURED", "track_count": None}
     if not enabled:
         for ch in channels:
             ch["recording_result"] = new_result("NOT_CONFIGURED", "Per-camera checks not enabled for this NVR.", minutes=minutes)
             ch["historical_recording_result"] = empty_result(HIST_NOT_CONFIGURED, "Per-camera recording monitoring disabled.")
-        return summarize(channels, False, minutes, mapping)
+            ch["retention_result"] = empty_retention(RET_NOT_CONFIGURED, "Per-camera recording monitoring disabled.")
+        result = summarize(channels, False, minutes, mapping)
+        result["retention"] = summarize_retention(channels, False)
+        return result
 
     if not channels:
         mapping["status"] = "CHANNEL_INVENTORY_EMPTY"
-        return summarize(channels, True, minutes, mapping)
+        result = summarize(channels, True, minutes, mapping)
+        result["retention"] = summarize_retention(channels, retention_enabled)
+        return result
 
     started = time.monotonic()
     tracks_response = get_tracks(ip, port, username, password)
@@ -263,7 +278,12 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
         for ch in channels:
             ch["recording_result"] = new_result("TRACK_MAPPING_UNVERIFIED", tracks_response["message"], minutes=minutes)
             ch["historical_recording_result"] = empty_result(HIST_NOT_CHECKED, "Recording track mapping unavailable.")
-        return summarize(channels, True, minutes, mapping)
+            ch["retention_result"] = empty_retention(
+                RET_UNVERIFIED if retention_enabled else RET_NOT_CONFIGURED,
+                "Verified track mapping required for retention." if retention_enabled else "Retention monitoring disabled.")
+        result = summarize(channels, True, minutes, mapping)
+        result["retention"] = summarize_retention(channels, retention_enabled)
+        return result
 
     clock = get_clock(ip, port, username, password)
     clock_read_at = time.monotonic()
@@ -376,6 +396,55 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
             # field preserves fair ordering on subsequent 24-hour cron runs.
             historic["last_attempted_at"] = previous_attempt_at(old)
         ch["historical_recording_result"] = historic
+    # Separate, optional calendar audit for *all* camera statuses. Its small
+    # independent budget cannot increase the historical-search request limit.
+    previous_retention = previous_retention or {}
+    pending_retention = []
+    for ch in channels:
+        recent = ch["recording_result"]
+        track_id = recent.get("track_id") if recent.get("track_verified") else None
+        if not retention_enabled:
+            retention = empty_retention(RET_NOT_CONFIGURED, "Retention monitoring disabled.", track_id)
+        elif track_id is None or clock is None:
+            retention = empty_retention(RET_UNVERIFIED, "Verified track and device clock required.", track_id)
+        else:
+            old = previous_retention.get(str(ch.get("channel_id")))
+            retention = retention_cache(old, track_id, datetime.now(timezone.utc),
+                                        retention_days, retention_ttl_hours)
+            if retention is None:
+                pending_retention.append((ch, track_id, old))
+                continue
+        ch["retention_result"] = retention
+
+    def retention_priority(candidate: tuple) -> tuple[int, float]:
+        attempt = retention_attempt_at(candidate[2])
+        return (1, datetime.fromisoformat(attempt).timestamp()) if attempt else (0, 0.0)
+
+    retention_count = 0
+    skip_remaining = False
+    for ch, track_id, old in sorted(pending_retention, key=retention_priority):
+        if skip_remaining:
+            retention = retention_deferred(old, track_id, "Calendar endpoint unavailable on this NVR.")
+        elif retention_count >= retention_max_cameras:
+            retention = retention_deferred(old, track_id, "Per-report retention camera limit reached.")
+        elif time.monotonic() - started >= budget_seconds:
+            retention = retention_deferred(old, track_id, "NVR recording-search time budget exhausted.")
+        else:
+            retention_count += 1
+            device_now = clock[0] + timedelta(seconds=time.monotonic() - clock_read_at)
+            try:
+                retention = retention_scan(
+                    ip=ip, port=port, username=username, password=password,
+                    track_id=track_id, clock_snapshot=(device_now, clock[1]),
+                    days=retention_days, deadline=started + budget_seconds,
+                )
+            except Exception:
+                retention = empty_retention("RETENTION_ERROR", "Unexpected calendar audit failure.", track_id)
+            if retention["status"] == RET_UNSUPPORTED:
+                skip_remaining = True
+        ch["retention_result"] = retention
+
     summary = summarize(channels, True, minutes, mapping)
     summary["historical"] = summarize_history(channels, historical_enabled)
+    summary["retention"] = summarize_retention(channels, retention_enabled)
     return summary

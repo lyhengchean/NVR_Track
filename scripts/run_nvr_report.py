@@ -30,7 +30,7 @@ def now_local() -> datetime:
     return datetime.now(TIMEZONE)
 
 
-def read_previous_history(report_dir: Path, nvr_id: str) -> dict:
+def read_previous_camera_field(report_dir: Path, nvr_id: str, field: str) -> dict:
     """Reuse results from the newest saved report without touching old snapshots."""
     candidates = sorted(report_dir.glob(f"{nvr_id}_*.json"), reverse=True)
     for path in candidates:
@@ -40,13 +40,21 @@ def read_previous_history(report_dir: Path, nvr_id: str) -> dict:
             if report.get("nvr", {}).get("id") != nvr_id:
                 continue
             return {
-                str(ch.get("channel_id")): ch.get("historical_recording_result")
+                str(ch.get("channel_id")): ch.get(field)
                 for ch in report.get("channel_inventory", {}).get("channels", [])
                 if isinstance(ch, dict)
             }
         except (OSError, ValueError, AttributeError, TypeError):
             continue
     return {}
+
+
+def read_previous_history(report_dir: Path, nvr_id: str) -> dict:
+    return read_previous_camera_field(report_dir, nvr_id, "historical_recording_result")
+
+
+def read_previous_retention(report_dir: Path, nvr_id: str) -> dict:
+    return read_previous_camera_field(report_dir, nvr_id, "retention_result")
 
 
 def main() -> int:
@@ -266,6 +274,13 @@ def main() -> int:
         for item in os.environ.get("NVR_PER_CAMERA_RECORDING_IDS", "").split(",")
         if item.strip()
     }
+    retention_ids = {
+        item.strip().lower()
+        for item in os.environ.get("NVR_RETENTION_NVR_IDS", "").split(",")
+        if item.strip()
+    }
+    retention_enabled = (os.environ.get("NVR_RETENTION_ENABLED", "false").lower() == "true"
+                         and configured_nvr.id.lower() in retention_ids)
     per_camera_summary = check_all_cameras(
         ip=configured_nvr.ip, port=http_port, username=username, password=password,
         channels=channel_rows, enabled=configured_nvr.id.lower() in allowed,
@@ -276,6 +291,11 @@ def main() -> int:
         historical_max_cameras=integer_setting("NVR_HISTORICAL_MAX_CAMERAS_PER_RUN", 2, 0, 32),
         historical_ttl_hours=integer_setting("NVR_HISTORICAL_CACHE_HOURS", 12, 1, 72),
         previous_history=read_previous_history(report_dir, configured_nvr.id),
+        retention_enabled=retention_enabled,
+        retention_days=integer_setting("NVR_RETENTION_WINDOW_DAYS", 30, 1, 90),
+        retention_max_cameras=integer_setting("NVR_RETENTION_MAX_CAMERAS_PER_RUN", 2, 0, 32),
+        retention_ttl_hours=integer_setting("NVR_RETENTION_CACHE_HOURS", 168, 1, 720),
+        previous_retention=read_previous_retention(report_dir, configured_nvr.id),
     )
 
     overall = determine_overall_status(
@@ -375,6 +395,11 @@ def main() -> int:
     print(f"Per-camera recording: {per_camera_summary['evidence']} evidence; "
           f"{per_camera_summary['no_recent_evidence']} no recent evidence; "
           f"{per_camera_summary['not_checked']} not checked")
+    retention_info = per_camera_summary.get("retention", {})
+    print(f"Recording calendar: {retention_info.get('verified', 0)} verified; "
+          f"{retention_info.get('partial', 0)} partial; "
+          f"{retention_info.get('pending', 0)} pending; "
+          f"{retention_info.get('unsupported', 0)} unsupported")
     print(f"Online channels: {online_count}")
     print(f"Offline channels: {offline_count}")
     print(f"Unknown channel statuses: {unknown_count}")
