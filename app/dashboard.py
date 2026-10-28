@@ -262,7 +262,7 @@ def _read_fleet_run_state() -> tuple[dict[str, str], datetime | None, int]:
         if not isinstance(devices, list) or len(devices) > 1000:
             raise ValueError("Invalid device results")
         codes = {"PROCESS_TIMEOUT", "PROCESS_START_FAILURE", "NO_SAVED_REPORT",
-                 "REPORT_READ_ERROR", "REPORT_UNAVAILABLE"}
+                 "REPORT_READ_ERROR", "REPORT_UNAVAILABLE", "LOCK_CONFLICT"}
         failed = {}
         for item in devices:
             if not isinstance(item, dict):

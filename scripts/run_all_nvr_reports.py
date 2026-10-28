@@ -9,6 +9,7 @@ import ssl
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from html import escape
@@ -45,6 +46,37 @@ if env_file.exists():
 INVENTORY_PATH = ROOT / "config" / "nvrs.local.json"
 REPORTS_DIR = ROOT / "reports"
 FLEET_RUN_FILENAME = "fleet_latest_run.json"
+
+# Only a confirmed per-NVR lock collision is retried. The child reporter
+# exits before contacting the NVR in this condition. Keep retries bounded.
+LOCK_CONFLICT_RETRIES = 2
+LOCK_CONFLICT_RETRY_DELAY_SECONDS = 5
+
+
+def is_lock_conflict(result: subprocess.CompletedProcess, nvr_id: str) -> bool:
+    """Recognize the exact safe-to-retry message from the child reporter."""
+    return (result.returncode == 2
+            and (result.stdout or "").strip() ==
+            f"Another report is already running for {nvr_id}; no queries sent.")
+
+
+def run_report_with_lock_retry(command: list[str], nvr_id: str,
+                               timeout: int) -> subprocess.CompletedProcess:
+    """Retry only an uncontended-NVR-safe exit; never retry device queries."""
+    for attempt in range(LOCK_CONFLICT_RETRIES + 1):
+        result = subprocess.run(command, cwd=ROOT, capture_output=True,
+                                text=True, check=False, timeout=timeout)
+        if not is_lock_conflict(result, nvr_id):
+            return result
+        if attempt == LOCK_CONFLICT_RETRIES:
+            print(f"Report lock remains busy for {nvr_id} after "
+                  f"{attempt + 1} attempts; no queries sent.", flush=True)
+            return result
+        print(f"Report lock busy for {nvr_id}; retry "
+              f"{attempt + 1}/{LOCK_CONFLICT_RETRIES} after "
+              f"{LOCK_CONFLICT_RETRY_DELAY_SECONDS}s.", flush=True)
+        time.sleep(LOCK_CONFLICT_RETRY_DELAY_SECONDS)
+    raise AssertionError("Lock retry loop exhausted without result")
 
 
 def save_fleet_run_status(started_at: str, rows: list[dict]) -> None:
@@ -295,12 +327,8 @@ def main() -> int:
         ]
 
         try:
-            result = subprocess.run(
-                command,
-                cwd=ROOT,
-                capture_output=True,
-                text=True,
-                check=False,
+            result = run_report_with_lock_retry(
+                command, nvr.id,
                 timeout=max(
                     150,
                     int(os.environ.get("NVR_RECORDING_MAX_NVR_SECONDS", "300")) + 120,
@@ -344,7 +372,8 @@ def main() -> int:
                 "recording": "NOT_REPORTED",
                 "online": 0,
                 "offline": 0,
-                "failure_code": "NO_SAVED_REPORT",
+                "failure_code": ("LOCK_CONFLICT" if is_lock_conflict(result, nvr.id)
+                                 else "NO_SAVED_REPORT"),
             })
             continue
 

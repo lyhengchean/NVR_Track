@@ -385,3 +385,24 @@ A one-off `ERROR` in the email does not identify the reason for the process
 failure. Check the relevant time window in `reports/scheduler.log` for safe,
 fixed-code diagnostics, and investigate the NVR read-only before assuming a
 disk or camera failure.
+
+
+### Scheduled report lock-contention recovery
+
+The all-NVR fleet runner runs each NVR sequentially and keeps the shared
+per-NVR `flock` protection in place. If a child reporter exits with the exact
+`Another report is already running ...; no queries sent.` lock-conflict
+message, the fleet runner retries **at most twice**, after **5 seconds**
+each. Each conflicted attempt exits **before any NVR request**. Healthy,
+warning or critical reports, timeouts, invalid responses, credential errors,
+and other failures are **not** retried.
+
+If a lock is still busy after three total attempts, the fleet run records
+`LOCK_CONFLICT` as an execution error in `fleet_latest_run.json` rather than
+claiming zero cameras, and continues to the next NVR. The dashboard shows a
+failed fleet run while preserving last-known camera details for inspection.
+Do not remove `.locks` files or disable locking to bypass this protection.
+A single root cron entry does not rule out overlapping manual runs; consult
+cron journal and Docker process activity when investigating a collision.
+This recovery is bounded and does not restart containers or touch the NVR
+configuration.
