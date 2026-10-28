@@ -406,3 +406,62 @@ A single root cron entry does not rule out overlapping manual runs; consult
 cron journal and Docker process activity when investigating a collision.
 This recovery is bounded and does not restart containers or touch the NVR
 configuration.
+
+## Per-camera recording calendar / footage-day evidence (opt-in)
+
+This independent feature is separate from recent searches and the 7-day
+historical troubleshooting rotation. The **read-only**
+`POST /ISAPI/ContentMgmt/record/tracks/{verified_track_id}/dailyDistribution`
+request asks for a monthly recording calendar on verified tracks. The request
+body contains only `year` and `monthOfYear`; no recording control, downloads,
+config updates, resets or storage operations occur. Each NVR is processed
+sequentially under the existing per-NVR reporting lock.
+
+**Off by default.** First verify support on one NVR (e.g. a previously
+validated test device); add ONLY these lines to the existing private `.env`:
+
+```dotenv
+NVR_RETENTION_ENABLED=true
+NVR_RETENTION_NVR_IDS=nvr-11
+NVR_RETENTION_WINDOW_DAYS=30
+NVR_RETENTION_MAX_CAMERAS_PER_RUN=2
+NVR_RETENTION_CACHE_HOURS=168
+```
+
+The NVR must also be included in the existing `NVR_PER_CAMERA_RECORDING_IDS`.
+Rebuild the production image and run a single-NVR report to verify endpoint
+support, then refresh the saved-report dashboard. Review only status codes,
+calendar counts, and check timestamps (not raw XML, passwords or inventory).
+If unsupported, the dashboard reports **Not supported** rather than zero days.
+After a successful pilot, add more IDs to `NVR_RETENTION_NVR_IDS` and cautiously
+increase `NVR_RETENTION_MAX_CAMERAS_PER_RUN` (maximum 32, default 2) while
+observing execution duration and the existing per-NVR 300-second budget.
+Every camera, online or offline, is eligible when it has a verified track and
+clock. Cameras rotate fairly across daily reports, and a cache (default 168
+hours) prevents repeated requests for recently checked cameras. Stale scanned
+results remain visible as **Previous scan**, never as current verified data.
+The dashboard never queries devices directly.
+
+The default report examines the last **30 completed device-local calendar days**;
+the current partial day is excluded. Supported range: 1–90 days. Each camera
+requires at most four month queries for a 90-day range. These checks do not
+increase the budget of the separate historical search. Results stored per
+camera in the JSON report: `retention_result`, including `status`, `as_of_date`,
+`window_days`, `days_with_footage`, `days_examined`,
+`oldest_verified_date`, `oldest_verified_age_days`, the compact daily calendar,
+and check/cache metadata. Raw credentials, device responses, playback URLs and
+video are never saved.
+
+**Important evidence semantics:** A green day means the NVR explicitly reports
+some video for that day; this does **not** prove the full day is recorded or
+that the camera has continuously recorded since that date. The oldest verified
+day/age is limited to the scanned window, **not the true oldest retained video**.
+Orange means the device explicitly reported `record=false`, and gray means the
+date could not be verified. Missing date entries never count as absent.
+`RETENTION_VERIFIED` requires an explicit daily boolean for every date in the
+window; `RETENTION_PARTIAL` means an incomplete calendar. `RETENTION_PENDING`
+indicates budget/rotation deferral, `RETENTION_STALE` preserves an older audited
+window, and error/unsupported/unverified outcomes never become zero-day claims.
+Old JSON snapshots remain compatible and display `Not enabled` for this new
+field. **Do not interpret `days_with_footage` as the number of continuous
+recording days or exact storage retention.**

@@ -123,6 +123,54 @@ def _public_historical(value: object) -> dict:
         } for i in intervals[:8]],
     }
 
+RETENTION_STATUSES = {
+    "RETENTION_VERIFIED", "RETENTION_PARTIAL", "RETENTION_PENDING", "RETENTION_STALE",
+    "RETENTION_UNSUPPORTED", "RETENTION_INCONCLUSIVE", "RETENTION_ERROR",
+    "RETENTION_UNVERIFIED", "RETENTION_NOT_CONFIGURED",
+}
+
+
+def _public_retention(value: object) -> dict:
+    """Expose bounded, explicit recording dates; never invent unknown days."""
+    raw = _as_dict(value)
+    status = raw.get("status", "RETENTION_NOT_CONFIGURED")
+    if not isinstance(status, str) or status not in RETENTION_STATUSES:
+        status = "RETENTION_INCONCLUSIVE"
+
+    def day(value):
+        if not isinstance(value, str) or len(value) != 10:
+            return None
+        try:
+            return datetime.strptime(value, "%Y-%m-%d").date().isoformat()
+        except ValueError:
+            return None
+
+    def number(value):
+        return value if type(value) is int and 0 <= value <= 90 else None
+
+    rows = []
+    if isinstance(raw.get("calendar"), list):
+        for item in raw["calendar"][:90]:
+            item = _as_dict(item)
+            date_text = day(item.get("date"))
+            if date_text:
+                present = item.get("has_recording")
+                rows.append({"date": date_text,
+                             "has_recording": present if type(present) is bool else None})
+    return {
+        "status": status, "message": str(raw.get("message") or "Calendar not yet collected.")[:250],
+        "checked_at": str(raw.get("checked_at") or "")[:40],
+        "as_of_date": day(raw.get("as_of_date")),
+        "window_days": number(raw.get("window_days")),
+        "days_with_footage": number(raw.get("days_with_footage")),
+        "days_examined": number(raw.get("days_examined")),
+        "oldest_verified_date": day(raw.get("oldest_verified_date")),
+        "oldest_verified_age_days": number(raw.get("oldest_verified_age_days")),
+        "from_cache": raw.get("from_cache") is True,
+        "calendar": rows,
+    }
+
+
 def _public_camera_summary(value: object) -> dict:
     """Whitelist summary metadata; keep credentials and arbitrary JSON out of the API."""
     raw = _as_dict(value)
@@ -167,6 +215,7 @@ def _public_report(report: dict, path: Path) -> dict:
                 "historical_recording_result": _public_historical(
                     channel.get("historical_recording_result")
                 ),
+                "retention_result": _public_retention(channel.get("retention_result")),
                 "recording_expectation": (channel.get("recording_expectation")
                                           if isinstance(channel.get("recording_expectation"), str)
                                           and channel.get("recording_expectation") in {"continuous", "event", "unspecified"}
@@ -359,6 +408,7 @@ def read_dashboard_data() -> dict:
     all_channels = [ch for nvr in current_nvrs for ch in nvr["channels"]]
     rec_statuses = [ch["recording_result"]["status"] for ch in all_channels]
     historical_statuses = [ch["historical_recording_result"]["status"] for ch in all_channels]
+    retention_statuses = [ch["retention_result"]["status"] for ch in all_channels]
     summary = {
         "total_nvrs": len(nvrs),
         "healthy": sum(nvr["overall_status"] == "HEALTHY" for nvr in current_nvrs),
@@ -381,6 +431,12 @@ def read_dashboard_data() -> dict:
             and ch["recording_result"]["status"] == "NO_RECENT_RECORDING_EVIDENCE"
             for ch in all_channels
         ),
+        "retention_verified": retention_statuses.count("RETENTION_VERIFIED"),
+        "retention_partial": retention_statuses.count("RETENTION_PARTIAL"),
+        "retention_pending": retention_statuses.count("RETENTION_PENDING") + retention_statuses.count("RETENTION_STALE"),
+        "retention_unsupported": retention_statuses.count("RETENTION_UNSUPPORTED"),
+        "retention_errors": retention_statuses.count("RETENTION_ERROR") + retention_statuses.count("RETENTION_INCONCLUSIVE"),
+        "retention_not_configured": retention_statuses.count("RETENTION_NOT_CONFIGURED"),
         "historical_evidence": historical_statuses.count("HISTORICAL_RECORDING_FOUND"),
         "historical_no_evidence": historical_statuses.count("NO_HISTORICAL_EVIDENCE_IN_WINDOW"),
         "historical_unverified": sum(s not in {"HISTORICAL_RECORDING_FOUND", "NO_HISTORICAL_EVIDENCE_IN_WINDOW"} for s in historical_statuses),
