@@ -8,7 +8,8 @@ import smtplib
 import ssl
 import subprocess
 import sys
-from datetime import datetime
+import tempfile
+from datetime import datetime, timezone
 from email.message import EmailMessage
 from html import escape
 from pathlib import Path
@@ -43,6 +44,38 @@ if env_file.exists():
 
 INVENTORY_PATH = ROOT / "config" / "nvrs.local.json"
 REPORTS_DIR = ROOT / "reports"
+FLEET_RUN_FILENAME = "fleet_latest_run.json"
+
+
+def save_fleet_run_status(started_at: str, rows: list[dict]) -> None:
+    """Record each fleet attempt, including failures without JSON snapshots.
+
+    Atomic replacement keeps the dashboard from reading a partially written file.
+    Only fixed status/error codes and device IDs are stored; no credentials,
+    exceptions, IPs or device-provided text go into the manifest.
+    """
+    REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+    items = [{"id": str(row["id"]),
+              "result": "ERROR" if row.get("overall") == "ERROR" else "OK",
+              "reason": row.get("failure_code", "REPORT_UNAVAILABLE")
+                        if row.get("overall") == "ERROR" else None}
+             for row in rows]
+    manifest = {"schema_version": 1, "started_at": started_at,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "devices": items}
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=REPORTS_DIR,
+                                         prefix=".fleet_run_", suffix=".tmp",
+                                         delete=False) as file:
+            temporary = Path(file.name)
+            json.dump(manifest, file, ensure_ascii=True, separators=(",", ":"))
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, REPORTS_DIR / FLEET_RUN_FILENAME)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     """Send the consolidated NVR summary using authenticated SMTP."""
@@ -95,9 +128,12 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     online_missing_expected = sum(int(row.get("online_missing_expected", 0) or 0) for row in summary)
     recording_errors = sum(int(row.get("recording_errors", 0) or 0) for row in summary)
 
+    failures = counts["ERROR"]
+    successful = len(summary) - failures
     subject = (
         f"[NVR Report] {counts['CRITICAL']} critical, "
-        f"{counts['WARNING']} warning - {now:%Y-%m-%d}"
+        f"{counts['WARNING']} warning, "
+        f"{failures} report {'error' if failures == 1 else 'errors'} - {now:%Y-%m-%d}"
     )
 
     headers = (
@@ -124,12 +160,12 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
             status,
             item.get("storage", "UNKNOWN"),
             item.get("recording", "UNKNOWN"),
-            item.get("online", 0),
-            item.get("offline", 0),
-            item.get("recording_evidence", 0),
-            item.get("recording_missing", 0),
-            item.get("online_missing_expected", 0),
-            item.get("recording_errors", 0),
+            item.get("online", 0) if status != "ERROR" else "—",
+            item.get("offline", 0) if status != "ERROR" else "—",
+            item.get("recording_evidence", 0) if status != "ERROR" else "—",
+            item.get("recording_missing", 0) if status != "ERROR" else "—",
+            item.get("online_missing_expected", 0) if status != "ERROR" else "—",
+            item.get("recording_errors", 0) if status != "ERROR" else "—",
         ]
         escaped = [escape(str(value)) for value in cells]
         escaped[2] = (
@@ -144,6 +180,11 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
 <body style="font-family:Arial,sans-serif;color:#172033">
   <h2>Daily NVR Tracking Report</h2>
   <p>Report time: {now:%Y-%m-%d %H:%M:%S %Z}</p>
+  <p><strong>Fresh reports: {successful} of {len(summary)} NVRs</strong> ·
+     Report execution errors: {failures}</p>
+  <p style="color:#64748b;font-size:12px">Camera totals below cover successful
+     reports only. Failed devices are not counted as zero-camera devices;
+     their current camera conditions are unknown.</p>
   <table cellpadding="8" cellspacing="0"
     style="border-collapse:collapse;background:#f8fafc">
     <tr><td>Total NVRs</td><td><strong>{len(summary)}</strong></td>
@@ -173,7 +214,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     plain_lines = [
         "Daily NVR Tracking Report",
         f"Report time: {now:%Y-%m-%d %H:%M:%S %Z}",
-        f"Total NVRs: {len(summary)}",
+        f"Total NVRs: {len(summary)}; fresh reports: {successful}; report errors: {failures}",
         f"Healthy: {counts['HEALTHY']}; Warnings: {counts['WARNING']}; "
         f"Critical: {counts['CRITICAL']}; Errors: {counts['ERROR']}",
         f"Cameras online: {online}; Cameras offline: {offline}",
@@ -233,6 +274,7 @@ def main() -> int:
 
     summary = []
     execution_errors = 0
+    run_started_at = datetime.now(timezone.utc).isoformat()
 
     for nvr in nvrs:
         print(
@@ -264,12 +306,15 @@ def main() -> int:
                     int(os.environ.get("NVR_RECORDING_MAX_NVR_SECONDS", "300")) + 120,
                 ),
             )
-        except (subprocess.TimeoutExpired, ValueError):
+        except (subprocess.TimeoutExpired, ValueError, OSError) as exc:
             execution_errors += 1
+            failure_code = ("PROCESS_TIMEOUT" if isinstance(exc, subprocess.TimeoutExpired)
+                            else "PROCESS_START_FAILURE")
             summary.append({"id": nvr.id, "ip": nvr.ip, "overall": "ERROR",
                             "storage": "UNKNOWN", "recording": "NOT_REPORTED",
-                            "online": 0, "offline": 0})
-            print(f"Report process timed out for {nvr.id}.", file=sys.stderr)
+                            "online": 0, "offline": 0, "failure_code": failure_code})
+            print(f"Reporter process failed for {nvr.id}: {failure_code}.",
+                  file=sys.stderr)
             continue
 
         if result.stdout:
@@ -299,6 +344,7 @@ def main() -> int:
                 "recording": "NOT_REPORTED",
                 "online": 0,
                 "offline": 0,
+                "failure_code": "NO_SAVED_REPORT",
             })
             continue
 
@@ -321,6 +367,7 @@ def main() -> int:
                 "recording": "NOT_REPORTED",
                 "online": 0,
                 "offline": 0,
+                "failure_code": "REPORT_READ_ERROR",
             })
             continue
 
@@ -341,6 +388,13 @@ def main() -> int:
             "recording_errors": report.get("per_camera_recording", {}).get("search_errors", 0),
             "online_missing_expected": report.get("per_camera_recording", {}).get("online_missing_expected", 0),
         })
+
+    # Always publish an attempt record, even if one NVR saved no JSON report.
+    # Leave historical reports untouched and never include private inventory.
+    try:
+        save_fleet_run_status(run_started_at, summary)
+    except OSError:
+        print("WARNING: Could not save latest fleet-run status.", file=sys.stderr)
 
     print("\n" + "=" * 100)
     print("CONSOLIDATED NVR HEALTH SUMMARY")

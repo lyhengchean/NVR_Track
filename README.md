@@ -357,3 +357,31 @@ or overwrite an uninspected server file. When server tests and live reports
 pass, commit the validated changes on a review branch and push normally.
 On Windows, fetch that new branch and inspect local changes before merge;
 do not copy an older Windows directory over the Ubuntu version.
+
+
+## Latest fleet-run failure visibility
+
+The all-NVR reporting runner writes `reports/fleet_latest_run.json` atomically
+following each completed fleet run. It includes only NVR IDs and fixed success/error
+codes. This file is stored under the existing reports directory and must **not**
+be committed to Git. Existing JSON snapshots are never overwritten or deleted.
+
+A failed NVR might not produce a new `nvr-XX_*.json` snapshot. The dashboard
+compares the latest completed fleet-run manifest with saved report timestamps.
+If the fleet run failed and no newer successful report exists, the NVR is marked
+**Report failed**, the previous camera/storage details remain accessible with an
+explicit **last successful report** warning, and old values are **excluded** from
+fresh fleet totals. The stale/failed counter includes those devices, even if their
+last snapshot is less than 26 hours old. Individual single-NVR reports created
+afterward can clear a previous run failure for that NVR.
+
+The consolidated email states how many NVRs produced reports and how many failed.
+Camera counts in that email exclude execution-error rows. This distinction is
+important when an NVR has an old successful snapshot but the current scheduled
+report failed. If no `fleet_latest_run.json` exists (reports from an older
+version), the dashboard remains compatible with the existing snapshot-only view.
+
+A one-off `ERROR` in the email does not identify the reason for the process
+failure. Check the relevant time window in `reports/scheduler.log` for safe,
+fixed-code diagnostics, and investigate the NVR read-only before assuming a
+disk or camera failure.

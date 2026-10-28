@@ -4,6 +4,7 @@ import base64
 import hmac
 import json
 import os
+import re
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -241,8 +242,54 @@ def _is_fresh(timestamp: str) -> bool:
         return False
 
 
+def _read_fleet_run_state() -> tuple[dict[str, str], datetime | None, int]:
+    """Read fixed-code run failures; never expose raw manifest content."""
+    path = REPORTS_DIR / "fleet_latest_run.json"
+    if not path.exists():
+        return {}, None, 0  # Compatible with saved reports from older releases.
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
+            raise ValueError("Unexpected fleet-run manifest")
+        started = datetime.fromisoformat(manifest["started_at"])
+        completed = datetime.fromisoformat(manifest["completed_at"])
+        if (started.tzinfo is None or completed.tzinfo is None
+                or started > completed
+                or completed.astimezone(timezone.utc) >
+                datetime.now(timezone.utc).replace(microsecond=999999)):
+            raise ValueError("Invalid fleet-run timestamps")
+        devices = manifest.get("devices")
+        if not isinstance(devices, list) or len(devices) > 1000:
+            raise ValueError("Invalid device results")
+        codes = {"PROCESS_TIMEOUT", "PROCESS_START_FAILURE", "NO_SAVED_REPORT",
+                 "REPORT_READ_ERROR", "REPORT_UNAVAILABLE"}
+        failed = {}
+        for item in devices:
+            if not isinstance(item, dict):
+                raise ValueError("Invalid device row")
+            device_id = item.get("id")
+            if not isinstance(device_id, str) or not re.fullmatch(r"nvr-\d{2,4}", device_id):
+                raise ValueError("Invalid device ID")
+            if item.get("result") == "ERROR":
+                reason = item.get("reason")
+                failed[device_id] = reason if reason in codes else "REPORT_UNAVAILABLE"
+            elif item.get("result") != "OK":
+                raise ValueError("Invalid run status")
+        return failed, started.astimezone(timezone.utc), 0
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return {}, None, 1
+
+
+def _checked_after(timestamp: str, started_at: datetime) -> bool:
+    try:
+        checked = datetime.fromisoformat(timestamp)
+        return checked.tzinfo is not None and checked.astimezone(timezone.utc) >= started_at
+    except (ValueError, TypeError):
+        return False
+
+
 def read_dashboard_data() -> dict:
-    """Read the newest JSON report for each NVR."""
+    """Read saved reports and annotate newer failed fleet attempts."""
     latest: dict[str, tuple[int, dict, Path]] = {}
     report_errors = 0
 
@@ -281,19 +328,49 @@ def read_dashboard_data() -> dict:
         _public_report(report, path)
         for _, report, path in latest.values()
     ]
+    failed, run_started, manifest_errors = _read_fleet_run_state()
+    report_errors += manifest_errors
+    for nvr in nvrs:
+        nvr["last_run_failed"] = False
+        nvr["last_run_failure_code"] = None
+        nvr["last_known_overall_status"] = nvr["overall_status"]
+        if (run_started is not None and nvr["id"] in failed
+                and not _checked_after(nvr["last_check"], run_started)):
+            nvr["last_run_failed"] = True
+            nvr["last_run_failure_code"] = failed[nvr["id"]]
+            nvr["overall_status"] = "ERROR"
+    known_ids = {nvr["id"] for nvr in nvrs}
+    if run_started is not None:
+        for device_id, failure_code in failed.items():
+            if device_id in known_ids:
+                continue
+            placeholder = _public_report({"nvr": {"id": device_id},
+                                          "overall": {"status": "ERROR"}},
+                                         Path("no_saved_report.json"))
+            placeholder.update(last_run_failed=True,
+                               last_run_failure_code=failure_code,
+                               last_known_overall_status=None)
+            nvrs.append(placeholder)
     nvrs.sort(key=lambda item: item["id"])
 
-    all_channels = [ch for nvr in nvrs for ch in nvr["channels"]]
+    # Preserve last-known camera data in the device card, but never count it
+    # as a fresh observation after a failed fleet run.
+    current_nvrs = [nvr for nvr in nvrs if not nvr["last_run_failed"]]
+    all_channels = [ch for nvr in current_nvrs for ch in nvr["channels"]]
     rec_statuses = [ch["recording_result"]["status"] for ch in all_channels]
     historical_statuses = [ch["historical_recording_result"]["status"] for ch in all_channels]
     summary = {
         "total_nvrs": len(nvrs),
-        "healthy": sum(nvr["overall_status"] == "HEALTHY" for nvr in nvrs),
-        "warning": sum(nvr["overall_status"] == "WARNING" for nvr in nvrs),
-        "critical": sum(nvr["overall_status"] == "CRITICAL" for nvr in nvrs),
-        "cameras_online": sum(nvr["online_channels"] or 0 for nvr in nvrs),
-        "cameras_offline": sum(nvr["offline_channels"] or 0 for nvr in nvrs),
-        "cameras_unknown": sum(nvr["unknown_channels"] or 0 for nvr in nvrs),
+        "healthy": sum(nvr["overall_status"] == "HEALTHY" for nvr in current_nvrs),
+        "warning": sum(nvr["overall_status"] == "WARNING" for nvr in current_nvrs),
+        "critical": sum(nvr["overall_status"] == "CRITICAL" for nvr in current_nvrs),
+        "latest_run_failed": sum(nvr["last_run_failed"] for nvr in nvrs),
+        "latest_run_reporting": len(current_nvrs),
+        "last_known_cameras_on_failed_nvrs": sum(len(nvr["channels"]) for nvr in nvrs
+                                               if nvr["last_run_failed"]),
+        "cameras_online": sum(nvr["online_channels"] or 0 for nvr in current_nvrs),
+        "cameras_offline": sum(nvr["offline_channels"] or 0 for nvr in current_nvrs),
+        "cameras_unknown": sum(nvr["unknown_channels"] or 0 for nvr in current_nvrs),
         "recording_evidence": sum(s in EVIDENCE_STATUSES for s in rec_statuses),
         "recording_no_evidence": rec_statuses.count("NO_RECENT_RECORDING_EVIDENCE"),
         "recording_unverified": sum(s in UNVERIFIED_STATUSES for s in rec_statuses),
@@ -324,10 +401,10 @@ def read_dashboard_data() -> dict:
             for ch in all_channels
         ),
         "stale_reports": sum(
-            not nvr["last_check"] or not _is_fresh(nvr["last_check"]) for nvr in nvrs
+            nvr["last_run_failed"] or not nvr["last_check"] or not _is_fresh(nvr["last_check"]) for nvr in nvrs
         ),
         "last_successful_report": max(
-            (nvr["last_check"] for nvr in nvrs if nvr["last_check"] and
+            (nvr["last_check"] for nvr in current_nvrs if nvr["last_check"] and
              nvr["overall_status"] in {"HEALTHY", "WARNING", "CRITICAL"}),
             default=None,
         ),
@@ -335,8 +412,8 @@ def read_dashboard_data() -> dict:
                                      and (ch["recording_result"]["status"] in EVIDENCE_STATUSES
                                           or ch["historical_recording_result"]["status"] == "HISTORICAL_RECORDING_FOUND")
                                      for ch in all_channels),
-        "storage_warnings": sum(nvr["storage_status"] == "WARNING" for nvr in nvrs),
-        "storage_critical": sum(nvr["storage_status"] == "CRITICAL" for nvr in nvrs),
+        "storage_warnings": sum(nvr["storage_status"] == "WARNING" for nvr in current_nvrs),
+        "storage_critical": sum(nvr["storage_status"] == "CRITICAL" for nvr in current_nvrs),
     }
 
     return {
