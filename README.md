@@ -275,6 +275,19 @@ For a host test environment: `python3 -m venv .venv && .venv/bin/pip install
 Do **not** add pytest to the runtime image to work around the earlier
 `No module named pytest` message.
 
+## One-step deploy and full check (Ubuntu)
+
+```bash
+cd /opt/NVR_Track && git pull --ff-only && sudo bash scripts/deploy_check.sh
+```
+
+Backs up the project (without `reports/`) to `/root`, pulls `main`, runs the
+test image, rebuilds, recreates only `nvr-dashboard`, saves a fresh read-only
+report for every NVR (no email), then checks the dashboard data, the 08:00
+cron line, the last email result, `.env` permissions, Git ignores and the
+server's packet loss. It ends with `RESULT: n PASS, n WARN, n FAIL` and saves
+the log to `/root/nvr-track-check-<time>.txt`.
+
 ## Daily schedule and email
 
 The desired production schedule is **08:00 Asia/Phnom_Penh**; this
