@@ -310,6 +310,22 @@ succeeds. No emails are sent by the unit tests.
   overwrite/quota review, **not proof of disk failure**. The current ISAPI
   HDD response does not by itself verify whether overwrite is enabled or
   whether an expected disk is missing; inspect those facts read-only.
+- Brief NVR outages: a read that fails only because the NVR could not be
+  reached (device info, channel list, live status, storage, track list, clock
+  or one camera search) is repeated once after
+  `NVR_RECORDING_RETRY_DELAY_SECONDS` (default 15, `0` disables). Login,
+  permission and HTTP errors are never retried.
+- Channel list timed out but live status worked: every channel is still
+  reported from the status list (`channel_inventory.channel_source` =
+  `CHANNEL_STATUS_FALLBACK`) and gets its recording check; names and IPs are
+  blank and the inventory stays unverified.
+- "Cameras with no result (NVR unreachable)" on the dashboard counts expected
+  cameras that the latest report could not list. These are never counted as
+  recording.
+- Many NVRs timing out at once: test the server's own link first
+  (`ping -c 100 -i 0.2 -q <gateway>` and `ip -s link show <interface>`). Packet
+  loss to the gateway or growing RX drops is a host/VM network problem, not an
+  NVR or code fault.
 
 ## Ubuntu verification checklist (without changing unrelated services)
 
