@@ -252,8 +252,16 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
                       retention_enabled: bool = False, retention_days: int = 30,
                       retention_max_cameras: int = 2, retention_ttl_hours: int = 168,
                       previous_retention: dict | None = None,
-                      retention_scan=scan_calendar) -> dict:
-    """Process cameras sequentially; searches include offline cameras."""
+                      retention_scan=scan_calendar,
+                      retry_delay_seconds: int = 15,
+                      sleep=time.sleep) -> dict:
+    """Process cameras sequentially; searches include offline cameras.
+
+    A request that fails only because the NVR could not be reached (track list,
+    clock or one camera search) is retried once after ``retry_delay_seconds``,
+    within the time budget. Short network drops then do not appear as
+    unverified mappings or search errors. 0 disables the retry.
+    """
     mapping = {"status": "NOT_CONFIGURED", "track_count": None}
     if not enabled:
         for ch in channels:
@@ -271,7 +279,15 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
         return result
 
     started = time.monotonic()
+
+    def may_retry() -> bool:
+        return (retry_delay_seconds > 0
+                and time.monotonic() - started + retry_delay_seconds < budget_seconds)
+
     tracks_response = get_tracks(ip, port, username, password)
+    if tracks_response["status"] == "CONNECTION_ERROR" and may_retry():
+        sleep(retry_delay_seconds)
+        tracks_response = get_tracks(ip, port, username, password)
     mapping = {"status": tracks_response["status"],
                "track_count": len(tracks_response["tracks"]) if tracks_response["status"] == "VERIFIED" else None}
     if tracks_response["status"] != "VERIFIED":
@@ -286,6 +302,9 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
         return result
 
     clock = get_clock(ip, port, username, password)
+    if clock is None and may_retry():
+        sleep(retry_delay_seconds)
+        clock = get_clock(ip, port, username, password)
     clock_read_at = time.monotonic()
     mapping["nvr_clock_offset_seconds_approx"] = (
         round((clock[0] - datetime.now(timezone.utc)).total_seconds())
@@ -307,12 +326,21 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
             ch["recording_result"]["track_verified"] = True
         else:
             # All calls complete in order: never overlap recording searches.
-            elapsed = timedelta(seconds=time.monotonic() - clock_read_at)
+            def run_search(track_id=track_id):
+                elapsed = timedelta(seconds=time.monotonic() - clock_read_at)
+                return search(ip=ip, username=username, password=password, port=port,
+                              track_id=track_id, minutes=minutes, max_results=max_results,
+                              clock_snapshot=(clock[0] + elapsed, clock[1]))
             try:
-                raw = search(ip=ip, username=username, password=password, port=port,
-                             track_id=track_id, minutes=minutes, max_results=max_results,
-                             clock_snapshot=(clock[0] + elapsed, clock[1]))
+                raw = run_search()
+                retried = False
+                if raw.get("status") == "CONNECTION_OR_REQUEST_ERROR" and may_retry():
+                    sleep(retry_delay_seconds)
+                    raw = run_search()
+                    retried = True
                 ch["recording_result"] = simplify_search(raw, track_id, minutes)
+                if retried:
+                    ch["recording_result"]["retried_after_connection_error"] = True
                 if raw.get("status") in {"AUTHENTICATION_FAILED", "PERMISSION_DENIED", "ENDPOINT_UNAVAILABLE"}:
                     disabled_search_reason = "Subsequent searches skipped after endpoint/authentication failure."
             except Exception:

@@ -296,6 +296,7 @@ def main() -> int:
         retention_max_cameras=integer_setting("NVR_RETENTION_MAX_CAMERAS_PER_RUN", 2, 0, 32),
         retention_ttl_hours=integer_setting("NVR_RETENTION_CACHE_HOURS", 168, 1, 720),
         previous_retention=read_previous_retention(report_dir, configured_nvr.id),
+        retry_delay_seconds=integer_setting("NVR_RECORDING_RETRY_DELAY_SECONDS", 15, 0, 60),
     )
 
     overall = determine_overall_status(

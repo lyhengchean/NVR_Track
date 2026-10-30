@@ -174,7 +174,118 @@ class CameraBatchTests(TestCase):
         clock.return_value=None
         search=MagicMock()
         summary=check_all_cameras(ip='192.0.2.1',port=80,username='a',password='b',
-                                  channels=self.channels,enabled=True,search=search)
+                                  channels=self.channels,enabled=True,search=search,
+                                  sleep=lambda seconds: None)
+        self.assertEqual(clock.call_count, 2)   # one retry for an unreachable clock
         search.assert_not_called()
         self.assertEqual(summary['inconclusive'],3)
         self.assertEqual(summary['evidence'],0)
+
+
+class ConnectionRetryTests(TestCase):
+    """A brief network drop is retried once; other failures are not."""
+
+    def setUp(self):
+        self.channels = [{'channel_id': '1', 'reported_status': 'ONLINE'},
+                         {'channel_id': '2', 'reported_status': 'ONLINE'}]
+        self.clock = (datetime(2026, 10, 26, 9, tzinfo=timezone.utc), timezone(timedelta(hours=7)))
+        self.found = lambda tid: {
+            'status': 'RECORDING_EVIDENCE_FOUND', 'num_matches': 1,
+            'matches': [{'track_id': tid, 'start_utc': '2026-10-26T08:30:00+00:00',
+                         'end_utc': '2026-10-26T08:59:00+00:00'}]}
+
+    def run_batch(self, search, delay=15, **extra):
+        self.sleeps = []
+        return check_all_cameras(ip='192.0.2.1', port=80, username='a', password='b',
+                                 channels=self.channels, enabled=True, search=search,
+                                 retry_delay_seconds=delay, sleep=self.sleeps.append, **extra)
+
+    @patch('app.camera_recording.get_clock')
+    @patch('app.camera_recording.get_tracks')
+    def test_connection_error_is_retried_once_and_can_recover(self, tracks, clock):
+        tracks.return_value = {'status': 'VERIFIED', 'tracks': {101: '1', 201: '2'}}
+        clock.return_value = self.clock
+        calls = []
+        def search(**kw):
+            calls.append(kw['track_id'])
+            if kw['track_id'] == 101 and calls.count(101) == 1:
+                return {'status': 'CONNECTION_OR_REQUEST_ERROR', 'message': 'timed out'}
+            return self.found(kw['track_id'])
+        summary = self.run_batch(search)
+        self.assertEqual(calls, [101, 101, 201])
+        self.assertEqual(self.sleeps, [15])
+        self.assertEqual(summary['evidence'], 2)
+        self.assertTrue(self.channels[0]['recording_result']['retried_after_connection_error'])
+        self.assertNotIn('retried_after_connection_error', self.channels[1]['recording_result'])
+
+    @patch('app.camera_recording.get_clock')
+    @patch('app.camera_recording.get_tracks')
+    def test_persistent_connection_error_stays_check_error(self, tracks, clock):
+        tracks.return_value = {'status': 'VERIFIED', 'tracks': {101: '1', 201: '2'}}
+        clock.return_value = self.clock
+        calls = []
+        def search(**kw):
+            calls.append(kw['track_id'])
+            return {'status': 'CONNECTION_OR_REQUEST_ERROR', 'message': 'timed out'}
+        summary = self.run_batch(search)
+        self.assertEqual(calls, [101, 101, 201, 201])   # one retry per camera, never more
+        self.assertEqual(summary['search_errors'], 2)
+        self.assertEqual(summary['evidence'], 0)
+
+    @patch('app.camera_recording.get_clock')
+    @patch('app.camera_recording.get_tracks')
+    def test_other_failures_and_no_matches_are_not_retried(self, tracks, clock):
+        tracks.return_value = {'status': 'VERIFIED', 'tracks': {101: '1', 201: '2'}}
+        clock.return_value = self.clock
+        calls = []
+        def search(**kw):
+            calls.append(kw['track_id'])
+            return ({'status': 'NO_MATCHES_IN_WINDOW', 'matches': [], 'num_matches': 0}
+                    if kw['track_id'] == 101 else
+                    {'status': 'INCONSISTENT_OR_UNEXPECTED_RESPONSE', 'message': 'bad'})
+        self.run_batch(search)
+        self.assertEqual(calls, [101, 201])
+        self.assertEqual(self.sleeps, [])
+
+    @patch('app.camera_recording.get_clock')
+    @patch('app.camera_recording.get_tracks')
+    def test_zero_delay_disables_retry(self, tracks, clock):
+        tracks.return_value = {'status': 'VERIFIED', 'tracks': {101: '1', 201: '2'}}
+        clock.return_value = self.clock
+        calls = []
+        def search(**kw):
+            calls.append(kw['track_id'])
+            return {'status': 'CONNECTION_OR_REQUEST_ERROR', 'message': 'timed out'}
+        self.run_batch(search, delay=0)
+        self.assertEqual(calls, [101, 201])
+        self.assertEqual(self.sleeps, [])
+
+    @patch('app.camera_recording.get_clock')
+    @patch('app.camera_recording.get_tracks')
+    def test_track_list_and_clock_connection_failures_are_retried(self, tracks, clock):
+        tracks.side_effect = [{'status': 'CONNECTION_ERROR', 'tracks': {}, 'message': 'timed out'},
+                              {'status': 'VERIFIED', 'tracks': {101: '1', 201: '2'}}]
+        clock.side_effect = [None, self.clock]
+        summary = self.run_batch(lambda **kw: self.found(kw['track_id']))
+        self.assertEqual(tracks.call_count, 2)
+        self.assertEqual(clock.call_count, 2)
+        self.assertEqual(self.sleeps, [15, 15])
+        self.assertEqual(summary['evidence'], 2)
+        self.assertEqual(summary['track_mapping_problems'], 0)
+
+    @patch('app.camera_recording.get_tracks')
+    def test_track_list_permission_problem_is_not_retried(self, tracks):
+        tracks.return_value = {'status': 'PERMISSION_DENIED', 'tracks': {}, 'message': 'no'}
+        summary = self.run_batch(MagicMock())
+        self.assertEqual(tracks.call_count, 1)
+        self.assertEqual(self.sleeps, [])
+        self.assertEqual(summary['track_mapping_problems'], 2)
+
+    @patch('app.camera_recording.get_clock')
+    @patch('app.camera_recording.get_tracks')
+    def test_retry_never_exceeds_the_time_budget(self, tracks, clock):
+        tracks.return_value = {'status': 'CONNECTION_ERROR', 'tracks': {}, 'message': 'x'}
+        summary = self.run_batch(MagicMock(), delay=20, budget_seconds=15)
+        self.assertEqual(tracks.call_count, 1)
+        self.assertEqual(self.sleeps, [])
+        self.assertEqual(summary['track_mapping_problems'], 2)
