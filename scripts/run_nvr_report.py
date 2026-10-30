@@ -380,10 +380,14 @@ def main() -> int:
     timestamp = completed_at.strftime("%Y%m%dT%H%M%S%f%z")
     output_path = report_dir / f"{configured_nvr.id}_{timestamp}.json"
 
-    output_path.write_text(
+    # Write to a hidden temporary file, then rename, so the dashboard and the
+    # next run never read a half-written report.
+    temporary_path = report_dir / f".{output_path.name}.tmp"
+    temporary_path.write_text(
         json.dumps(report, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    os.replace(temporary_path, output_path)
 
     print("\n========== NVR REPORT ==========")
     print(f"Overall status: {overall['status']}")

@@ -3,7 +3,9 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from unittest.mock import patch
 
 from app import dashboard
@@ -32,18 +34,22 @@ class FleetRunReconciliationTests(unittest.TestCase):
             "storage": {"status": "CRITICAL" if status == "CRITICAL" else "WARNING"},
         }), encoding="utf-8")
 
-    def status_manifest(self, failed):
+    def status_manifest(self, failed, started="2026-10-28T08:00:00+07:00"):
         rows = [{"id": "nvr-01", "overall": "CRITICAL"},
                 {"id": "nvr-04", "overall": "ERROR", "failure_code": "PROCESS_TIMEOUT"}]
         if not failed:
             rows[1]["overall"] = "WARNING"
         with patch.object(fleet, "REPORTS_DIR", self.root):
-            fleet.save_fleet_run_status("2026-10-28T08:00:00+07:00", rows)
+            fleet.save_fleet_run_status(started, rows)
 
     def test_failed_nvr_displays_previous_details_but_not_in_fresh_totals(self):
-        self.report("nvr-01", "2026-10-28T08:00:20+07:00", online=1, offline=0, status="CRITICAL")
-        self.report("nvr-04", "2026-10-27T10:09:00+07:00", online=30, offline=16, status="CRITICAL")
-        self.status_manifest(True)
+        # Relative times keep "fresh" (< 26 h) true whenever the test runs.
+        run_started = datetime.now(ZoneInfo("Asia/Phnom_Penh")) - timedelta(hours=1)
+        self.report("nvr-01", (run_started + timedelta(seconds=20)).isoformat(),
+                    online=1, offline=0, status="CRITICAL")
+        self.report("nvr-04", (run_started - timedelta(hours=22)).isoformat(),
+                    online=30, offline=16, status="CRITICAL")
+        self.status_manifest(True, run_started.isoformat())
         with patch.object(dashboard, "REPORTS_DIR", self.root):
             data = dashboard.read_dashboard_data()
         summary = data["summary"]
