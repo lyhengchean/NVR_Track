@@ -288,6 +288,27 @@ cron line, the last email result, `.env` permissions, Git ignores and the
 server's packet loss. It ends with `RESULT: n PASS, n WARN, n FAIL` and saves
 the log to `/root/nvr-track-check-<time>.txt`.
 
+## Fill every camera column (Ubuntu)
+
+```bash
+cd /opt/NVR_Track && sudo bash scripts/fill_calendars.sh
+```
+
+Sets `NVR_RETENTION_MAX_CAMERAS_PER_RUN=32`, `NVR_HISTORICAL_MAX_CAMERAS_PER_RUN=8`
+and `NVR_DEFAULT_RECORDING_EXPECTATION=continuous` in `.env` (backup in `/root`),
+rebuilds, then repeats read-only reports (no email) until no calendar is pending.
+With 32 calendar checks per run, the 08:00 run refreshes every camera's calendar
+well within the 168-hour cache, so the columns stay filled.
+
+Empty-looking columns that are expected:
+- *Historical recording: Not needed (recording now)* — a camera with recent
+  recording evidence needs no history search.
+- *Oldest day found / Oldest age* stay "—" for a camera with no recorded day
+  in the 30-day calendar window.
+- *Expectation* — `continuous` comes from the default; set `event` (or
+  `unspecified`) for individual channels in `config/nvrs.local.json`
+  under `recording_expectations`.
+
 ## Daily schedule and email
 
 The desired production schedule is **08:00 Asia/Phnom_Penh**; this

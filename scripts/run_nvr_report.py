@@ -35,6 +35,15 @@ def storage_unreachable(storage) -> bool:
         and "Network" in storage.message
 
 
+def default_recording_expectation() -> str:
+    """Expectation for channels the inventory does not list individually."""
+    value = os.environ.get("NVR_DEFAULT_RECORDING_EXPECTATION", "unspecified").strip().lower()
+    if value in {"continuous", "event", "unspecified"}:
+        return value
+    print("Invalid NVR_DEFAULT_RECORDING_EXPECTATION; using unspecified.")
+    return "unspecified"
+
+
 def channel_sources(inventory, channel_status_result) -> tuple[list, str]:
     """Channels to report on, and where the list came from.
 
@@ -266,6 +275,8 @@ def main() -> int:
         for item in channel_status_result.channels
     }
 
+    default_expectation = default_recording_expectation()
+
     channel_rows = []
     report_channels, channel_source = channel_sources(inventory, channel_status_result)
 
@@ -288,7 +299,7 @@ def main() -> int:
             "management_port": channel.management_port,
             "reported_status": state,
             "recording_expectation": configured_nvr.recording_expectations.get(
-                str(channel.channel_id), "unspecified"
+                str(channel.channel_id), default_expectation
             ),
         })
 

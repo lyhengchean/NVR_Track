@@ -35,7 +35,7 @@ body{margin:0;min-width:310px}button,input,select{font:inherit}button{cursor:poi
 .status.HISTORICAL_RECORDING_FOUND{background:#dcfce7;color:#166534}
 .status.HISTORICAL_CHECK_ERROR,.status.HISTORICAL_CHECK_INCONCLUSIVE{background:#fef3c7;color:#92400e}
 .status.NO_HISTORICAL_EVIDENCE_IN_WINDOW{background:#fff7ed;color:#9a3412}
-.status.HISTORICAL_NOT_CHECKED,.status.HISTORICAL_NOT_CONFIGURED,.status.NOT_CHECKED,.status.NOT_CONFIGURED{background:#f1f5f9;color:#475569}
+.status.HISTORICAL_NOT_CHECKED,.status.HISTORICAL_NOT_NEEDED,.status.HISTORICAL_NOT_CONFIGURED,.status.NOT_CHECKED,.status.NOT_CONFIGURED{background:#f1f5f9;color:#475569}
 .status.CHECK_INCONCLUSIVE{background:#fef3c7;color:#92400e}
 .status.ERROR{background:#fee2e2;color:#991b1b}
 .fleet-failure{margin:14px 0 0;padding:11px 13px;border:1px solid #fecaca;background:#fff1f2;color:#9f1239;font-size:12px;line-height:1.5;border-radius:9px;font-weight:650}
@@ -113,7 +113,7 @@ const statusLabels = {
   NOT_CONFIGURED:"Not configured", HISTORICAL_RECORDING_FOUND:"Historical found",
   NO_HISTORICAL_EVIDENCE_IN_WINDOW:"No historical evidence",
   HISTORICAL_CHECK_INCONCLUSIVE:"Historical inconclusive",
-  HISTORICAL_CHECK_ERROR:"Historical error", HISTORICAL_NOT_CHECKED:"Not checked",
+  HISTORICAL_CHECK_ERROR:"Historical error", HISTORICAL_NOT_CHECKED:"Not checked", HISTORICAL_NOT_NEEDED:"Not needed (recording now)",
   HISTORICAL_NOT_CONFIGURED:"Not configured",
   RETENTION_VERIFIED:"Verified dates", RETENTION_PARTIAL:"Partial calendar",
   RETENTION_PENDING:"Pending", RETENTION_STALE:"Previous scan",
@@ -230,17 +230,19 @@ inside.append(table(
   ["Ch.","Camera name","Camera IP","Live","Recorded days","Oldest day found","Oldest age","Calendar status","Date evidence","Expectation","Recent recording","Historical recording","Track","Matches","Recent segment end","Historical segment end","Recent window (ICT)","Historical window (ICT)","Recent checked","Historical checked","Intervals","Complete","Explanation"],
   channels.map(ch=>{
     const r=ch.recording_result||{},h=ch.historical_recording_result||{},t=ch.retention_result||{};
+    // A camera recording right now needs no history search; say so instead of "Not checked".
+    const notNeeded=evidence.has(r.status)&&h.status==="HISTORICAL_NOT_CHECKED"&&!h.checked_at;
     return [
       ch.channel_id,ch.name,ch.camera_ip,status(ch.reported_status),
       recordingDays(t),t.oldest_verified_date||"—",
       Number.isInteger(t.oldest_verified_age_days)?t.oldest_verified_age_days+" days":"—",
       status(t.status),calendarStrip(t),ch.recording_expectation,
-      status(r.status),status(h.status),r.track_id,r.num_matches,
+      status(r.status),status(notNeeded?"HISTORICAL_NOT_NEEDED":h.status),r.track_id,r.num_matches,
       stamp(r.most_recent_segment_end),stamp(h.most_recent_segment_end),
       timeWindow(r.requested_window_utc),timeWindow(h.requested_window_utc),
       stamp(r.checked_at),stamp(h.checked_at)+(h.from_cache?" (cached)":""),
-      h.intervals_examined?.length??0,h.search_complete?"Yes":"No",
-      (r.message||"")+" · Historical: "+(h.message||"")
+      notNeeded?"—":h.intervals_examined?.length??0,notNeeded?"—":h.search_complete?"Yes":"No",
+      (r.message||"")+(notNeeded?"":" · Historical: "+(h.message||""))
     ];
   }),
   "camera-table"
