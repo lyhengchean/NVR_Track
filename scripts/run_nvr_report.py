@@ -4,12 +4,14 @@ import sys
 import argparse
 from datetime import datetime, timezone
 import json
+import time
 from getpass import getpass
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app.config import InventoryError, load_inventory
 from app.isapi import (
+    ChannelInfo,
     get_channel_inventory,
     get_channel_statuses,
     get_device_info,
@@ -24,6 +26,28 @@ from app.storage import get_storage_check
 ROOT = Path(__file__).resolve().parent.parent
 INVENTORY_PATH = ROOT / "config" / "nvrs.local.json"
 TIMEZONE = ZoneInfo("Asia/Phnom_Penh")
+NETWORK_FAILURES = {"TIMEOUT", "CONNECTION_ERROR"}
+
+
+def storage_unreachable(storage) -> bool:
+    """Storage reports network failures as UNKNOWN without an HTTP status."""
+    return storage.status == "UNKNOWN" and storage.http_status is None and not storage.disks \
+        and "Network" in storage.message
+
+
+def channel_sources(inventory, channel_status_result) -> tuple[list, str]:
+    """Channels to report on, and where the list came from.
+
+    If the inventory request failed but the status request worked, the status
+    list still names every channel, so cameras keep a row (without name or IP)
+    and still get a recording check instead of disappearing from the report.
+    """
+    if inventory.status == "CHANNELS_RETRIEVED":
+        return list(inventory.channels), "CHANNEL_INVENTORY"
+    if channel_status_result.status == "CHANNEL_STATUS_RETRIEVED" and channel_status_result.channels:
+        return [ChannelInfo(channel_id=item.channel_id) for item in channel_status_result.channels], \
+            "CHANNEL_STATUS_FALLBACK"
+    return [], "UNAVAILABLE"
 
 
 def now_local() -> datetime:
@@ -168,20 +192,6 @@ def main() -> int:
         f"at {configured_nvr.ip}:{http_port}..."
     )
 
-    device = get_device_info(
-        configured_nvr.ip, username, password, http_port
-    )
-    inventory = get_channel_inventory(
-        configured_nvr.ip, username, password, http_port
-    )
-    channel_status_result = get_channel_statuses(
-        configured_nvr.ip, username, password, http_port
-    )
-    storage = get_storage_check(
-        configured_nvr.ip, username, password, http_port,
-        expected_sata_hdd_ids=configured_nvr.expected_sata_hdd_ids,
-    )
-
     def integer_setting(name: str, default: int, lower: int, upper: int) -> int:
         try:
             value = int(os.environ.get(name, str(default)))
@@ -191,6 +201,30 @@ def main() -> int:
             pass
         print(f"Invalid {name}; using safe default {default}.")
         return default
+
+    retry_delay = integer_setting("NVR_RECORDING_RETRY_DELAY_SECONDS", 15, 0, 60)
+
+    def read_with_retry(read, network_failure):
+        """Repeat one read-only GET once if the NVR was briefly unreachable."""
+        result = read()
+        if retry_delay > 0 and network_failure(result):
+            time.sleep(retry_delay)
+            result = read()
+        return result
+
+    def unreachable(result) -> bool:
+        return result.status in NETWORK_FAILURES
+
+    device = read_with_retry(lambda: get_device_info(
+        configured_nvr.ip, username, password, http_port), unreachable)
+    inventory = read_with_retry(lambda: get_channel_inventory(
+        configured_nvr.ip, username, password, http_port), unreachable)
+    channel_status_result = read_with_retry(lambda: get_channel_statuses(
+        configured_nvr.ip, username, password, http_port), unreachable)
+    storage = read_with_retry(lambda: get_storage_check(
+        configured_nvr.ip, username, password, http_port,
+        expected_sata_hdd_ids=configured_nvr.expected_sata_hdd_ids,
+    ), storage_unreachable)
 
     window_minutes = integer_setting("NVR_RECORDING_WINDOW_MINUTES", 60, 1, 1440)
     max_results = integer_setting("NVR_RECORDING_MAX_RESULTS", 10, 1, 64)
@@ -233,8 +267,9 @@ def main() -> int:
     }
 
     channel_rows = []
+    report_channels, channel_source = channel_sources(inventory, channel_status_result)
 
-    for channel in inventory.channels:
+    for channel in report_channels:
         online = status_by_id.get(channel.channel_id)
 
         if channel.channel_id not in status_by_id:
@@ -296,7 +331,7 @@ def main() -> int:
         retention_max_cameras=integer_setting("NVR_RETENTION_MAX_CAMERAS_PER_RUN", 2, 0, 32),
         retention_ttl_hours=integer_setting("NVR_RETENTION_CACHE_HOURS", 168, 1, 720),
         previous_retention=read_previous_retention(report_dir, configured_nvr.id),
-        retry_delay_seconds=integer_setting("NVR_RECORDING_RETRY_DELAY_SECONDS", 15, 0, 60),
+        retry_delay_seconds=retry_delay,
     )
 
     overall = determine_overall_status(
@@ -345,6 +380,7 @@ def main() -> int:
                 else None
             ),
             "channels": channel_rows,
+            "channel_source": channel_source,
             "message": inventory.message,
         },
         "channel_status": {

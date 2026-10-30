@@ -208,8 +208,8 @@ def _public_report(report: dict, path: Path) -> dict:
                               if "recording_status" in channel else None))
             channels.append({
                 "channel_id": str(channel.get("channel_id", "")),
-                "name": str(channel.get("name", "")),
-                "camera_ip": str(channel.get("camera_ip", "")),
+                "name": str(channel.get("name") or ""),
+                "camera_ip": str(channel.get("camera_ip") or ""),
                 "management_port": channel.get("management_port"),
                 "recording_result": _public_recording(per_camera),
                 "historical_recording_result": _public_historical(
@@ -248,8 +248,9 @@ def _public_report(report: dict, path: Path) -> dict:
         "ip": str(nvr.get("ip", "")),
         "http_port": nvr.get("http_port"),
         "server_port": nvr.get("server_port"),
-        "model": str(device.get("model", "")),
-        "firmware_version": str(device.get("firmware_version", "")),
+        "model": str(device.get("model") or ""),
+        "firmware_version": str(device.get("firmware_version") or ""),
+        "channel_source": str(channel_inventory.get("channel_source") or "CHANNEL_INVENTORY"),
         "overall_status": str(
             _as_dict(overall).get("status", "UNKNOWN")
         ),
@@ -426,6 +427,12 @@ def read_dashboard_data() -> dict:
         "recording_unverified": sum(s in UNVERIFIED_STATUSES for s in rec_statuses),
         "recording_errors": rec_statuses.count("CHECK_ERROR"),
         "recording_not_checked": sum(s in {"NOT_CHECKED", "NOT_CONFIGURED"} for s in rec_statuses),
+        # Expected cameras the latest report could not list at all (NVR
+        # unreachable). They have no recording result and must stay visible.
+        "cameras_without_result": sum(
+            max(nvr["expected_channels"] - len(nvr["channels"]), 0)
+            for nvr in current_nvrs if isinstance(nvr["expected_channels"], int)
+        ),
         "online_missing_expected": sum(
             ch["reported_status"] == "ONLINE" and ch["recording_expectation"] == "continuous"
             and ch["recording_result"]["status"] == "NO_RECENT_RECORDING_EVIDENCE"
