@@ -87,14 +87,17 @@ IPS=$(docker compose run --rm -T --entrypoint python nvr-report -c \
     "from app.config import load_inventory
 for n in load_inventory('config/nvrs.local.json'): print(n.ip)" 2>/dev/null)
 COUNT=$(echo "$IPS" | grep -c .)
-echo "  NVRs in inventory: $COUNT"
+echo "  NVRs in inventory: $COUNT. Checked one at a time; each can take up to"
+echo "  NVR_RECORDING_MAX_NVR_SECONDS (default 300 s) plus about a minute."
 for ip in $IPS; do
+    START=$(date +%s)
+    echo "  ... $ip started $(date +%H:%M:%S)"
     OUT=$(timeout 900 docker compose run --rm -T nvr-report --ip "$ip" 2>&1)
     ID=$(echo "$OUT" | sed -n 's/^Checking NVR \([^ ]*\) at.*/\1/p')
     OVERALL=$(echo "$OUT" | sed -n 's/^Overall status: //p')
     PERCAM=$(echo "$OUT" | sed -n 's/^Per-camera recording: //p')
     DEVICE=$(echo "$OUT" | sed -n 's/^Device information: //p')
-    printf '  %-7s %-15s %-9s device=%-22s %s\n' "${ID:-?}" "$ip" "${OVERALL:-NO_REPORT}" "${DEVICE:-?}" "$PERCAM"
+    printf '  %-7s %-15s %-9s device=%-22s %s (%ss)\n' "${ID:-?}" "$ip" "${OVERALL:-NO_REPORT}" "${DEVICE:-?}" "$PERCAM" "$(( $(date +%s) - START ))"
 done
 
 section "6. Dashboard data (what the web page shows)"
