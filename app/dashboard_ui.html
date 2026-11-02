@@ -557,7 +557,7 @@ function renderBanners() {
     add(state.scanNotice.kind, state.scanNotice.strong, state.scanNotice.text);
     const dismiss = el("button", "btn", "Dismiss");
     dismiss.type = "button";
-    dismiss.addEventListener("click", () => { state.scanNotice = null; renderBanners(); });
+    dismiss.addEventListener("click", () => setNotice(null));
     host.lastChild.append(dismiss);
   }
   if (state.error) add("crit", "Could not reload reports.", state.error + " The last loaded results stay on screen.", true);
@@ -1141,11 +1141,23 @@ function scanNotice(last) {
   const why = {TIMEOUT: "it took too long and was stopped", INTERRUPTED: "the scanner restarted during it", FAILED: "no report was saved"}[last.result] || "it did not complete";
   return {kind: "crit", strong: "Scan of " + name + " failed" + when + ":", text: why + ". Check: docker compose logs nvr-scanner"};
 }
+// Green notices close themselves after 10 s; warnings and failures stay until dismissed.
+const NOTICE_SECONDS = 10;
+function setNotice(notice) {
+  clearTimeout(state.noticeTimer);
+  state.scanNotice = notice;
+  if (notice && notice.kind === "ok") {
+    state.noticeTimer = setTimeout(() => {
+      if (state.scanNotice === notice) { state.scanNotice = null; renderBanners(); }
+    }, NOTICE_SECONDS * 1000);
+  }
+  renderBanners();
+}
 function applyScan(s, fromRefresh) {
   const wasBusy = scanBusy(state.scan);
   state.scan = s;
   if (wasBusy && !scanBusy(s) && s && s.last) {
-    state.scanNotice = scanNotice(s.last);
+    setNotice(scanNotice(s.last));
     if (!fromRefresh) refresh();
     else renderBanners();
   }
@@ -1175,7 +1187,7 @@ async function requestScan(target) {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) state.scanError = data.error || "The server answered HTTP " + response.status + ".";
-    else state.scanNotice = {kind: "ok", strong: "Scan of " + targetName(target) + " requested.", text: "It starts within a few seconds; new results load automatically."};
+    else setNotice({kind: "ok", strong: "Scan of " + targetName(target) + " requested.", text: "It starts within a few seconds; new results load automatically."});
     state.scanPending = false;
     if (data.scan) applyScan(data.scan, false);
   } catch (e) {
