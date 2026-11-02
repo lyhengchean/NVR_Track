@@ -6,7 +6,10 @@ import hmac
 import json
 import os
 import re
-from datetime import datetime, timezone
+import tempfile
+import threading
+import uuid
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -15,6 +18,9 @@ from app.camera_condition import CONDITIONS, classify
 
 
 REPORTS_DIR = Path(os.environ.get("REPORTS_DIR", "reports"))
+# Shared with the nvr-scanner service. The dashboard only writes request.json.
+SCAN_STATE_DIR = Path(os.environ.get("SCAN_STATE_DIR", "state/scan"))
+SCANNER_STALE_SECONDS = 45
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("DASHBOARD_PORT", "8080"))
 
@@ -591,7 +597,126 @@ def read_dashboard_data() -> dict:
         "summary": summary,
         "nvrs": nvrs,
         "report_errors": report_errors,
+        "scan": read_scan_status(),
     }
+
+
+# ---------- on-demand scans (requests only; the nvr-scanner service runs them) ----------
+
+SCAN_RESULTS = {"OK", "ERRORS", "FAILED", "TIMEOUT", "BUSY", "INTERRUPTED"}
+SCAN_TRIGGERS = {"manual", "schedule"}
+EMAIL_RESULTS = {"SENT", "SKIPPED", "FAILED", "NOT SENT"}
+HEALTH = {"HEALTHY", "WARNING", "CRITICAL", "UNKNOWN"}
+_scan_lock = threading.Lock()
+
+
+def _when(value: object) -> str | None:
+    try:
+        moment = datetime.fromisoformat(value)
+        return moment.astimezone(timezone.utc).isoformat() if moment.tzinfo else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _target(value: object) -> str | None:
+    return value if isinstance(value, str) and (value == "all" or DEVICE_ID.fullmatch(value)) else None
+
+
+def _one_of(value: object, allowed: set[str]) -> str | None:
+    return value if isinstance(value, str) and value in allowed else None
+
+
+def read_scan_status() -> dict:
+    """Whitelisted view of the scanner's status file; never raw content."""
+    raw = {}
+    try:
+        loaded = json.loads((SCAN_STATE_DIR / "status.json").read_text(encoding="utf-8"))
+        raw = loaded if isinstance(loaded, dict) and loaded.get("schema_version") == 1 else {}
+    except (OSError, ValueError):
+        pass
+    now = datetime.now(timezone.utc)
+    heartbeat = _when(raw.get("heartbeat_at"))
+    available = bool(heartbeat) and 0 <= (now - datetime.fromisoformat(heartbeat)).total_seconds() < SCANNER_STALE_SECONDS
+
+    def times(value: object) -> list[str]:
+        return [t for t in value if isinstance(t, str) and re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", t)][:48] \
+            if isinstance(value, list) else []
+
+    current = None
+    if isinstance(raw.get("current"), dict) and _target(raw["current"].get("target")):
+        c = raw["current"]
+        progress = _as_dict(c.get("progress"))
+        current = {
+            "target": c["target"], "trigger": _one_of(c.get("trigger"), SCAN_TRIGGERS),
+            "email": c.get("email") is True, "started_at": _when(c.get("started_at")),
+            "progress": {"done": _safe_count(progress.get("done")), "total": _safe_count(progress.get("total")),
+                         "nvr": _target(progress.get("nvr"))},
+        }
+    last = None
+    if isinstance(raw.get("last"), dict) and _target(raw["last"].get("target")):
+        l = raw["last"]
+        last = {
+            "target": l["target"], "trigger": _one_of(l.get("trigger"), SCAN_TRIGGERS),
+            "email": l.get("email") is True, "result": _one_of(l.get("result"), SCAN_RESULTS),
+            "email_result": _one_of(l.get("email_result"), EMAIL_RESULTS),
+            "overall": _one_of(l.get("overall"), HEALTH),
+            "execution_errors": _safe_count(l.get("execution_errors")) if l.get("execution_errors") is not None else None,
+            "started_at": _when(l.get("started_at")), "finished_at": _when(l.get("finished_at")),
+        }
+    last_email = None
+    if isinstance(raw.get("last_email"), dict):
+        last_email = {"result": _one_of(raw["last_email"].get("result"), EMAIL_RESULTS),
+                      "finished_at": _when(raw["last_email"].get("finished_at"))}
+    rejected = None
+    if isinstance(raw.get("rejected"), dict):
+        at = _when(raw["rejected"].get("at"))
+        if at and now - datetime.fromisoformat(at) < timedelta(minutes=10):
+            rejected = {"reason": str(raw["rejected"].get("reason") or "")[:160], "at": at}
+    queued = None
+    request = None
+    try:
+        request = json.loads((SCAN_STATE_DIR / "request.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        pass
+    if isinstance(request, dict) and _target(request.get("target")):
+        queued = {"target": request["target"], "requested_at": _when(request.get("requested_at"))}
+    cooldown_until = _when(raw.get("cooldown_until"))
+    cooldown = max(0, int((datetime.fromisoformat(cooldown_until) - now).total_seconds())) if cooldown_until else 0
+    return {
+        "available": available,
+        "on_demand_enabled": raw.get("on_demand_enabled") is True,
+        "scan_times": times(raw.get("scan_times")),
+        "email_times": times(raw.get("email_times")),
+        "next_scheduled_at": _when(raw.get("next_scheduled_at")),
+        "current": current, "queued": queued, "last": last, "last_email": last_email,
+        "rejected": rejected, "cooldown_seconds": min(cooldown, 3600),
+    }
+
+
+def request_scan(target: object) -> tuple[int, dict]:
+    """Queue one scan for the scanner service. Returns (HTTP status, body)."""
+    target = _target(target)
+    if target is None:
+        return 400, {"error": "Choose all NVRs or one NVR ID."}
+    with _scan_lock:
+        status = read_scan_status()
+        if not status["available"]:
+            return 503, {"error": "The scanner service is not running.", "scan": status}
+        if not status["on_demand_enabled"]:
+            return 403, {"error": "On-demand scans are turned off (NVR_ON_DEMAND_SCANS).", "scan": status}
+        if status["current"] or status["queued"]:
+            return 409, {"error": "A scan is already running or waiting to start.", "scan": status}
+        if status["cooldown_seconds"]:
+            return 429, {"error": f"Wait {status['cooldown_seconds']} s before the next scan.", "scan": status}
+        request = {"schema_version": 1, "id": uuid.uuid4().hex, "target": target,
+                   "requested_at": datetime.now(timezone.utc).isoformat()}
+        SCAN_STATE_DIR.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=SCAN_STATE_DIR,
+                                         prefix=".request", suffix=".tmp", delete=False) as handle:
+            json.dump(request, handle)
+            temporary = Path(handle.name)
+        os.replace(temporary, SCAN_STATE_DIR / "request.json")
+        return 202, {"queued": target, "scan": read_scan_status()}
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -673,7 +798,45 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 )
             return
 
+        if path == "/api/scan":
+            self._json(200, read_scan_status())
+            return
+
         self._send(404, "text/plain; charset=utf-8", b"Not found.\n")
+
+    def _json(self, code: int, data: dict) -> None:
+        self._send(code, "application/json; charset=utf-8", json.dumps(data, ensure_ascii=False).encode("utf-8"))
+
+    def do_POST(self) -> None:
+        if not self._authorized():
+            self._unauthorized()
+            return
+        if urlsplit(self.path).path != "/api/scan":
+            self._send(404, "text/plain; charset=utf-8", b"Not found.\n")
+            return
+        # Cross-site protection: browsers cannot send this header or a JSON
+        # body cross-origin without a CORS preflight, which is never granted.
+        origin = self.headers.get("Origin")
+        if (self.headers.get("X-NVR-Track") != "scan"
+                or not self.headers.get("Content-Type", "").startswith("application/json")
+                or (origin and origin != f"http://{self.headers.get('Host', '')}")):
+            self._json(403, {"error": "Request refused."})
+            return
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 1024:
+                raise ValueError
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            if not isinstance(body, dict):
+                raise ValueError
+        except (ValueError, UnicodeDecodeError):
+            self._json(400, {"error": "Invalid request."})
+            return
+        try:
+            code, data = request_scan(body.get("target"))
+        except OSError:
+            code, data = 503, {"error": "The scan request could not be saved."}
+        self._json(code, data)
 
 
 def main() -> int:

@@ -5,7 +5,7 @@
 #
 # Read-only towards the NVRs. Never prints .env values or credentials.
 # Sends no email (runs one report per NVR instead of the fleet runner).
-# Touches only the nvr-dashboard container; no other service is restarted.
+# Recreates only the nvr-dashboard and nvr-scanner containers; nothing else.
 set -u
 
 APP_DIR=${APP_DIR:-/opt/NVR_Track}
@@ -70,20 +70,22 @@ else
     fail "Test image build failed"
 fi
 
-section "4. Build and restart dashboard"
-if docker compose build -q nvr-report nvr-report-all nvr-dashboard; then
+section "4. Build and restart dashboard and scanner"
+if docker compose build -q nvr-report nvr-report-all nvr-dashboard nvr-scanner; then
     pass "Runtime images built"
 else
     fail "Runtime image build failed"; exit 1
 fi
-if docker compose up -d --force-recreate nvr-dashboard >/dev/null 2>&1; then
-    pass "Dashboard container recreated"
+if docker compose up -d --force-recreate nvr-dashboard nvr-scanner >/dev/null 2>&1; then
+    pass "Dashboard and scanner containers recreated"
 else
-    fail "Dashboard container did not start"
+    fail "Dashboard or scanner container did not start"
 fi
 sleep 5
-STATE=$(docker inspect -f '{{.State.Status}}' "$(docker compose ps -q nvr-dashboard)" 2>/dev/null)
-[ "$STATE" = "running" ] && pass "Dashboard is running" || fail "Dashboard state: ${STATE:-missing}"
+for svc in nvr-dashboard nvr-scanner; do
+    STATE=$(docker inspect -f '{{.State.Status}}' "$(docker compose ps -q $svc)" 2>/dev/null)
+    [ "$STATE" = "running" ] && pass "$svc is running" || fail "$svc state: ${STATE:-missing}"
+done
 ADDR=$(docker compose port nvr-dashboard 8080 2>/dev/null | head -1)
 if [ -n "$ADDR" ]; then
     CODE=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "http://$ADDR/")
@@ -160,20 +162,36 @@ fi
 [ "${UNVERIFIED:-1}" = "0" ] && pass "No unverified or failed recording checks" \
     || warn "$UNVERIFIED camera recording checks unverified/failed (usually network loss)"
 
-section "7. Daily schedule"
-CRON=$( { crontab -l 2>/dev/null; cat /etc/cron.d/* 2>/dev/null; } | grep -v '^#' | grep 'nvr-report-all' | head -1)
-if echo "$CRON" | grep -qE '^0 8 \* \* \*'; then
-    pass "Daily report at 08:00: $CRON"
+section "7. Automatic scans and email (nvr-scanner)"
+SCAN=$(docker compose exec -T nvr-dashboard python - 2>/dev/null <<'PY'
+from app.dashboard import read_scan_status
+s = read_scan_status()
+print("AVAILABLE=" + ("yes" if s["available"] else "no"))
+print("TIMES=" + ",".join(s["scan_times"]))
+print("EMAIL=" + ",".join(s["email_times"]))
+print("NEXT=" + (s["next_scheduled_at"] or ""))
+print("LASTEMAIL=" + ((s["last_email"] or {}).get("result") or ""))
+PY
+)
+value() { echo "$SCAN" | sed -n "s/^$1=//p"; }
+if [ "$(value AVAILABLE)" = "yes" ]; then
+    pass "Scanner is running; automatic scans at $(value TIMES) (email at $(value EMAIL))"
 else
-    fail "No 08:00 cron line for nvr-report-all"
+    fail "Scanner is not reporting; check: docker compose logs --tail 50 nvr-scanner"
+fi
+[ -n "$(value TIMES)" ] || warn "No automatic scan times; set NVR_SCAN_TIMES in .env"
+CRON=$( { crontab -l 2>/dev/null; cat /etc/cron.d/* 2>/dev/null; } | grep -v '^#' | grep 'nvr-report-all' | head -1)
+if [ -n "$CRON" ]; then
+    warn "Old cron line still runs nvr-report-all (a second scan and email at the same time). Remove it; see README 'Scan now and automatic scans'"
+else
+    pass "No old cron line; the scanner is the only schedule"
 fi
 TZNAME=$(timedatectl show -p Timezone --value 2>/dev/null)
 [ "$TZNAME" = "Asia/Phnom_Penh" ] && pass "Server time zone is Asia/Phnom_Penh" || warn "Server time zone is ${TZNAME:-unknown}"
-LAST=$(grep -h "Email report:" reports/scheduler.log 2>/dev/null | tail -1)
-case "$LAST" in
-    *SENT*) pass "Last scheduled email: $LAST" ;;
-    "") warn "No email result in reports/scheduler.log yet (first 08:00 run will write it)" ;;
-    *) fail "Last scheduled email: $LAST" ;;
+case "$(value LASTEMAIL)" in
+    SENT) pass "Last scheduled email: SENT" ;;
+    "") warn "No email from the scanner yet; the next email run writes it" ;;
+    *) fail "Last scheduled email: $(value LASTEMAIL); check SMTP settings and: docker compose logs nvr-scanner" ;;
 esac
 
 section "8. Secrets and private files"

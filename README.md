@@ -391,19 +391,69 @@ Empty-looking columns that are expected:
   `unspecified`) for individual channels in `config/nvrs.local.json`
   under `recording_expectations`.
 
-## Daily schedule and email
+## Scan now and automatic scans
 
-The desired production schedule is **08:00 Asia/Phnom_Penh**; this
-archive cannot establish whether Ubuntu cron or systemd actually runs it. The project does not install cron; inspect the existing
-root/user crontabs and scripts before editing, and preserve them if already
-correct. `nvr-report-all` runs the same `scripts/run_nvr_report.py` for each
-NVR then builds the consolidated SMTP HTML+text email. An email is attempted
-only when the expected `SMTP_*` keys are present. Review host, port,
-`starttls`/`ssl`, FROM and recipient values without printing passwords.
-A failed SMTP connection reports an exception **type**, not the server's
-potentially sensitive exception text. Email delivery is not proven until a
-scheduled run or an explicitly approved test to the configured recipient
-succeeds. No emails are sent by the unit tests.
+The `nvr-scanner` service runs every scan: the automatic ones and the ones
+requested from the dashboard. It uses the same read-only reporters as
+`nvr-report` and `nvr-report-all`, one scan at a time, and the same per-NVR
+locks, so it never overlaps another run on the same NVR.
+
+**Automatic scans** run at the times in `.env` (Cambodia time). The
+consolidated email is sent only from the scans listed in `NVR_EMAIL_TIMES`:
+
+```dotenv
+NVR_SCAN_TIMES=06:00,08:00,10:00,12:00,14:00,16:00,18:00,20:00,22:00
+NVR_EMAIL_TIMES=08:00
+NVR_ON_DEMAND_SCANS=true
+NVR_SCAN_COOLDOWN_SECONDS=60
+```
+
+A scan time missed because the service was restarting runs within 30 minutes;
+older missed times are skipped, and a time never runs twice. Without
+`NVR_SCAN_TIMES` the service scans once at 08:00. After editing these lines:
+`docker compose up -d --force-recreate nvr-scanner`.
+
+**Scan now.** The dashboard's **Scan** button scans all NVRs or the NVR you pick
+by name or ID, and every NVR card has its own **Scan** button. Use it after
+adding or fixing a camera. Progress shows in the header ("Scanning nvr-04, 4 of
+12"); the new reports load when it finishes. Manual scans never send email.
+Only one scan runs at a time, and a new request waits
+`NVR_SCAN_COOLDOWN_SECONDS` after the previous one. `NVR_ON_DEMAND_SCANS=false`
+turns the button off.
+
+How the request stays safe: the dashboard container has no NVR credentials.
+It writes one small request file (`state/scan/request.json`, target `all` or an
+NVR ID) after checking the login, a same-origin header and the JSON body. The
+scanner accepts only IDs from `config/nvrs.local.json` and runs fixed commands;
+nothing from the request reaches a shell. Its status file holds fixed codes,
+times and NVR IDs only, never device output, IPs or credentials.
+
+Logs: `docker compose logs -f nvr-scanner` (one line per scan start and finish).
+
+### Moving from the 08:00 cron line to the scanner (once)
+
+The scanner replaces the cron line. Keeping both would run two scans and send
+two emails at 08:00. On the server:
+
+```bash
+cd /opt/NVR_Track
+crontab -l > /root/crontab-backup-$(date +%Y%m%d-%H%M%S)
+crontab -l | grep -v 'nvr-report-all' | crontab -
+crontab -l | grep -c nvr-report-all            # expect 0
+grep -l nvr-report-all /etc/cron.d/* 2>/dev/null  # expect nothing
+```
+
+The scanner's first start does not repeat a scan time that already passed
+today, so starting it after 08:00 does not send a second email.
+
+### Email
+
+`nvr-report-all` runs the same `scripts/run_nvr_report.py` for each NVR, then
+builds the consolidated SMTP HTML+text email; `--no-email` skips it. An email
+is attempted only when the expected `SMTP_*` keys are present. A failed SMTP
+connection reports an exception **type**, not the server's potentially
+sensitive text. `deploy_check.sh` shows the last scheduled email result. No
+emails are sent by the unit tests.
 
 ## Troubleshooting
 
