@@ -48,7 +48,8 @@ class DisplayNameTests(unittest.TestCase):
     @patch("scripts.run_all_nvr_reports.smtplib.SMTP")
     def test_email_shows_id_and_escaped_name(self, smtp):
         env = {"SMTP_HOST": "smtp.example.com", "SMTP_USERNAME": "u", "SMTP_PASSWORD": "p",
-               "SMTP_FROM": "a@example.com", "SMTP_TO": "b@example.com"}
+               "SMTP_FROM": "a@example.com", "SMTP_TO": "b@example.com",
+               "SMTP_SECURITY": "starttls", "SMTP_PORT": "587"}
         row = {"id": "nvr-01", "name": "Kiln <b>", "ip": "192.0.2.1", "overall": "WARNING",
                "storage": "OK", "recording": "X", "online": 1, "offline": 0}
         with patch.dict("os.environ", env):
