@@ -21,6 +21,8 @@ class NVRConfig:
     recording_track_id: int | None = None
     recording_expectations: dict[str, str] = field(default_factory=dict)
     expected_sata_hdd_ids: tuple[int, ...] = ()
+    # Display name only (e.g. site or building). The id stays the technical key.
+    name: str = ""
 
 
 def load_inventory(path: str | Path) -> list[NVRConfig]:
@@ -73,6 +75,11 @@ def load_inventory(path: str | Path) -> list[NVRConfig]:
 
         if device_id in seen_ids:
             raise InventoryError(f"{label}: duplicate device ID '{device_id}'.")
+
+        display_name = entry.get("name", "")
+        if (not isinstance(display_name, str) or len(display_name.strip()) > 80
+                or any(ord(c) < 32 or ord(c) == 127 for c in display_name)):
+            raise InventoryError(f"{label}: name must be text of at most 80 characters.")
 
         raw_ip = entry.get("ip")
         if not isinstance(raw_ip, str):
@@ -170,6 +177,7 @@ def load_inventory(path: str | Path) -> list[NVRConfig]:
                 recording_track_id=recording_track_id,
                 recording_expectations=expectations,
                 expected_sata_hdd_ids=tuple(raw_expected_hdds),
+                name=display_name.strip(),
             )
         )
 

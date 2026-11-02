@@ -363,6 +363,7 @@ def main() -> int:
         "schema_version": 2,
         "nvr": {
             "id": configured_nvr.id,
+            "name": configured_nvr.name,
             "ip": configured_nvr.ip,
             "http_port": http_port,
             "server_port": configured_nvr.server_port,

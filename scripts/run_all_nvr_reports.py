@@ -187,7 +187,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         color = colors.get(status, "#475569")
 
         cells = [
-            item.get("id", "—"),
+            " - ".join(str(v) for v in (item.get("id", "—"), item.get("name")) if v),
             item.get("ip", "—"),
             status,
             item.get("storage", "UNKNOWN"),
@@ -338,7 +338,7 @@ def main() -> int:
             execution_errors += 1
             failure_code = ("PROCESS_TIMEOUT" if isinstance(exc, subprocess.TimeoutExpired)
                             else "PROCESS_START_FAILURE")
-            summary.append({"id": nvr.id, "ip": nvr.ip, "overall": "ERROR",
+            summary.append({"id": nvr.id, "name": getattr(nvr, "name", ""), "ip": nvr.ip, "overall": "ERROR",
                             "storage": "UNKNOWN", "recording": "NOT_REPORTED",
                             "online": 0, "offline": 0, "failure_code": failure_code})
             print(f"Reporter process failed for {nvr.id}: {failure_code}.",
@@ -366,6 +366,7 @@ def main() -> int:
             execution_errors += 1
             summary.append({
                 "id": nvr.id,
+                "name": getattr(nvr, "name", ""),
                 "ip": nvr.ip,
                 "overall": "ERROR",
                 "storage": "UNKNOWN",
@@ -390,6 +391,7 @@ def main() -> int:
             execution_errors += 1
             summary.append({
                 "id": nvr.id,
+                "name": getattr(nvr, "name", ""),
                 "ip": nvr.ip,
                 "overall": "ERROR",
                 "storage": "UNKNOWN",
@@ -404,6 +406,7 @@ def main() -> int:
 
         summary.append({
             "id": nvr.id,
+            "name": getattr(nvr, "name", ""),
             "ip": nvr.ip,
             "overall": report.get("overall", {}).get("status", "UNKNOWN"),
             "storage": report.get("storage", {}).get("status", "UNKNOWN"),

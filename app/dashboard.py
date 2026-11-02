@@ -245,6 +245,7 @@ def _public_report(report: dict, path: Path) -> dict:
 
     return {
         "id": str(nvr.get("id", path.name.split("_")[0])),
+        "name": str(nvr.get("name") or ""),
         "ip": str(nvr.get("ip", "")),
         "http_port": nvr.get("http_port"),
         "server_port": nvr.get("server_port"),

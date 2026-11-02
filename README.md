@@ -288,6 +288,23 @@ cron line, the last email result, `.env` permissions, Git ignores and the
 server's packet loss. It ends with `RESULT: n PASS, n WARN, n FAIL` and saves
 the log to `/root/nvr-track-check-<time>.txt`.
 
+## NVR display names
+
+Each NVR's `id` (`nvr-01` … `nvr-12`) is the technical key: it selects the
+`NVR_01_USERNAME`/`NVR_01_PASSWORD` credentials, names the report files, links
+each day's report to the previous one (calendar and history cache) and is used
+in `NVR_PER_CAMERA_RECORDING_IDS` and `NVR_RETENTION_NVR_IDS`. **Do not change
+it.** To show a real name, add an optional `name` (up to 80 characters) to the
+entry in `config/nvrs.local.json`:
+
+```json
+{"id": "nvr-01", "name": "Kiln Building", "ip": "10.233.220.51", ...}
+```
+
+The dashboard then shows the name as the card title (with the id beside the
+IP), search finds it, and the daily email lists `nvr-01 - Kiln Building`. It
+takes effect from the next report; no rebuild is needed.
+
 ## Fill every camera column (Ubuntu)
 
 ```bash
