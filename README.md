@@ -31,7 +31,11 @@ Storage monitoring uses read-only `GET /ISAPI/ContentMgmt/Storage/hdd` responses
 Disk states `error`, `offline`, `smartfailed`, `unformatted`, and `mismatch`
 are **CRITICAL**. `idle` is an accepted operational state (subject to its
 capacity and write access); a writable disk with zero free space is a
-**WARNING**, not proof of failure.
+**WARNING**, not proof of failure. When per-camera checks are enabled and
+at least one camera on that NVR recorded within the search window, the NVR is
+evidently overwriting old footage: the full disk is then only noted in
+`storage.message` and storage can be **HEALTHY**. If no camera recorded, the
+warning stays. Disk errors and missing expected disks are never relaxed.
 
 `notexist` means the NVR did not detect a disk at the reported entry; it
 **does not prove that a drive was installed**. When other usable disks exist,
@@ -53,6 +57,18 @@ inventory. A configured expected SATA ID absent from the device response or
 reported `notexist` is **CRITICAL**. An absent virtual disk entry does not
 satisfy or falsify a physical SATA expectation. Older inventory files without
 this field remain valid. No storage device is modified by this check.
+
+Bays you have confirmed empty on site go in a separate list; their
+`notexist` entries are then noted instead of raising a warning. A bay cannot
+be in both lists, and an unlisted bay keeps warning:
+
+```json
+"expected_sata_hdd_ids": [1, 2, 4, 6],
+"empty_sata_hdd_ids": [3, 5, 7]
+```
+
+No restart or rebuild is needed after editing `config/nvrs.local.json`; the
+next report uses it.
 
 The overall health summary uses a generic urgent-storage message when a
 critical finding is present; the saved `storage.message` and disk table give
@@ -395,7 +411,10 @@ succeeds. No emails are sent by the unit tests.
 - `NO_RECENT_RECORDING_EVIDENCE`: check the configured lookback window,
   schedules and clock alignment before declaring a fault.
 - `CHECK_INCONCLUSIVE`: inspect NVR clock and unexpected search response
-  status; no evidence is claimed.
+  status; no evidence is claimed. A reply that fails validation is asked for
+  once more after 3 seconds (often it was caught while a segment was opening);
+  `retried_after_invalid_reply` marks it in the report. `0` in
+  `NVR_RECORDING_RETRY_DELAY_SECONDS` disables this retry too.
 - `CHECK_ERROR`: check permissions, NVR reachability and request timeouts;
   no NVR configuration changes are needed.
 - `NOT_CHECKED`: investigate per-NVR time budget or systemic endpoint failure.

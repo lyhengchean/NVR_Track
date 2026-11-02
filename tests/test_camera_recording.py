@@ -234,7 +234,7 @@ class ConnectionRetryTests(TestCase):
 
     @patch('app.camera_recording.get_clock')
     @patch('app.camera_recording.get_tracks')
-    def test_other_failures_and_no_matches_are_not_retried(self, tracks, clock):
+    def test_no_matches_is_not_retried_and_invalid_reply_once(self, tracks, clock):
         tracks.return_value = {'status': 'VERIFIED', 'tracks': {101: '1', 201: '2'}}
         clock.return_value = self.clock
         calls = []
@@ -243,9 +243,34 @@ class ConnectionRetryTests(TestCase):
             return ({'status': 'NO_MATCHES_IN_WINDOW', 'matches': [], 'num_matches': 0}
                     if kw['track_id'] == 101 else
                     {'status': 'INCONSISTENT_OR_UNEXPECTED_RESPONSE', 'message': 'bad'})
-        self.run_batch(search)
+        summary = self.run_batch(search)
+        self.assertEqual(calls, [101, 201, 201])   # invalid reply: one more try only
+        self.assertEqual(self.sleeps, [3])
+        self.assertEqual(summary['inconclusive'], 1)
+        self.assertTrue(self.channels[1]['recording_result']['retried_after_invalid_reply'])
+
+    @patch('app.camera_recording.get_clock')
+    @patch('app.camera_recording.get_tracks')
+    def test_invalid_reply_that_validates_on_retry_counts_as_evidence(self, tracks, clock):
+        tracks.return_value = {'status': 'VERIFIED', 'tracks': {101: '1', 201: '2'}}
+        clock.return_value = self.clock
+        replies = {101: [self.found(101)],
+                   201: [{'status': 'INCONSISTENT_OR_UNEXPECTED_RESPONSE'}, self.found(201)]}
+        summary = self.run_batch(lambda **kw: replies[kw['track_id']].pop(0))
+        self.assertEqual(summary['evidence'], 2)
+        self.assertEqual(summary['inconclusive'], 0)
+
+    @patch('app.camera_recording.get_clock')
+    @patch('app.camera_recording.get_tracks')
+    def test_zero_delay_also_disables_invalid_reply_retry(self, tracks, clock):
+        tracks.return_value = {'status': 'VERIFIED', 'tracks': {101: '1', 201: '2'}}
+        clock.return_value = self.clock
+        calls = []
+        def search(**kw):
+            calls.append(kw['track_id'])
+            return {'status': 'INCONSISTENT_OR_UNEXPECTED_RESPONSE'}
+        self.run_batch(search, delay=0)
         self.assertEqual(calls, [101, 201])
-        self.assertEqual(self.sleeps, [])
 
     @patch('app.camera_recording.get_clock')
     @patch('app.camera_recording.get_tracks')
