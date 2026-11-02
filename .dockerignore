@@ -6,6 +6,7 @@ __pycache__/
 *.py[cod]
 .env
 .env.*
+!.env.example
 config/nvrs.local.json
 config/nvrs.production.json
 logs/
