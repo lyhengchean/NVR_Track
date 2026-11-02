@@ -21,6 +21,8 @@ class NVRConfig:
     recording_track_id: int | None = None
     recording_expectations: dict[str, str] = field(default_factory=dict)
     expected_sata_hdd_ids: tuple[int, ...] = ()
+    # SATA bays confirmed empty on site; "not detected" there is not a warning.
+    empty_sata_hdd_ids: tuple[int, ...] = ()
     # Display name only (e.g. site or building). The id stays the technical key.
     name: str = ""
 
@@ -164,6 +166,26 @@ def load_inventory(path: str | Path) -> list[NVRConfig]:
                 "of positive SATA disk IDs (1-256)."
             )
 
+        # Bays confirmed empty on site (never inferred from the NVR's list).
+        raw_empty_hdds = entry.get("empty_sata_hdd_ids", [])
+        if (
+            not isinstance(raw_empty_hdds, list)
+            or len(raw_empty_hdds) > 64
+            or any(
+                isinstance(i, bool) or not isinstance(i, int) or not 1 <= i <= 256
+                for i in raw_empty_hdds
+            )
+            or len(set(raw_empty_hdds)) != len(raw_empty_hdds)
+        ):
+            raise InventoryError(
+                f"{label}: empty_sata_hdd_ids must be a unique list "
+                "of positive SATA disk IDs (1-256)."
+            )
+        if set(raw_empty_hdds) & set(raw_expected_hdds):
+            raise InventoryError(
+                f"{label}: a SATA disk ID cannot be both expected and empty."
+            )
+
         seen_ids.add(device_id)
         seen_ips.add(normalized_ip)
 
@@ -177,6 +199,7 @@ def load_inventory(path: str | Path) -> list[NVRConfig]:
                 recording_track_id=recording_track_id,
                 recording_expectations=expectations,
                 expected_sata_hdd_ids=tuple(raw_expected_hdds),
+                empty_sata_hdd_ids=tuple(raw_empty_hdds),
                 name=display_name.strip(),
             )
         )

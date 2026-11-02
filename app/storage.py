@@ -139,16 +139,31 @@ def parse_hdd_list(content: bytes) -> tuple[HDDEntry, ...]:
 
     return tuple(disks)
 
+def _sata_number(disk: HDDEntry) -> int | None:
+    if disk.disk_type.strip().lower() != "sata":
+        return None
+    numeric_id = disk.id.split(" (", 1)[0]
+    return int(numeric_id) if numeric_id.isdecimal() else None
+
+
 def classify_storage(
     disks: tuple[HDDEntry, ...],
     *,
     expected_sata_hdd_ids: tuple[int, ...] = (),
+    empty_sata_hdd_ids: tuple[int, ...] = (),
+    recent_write_minutes: int | None = None,
 ) -> tuple[str, str]:
     """Classify read-only HDD evidence without confusing empty bays and failures.
 
     The optional expected SATA IDs describe drives independently confirmed as
     installed. Without that configuration, an undetected slot is a warning,
-    except when *no* usable disks at all are returned.
+    except when *no* usable disks at all are returned. Bays listed in
+    ``empty_sata_hdd_ids`` were confirmed empty on site and are only noted.
+
+    ``recent_write_minutes`` is set by the reporter when per-camera searches
+    found footage written within that many minutes. A full writable disk is
+    then evidently being overwritten, so it is noted rather than a warning.
+    Disk errors and missing expected disks are never relaxed.
     """
     if not disks:
         return "UNKNOWN", "No HDD entries were available."
@@ -216,22 +231,39 @@ def classify_storage(
         return "UNKNOWN", "No detected writable HDD or logical storage volumes were reported."
 
     findings = []
-    if absent:
-        ids = ", ".join(disk.id for disk in absent)
+    notes = []
+    confirmed_empty = set(empty_sata_hdd_ids)
+    unconfirmed = [disk for disk in absent if _sata_number(disk) not in confirmed_empty]
+    known_empty = [disk for disk in absent if _sata_number(disk) in confirmed_empty]
+    if unconfirmed:
+        ids = ", ".join(disk.id for disk in unconfirmed)
         findings.append(
             f"HDD slots reported not detected ({ids}); confirm whether drives are expected"
         )
+    if known_empty:
+        ids = ", ".join(disk.id for disk in known_empty)
+        notes.append((f"bays {ids} are" if len(known_empty) > 1 else f"bay {ids} is")
+                     + " empty, as configured")
 
     no_free_space = [disk for disk in writable if disk.free_space_mb <= 0]
     if no_free_space:
         ids = ", ".join(disk.id for disk in no_free_space)
-        findings.append(
-            f"Zero free space on writable HDD IDs: {ids}; verify overwrite and quota policy"
-        )
+        if recent_write_minutes:
+            notes.append(
+                (f"HDDs {ids} are full" if len(no_free_space) > 1 else f"HDD {ids} is full")
+                + f", but cameras recorded within the last {recent_write_minutes} minutes,"
+                " so old footage is being overwritten"
+            )
+        else:
+            findings.append(
+                f"Zero free space on writable HDD IDs: {ids}; verify overwrite and quota policy"
+            )
 
     if findings:
-        return "WARNING", "; ".join(findings) + "."
+        return "WARNING", "; ".join(findings + notes) + "."
 
+    if notes:
+        return "HEALTHY", "All detected HDDs have normal/idle states; " + "; ".join(notes) + "."
     return "HEALTHY", "All detected HDDs have normal/idle states and writable free space."
 
 
@@ -242,6 +274,7 @@ def get_storage_check(
     port: int = 80,
     *,
     expected_sata_hdd_ids: tuple[int, ...] = (),
+    empty_sata_hdd_ids: tuple[int, ...] = (),
 ) -> StorageCheck:
     """Retrieve HDD state via GET; never changes storage configuration."""
 
@@ -291,6 +324,7 @@ def get_storage_check(
             disks = parse_hdd_list(response.content)
             status, message = classify_storage(
                 disks, expected_sata_hdd_ids=expected_sata_hdd_ids,
+                empty_sata_hdd_ids=empty_sata_hdd_ids,
             )
 
             return StorageCheck(

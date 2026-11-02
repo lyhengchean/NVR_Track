@@ -2,6 +2,7 @@
 import os
 import sys
 import argparse
+from dataclasses import replace
 from datetime import datetime, timezone
 import json
 import time
@@ -20,7 +21,7 @@ from app.recording import check_recording_evidence
 from app.camera_recording import check_all_cameras
 from app.reporting import determine_overall_status
 from app.report_lock import acquire_report_lock
-from app.storage import get_storage_check
+from app.storage import classify_storage, get_storage_check
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -33,6 +34,25 @@ def storage_unreachable(storage) -> bool:
     """Storage reports network failures as UNKNOWN without an HTTP status."""
     return storage.status == "UNKNOWN" and storage.http_status is None and not storage.disks \
         and "Network" in storage.message
+
+
+def storage_after_recording(storage, configured_nvr, per_camera_summary: dict, window_minutes: int):
+    """Re-classify parsed disks once per-camera searches show footage being written.
+
+    A full disk on an NVR whose cameras recorded within the search window is
+    being overwritten, so it is noted rather than raised as a warning. If no
+    camera recorded, the original classification stands.
+    """
+    if (not storage.disks or not per_camera_summary.get("enabled")
+            or int(per_camera_summary.get("evidence") or 0) <= 0):
+        return storage
+    status, message = classify_storage(
+        storage.disks,
+        expected_sata_hdd_ids=configured_nvr.expected_sata_hdd_ids,
+        empty_sata_hdd_ids=configured_nvr.empty_sata_hdd_ids,
+        recent_write_minutes=window_minutes,
+    )
+    return replace(storage, status=status, message=message)
 
 
 def default_recording_expectation() -> str:
@@ -233,6 +253,7 @@ def main() -> int:
     storage = read_with_retry(lambda: get_storage_check(
         configured_nvr.ip, username, password, http_port,
         expected_sata_hdd_ids=configured_nvr.expected_sata_hdd_ids,
+        empty_sata_hdd_ids=configured_nvr.empty_sata_hdd_ids,
     ), storage_unreachable)
 
     window_minutes = integer_setting("NVR_RECORDING_WINDOW_MINUTES", 60, 1, 1440)
@@ -344,6 +365,8 @@ def main() -> int:
         previous_retention=read_previous_retention(report_dir, configured_nvr.id),
         retry_delay_seconds=retry_delay,
     )
+
+    storage = storage_after_recording(storage, configured_nvr, per_camera_summary, window_minutes)
 
     overall = determine_overall_status(
         device_info_status=device.status,

@@ -29,6 +29,7 @@ from app.historical_recording import (
 )
 
 EVIDENCE = {"RECORDING", "RECORDING_EVIDENCE_WITH_ANOMALY"}
+INVALID_REPLY_PAUSE_SECONDS = 3
 PROBLEMS = {"CHECK_ERROR", "CHECK_INCONCLUSIVE", "TRACK_NOT_FOUND", "TRACK_MAPPING_UNVERIFIED"}
 
 
@@ -287,9 +288,10 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
 
     started = time.monotonic()
 
-    def may_retry() -> bool:
+    def may_retry(pause: int | None = None) -> bool:
+        wait = retry_delay_seconds if pause is None else min(pause, retry_delay_seconds)
         return (retry_delay_seconds > 0
-                and time.monotonic() - started + retry_delay_seconds < budget_seconds)
+                and time.monotonic() - started + wait < budget_seconds)
 
     tracks_response = get_tracks(ip, port, username, password)
     if tracks_response["status"] == "CONNECTION_ERROR" and may_retry():
@@ -345,11 +347,21 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
                     sleep(retry_delay_seconds)
                     raw = run_search()
                     retried = True
+                # A reply that fails validation is often caught mid-write (a
+                # segment just opening). Ask once more after a short pause.
+                if raw.get("status") == "INCONSISTENT_OR_UNEXPECTED_RESPONSE" and may_retry(INVALID_REPLY_PAUSE_SECONDS):
+                    sleep(min(INVALID_REPLY_PAUSE_SECONDS, retry_delay_seconds))
+                    raw = run_search()
+                    ch_retry_reason = "invalid_reply"
+                else:
+                    ch_retry_reason = None
                 ch["recording_result"] = simplify_search(raw, track_id, minutes)
                 if ch["recording_result"].get("latest_segment_complete") is False:
                     ch["recording_result"]["_raw"] = raw  # Refined after all cameras.
                 if retried:
                     ch["recording_result"]["retried_after_connection_error"] = True
+                if ch_retry_reason:
+                    ch["recording_result"]["retried_after_invalid_reply"] = True
                 if raw.get("status") in {"AUTHENTICATION_FAILED", "PERMISSION_DENIED", "ENDPOINT_UNAVAILABLE"}:
                     disabled_search_reason = "Subsequent searches skipped after endpoint/authentication failure."
             except Exception:
