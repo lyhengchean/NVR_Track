@@ -373,11 +373,14 @@ takes effect from the next report; no rebuild is needed.
 cd /opt/NVR_Track && sudo bash scripts/fill_calendars.sh
 ```
 
-Sets `NVR_RETENTION_MAX_CAMERAS_PER_RUN=32`, `NVR_HISTORICAL_MAX_CAMERAS_PER_RUN=8`
-and `NVR_DEFAULT_RECORDING_EXPECTATION=continuous` in `.env` (backup in `/root`),
+Sets `NVR_RETENTION_MAX_CAMERAS_PER_RUN=64`, `NVR_RETENTION_CACHE_HOURS=20`,
+`NVR_HISTORICAL_MAX_CAMERAS_PER_RUN=8` and
+`NVR_DEFAULT_RECORDING_EXPECTATION=continuous` in `.env` (backup in `/root`),
 rebuilds, then repeats read-only reports (no email) until no calendar is pending.
-With 32 calendar checks per run, the 08:00 run refreshes every camera's calendar
-well within the 168-hour cache, so the columns stay filled.
+With 64 calendar checks per run and a 20-hour cache, every 08:00 run rescans
+every camera's calendar, so each strip ends yesterday. With a longer cache a
+calendar is reused for that long and the strip ends on an older day; the
+dashboard then shows "Calendar up to <date>" under the count.
 
 Empty-looking columns that are expected:
 - *Historical recording: Not needed (recording now)* — a camera with recent
@@ -570,7 +573,7 @@ NVR_RETENTION_ENABLED=true
 NVR_RETENTION_NVR_IDS=nvr-11
 NVR_RETENTION_WINDOW_DAYS=30
 NVR_RETENTION_MAX_CAMERAS_PER_RUN=2
-NVR_RETENTION_CACHE_HOURS=168
+NVR_RETENTION_CACHE_HOURS=20
 ```
 
 The NVR must also be included in the existing `NVR_PER_CAMERA_RECORDING_IDS`.
@@ -579,11 +582,12 @@ support, then refresh the saved-report dashboard. Review only status codes,
 calendar counts, and check timestamps (not raw XML, passwords or inventory).
 If unsupported, the dashboard reports **Not supported** rather than zero days.
 After a successful pilot, add more IDs to `NVR_RETENTION_NVR_IDS` and cautiously
-increase `NVR_RETENTION_MAX_CAMERAS_PER_RUN` (maximum 32, default 2) while
+increase `NVR_RETENTION_MAX_CAMERAS_PER_RUN` (maximum 64, default 2) while
 observing execution duration and the existing per-NVR 300-second budget.
 Every camera, online or offline, is eligible when it has a verified track and
-clock. Cameras rotate fairly across daily reports, and a cache (default 168
-hours) prevents repeated requests for recently checked cameras. Stale scanned
+clock. Cameras rotate fairly across daily reports, and a cache (default 20
+hours, so each daily run refreshes it) prevents repeated requests for recently
+checked cameras during manual runs. Stale scanned
 results remain visible as **Previous scan**, never as current verified data.
 The dashboard never queries devices directly.
 
