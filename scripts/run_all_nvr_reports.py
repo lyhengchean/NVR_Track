@@ -16,6 +16,7 @@ from html import escape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from app.camera_condition import classify
 from app.config import InventoryError, load_inventory
 
 
@@ -109,6 +110,26 @@ def save_fleet_run_status(started_at: str, rows: list[dict]) -> None:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
 
+def camera_conditions(report: dict) -> dict:
+    """Condition counts and the cameras that need action, from one saved report."""
+    channels = report.get("channel_inventory", {}).get("channels", [])
+    counts = {"no_footage_30": 0, "stopped_recording": 0, "gaps": 0}
+    attention = []
+    for channel in channels if isinstance(channels, list) else []:
+        if not isinstance(channel, dict):
+            continue
+        condition = classify(channel)
+        key = {"NO_FOOTAGE_30": "no_footage_30", "NOT_RECORDING": "stopped_recording",
+               "GAPS": "gaps"}.get(condition["code"])
+        if key:
+            counts[key] += 1
+            attention.append({"condition": condition["label"],
+                              "channel": str(channel.get("channel_id", "")),
+                              "camera": str(channel.get("name") or "")[:80],
+                              "detail": condition["detail"]})
+    return {**counts, "attention": attention}
+
+
 def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     """Send the consolidated NVR summary using authenticated SMTP."""
 
@@ -159,6 +180,9 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     missing_evidence = sum(int(row.get("recording_missing", 0) or 0) for row in summary)
     online_missing_expected = sum(int(row.get("online_missing_expected", 0) or 0) for row in summary)
     recording_errors = sum(int(row.get("recording_errors", 0) or 0) for row in summary)
+    no_footage_30 = sum(int(row.get("no_footage_30", 0) or 0) for row in summary)
+    stopped_recording = sum(int(row.get("stopped_recording", 0) or 0) for row in summary)
+    gaps = sum(int(row.get("gaps", 0) or 0) for row in summary)
 
     failures = counts["ERROR"]
     successful = len(summary) - failures
@@ -170,9 +194,9 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
 
     headers = (
         "<tr><th>NVR</th><th>IP address</th><th>Overall</th>"
-        "<th>Storage</th><th>Recording</th>"
-        "<th>Online</th><th>Offline</th><th>Evidence</th>"
-        "<th>No recent evidence</th><th>Online missing expected</th><th>Check errors</th></tr>"
+        "<th>Storage</th><th>Online</th><th>Offline</th><th>Recording now</th>"
+        "<th>Stopped recording</th><th>No footage 30+ days</th><th>Gaps</th>"
+        "<th>Online but not recording</th><th>Check errors</th></tr>"
     )
     rows = []
 
@@ -191,11 +215,12 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
             item.get("ip", "—"),
             status,
             item.get("storage", "UNKNOWN"),
-            item.get("recording", "UNKNOWN"),
             item.get("online", 0) if status != "ERROR" else "—",
             item.get("offline", 0) if status != "ERROR" else "—",
             item.get("recording_evidence", 0) if status != "ERROR" else "—",
-            item.get("recording_missing", 0) if status != "ERROR" else "—",
+            item.get("stopped_recording", 0) if status != "ERROR" else "—",
+            item.get("no_footage_30", 0) if status != "ERROR" else "—",
+            item.get("gaps", 0) if status != "ERROR" else "—",
             item.get("online_missing_expected", 0) if status != "ERROR" else "—",
             item.get("recording_errors", 0) if status != "ERROR" else "—",
         ]
@@ -206,6 +231,24 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         rows.append(
             "<tr>" + "".join(f"<td>{value}</td>" for value in escaped) + "</tr>"
         )
+
+    attention_rows = []
+    attention_text = []
+    for item in summary:
+        label = " - ".join(str(v) for v in (item.get("id"), item.get("name")) if v)
+        for camera in item.get("attention", [])[:100]:
+            attention_rows.append(
+                "<tr>" + "".join(f"<td>{escape(str(v))}</td>" for v in (
+                    camera["condition"], label, camera["channel"], camera["camera"], camera["detail"])) + "</tr>")
+            attention_text.append(f"{camera['condition']}: {label} ch{camera['channel']} "
+                                  f"{camera['camera']} - {camera['detail']}")
+    attention_html = (
+        "<h3>Cameras that need action</h3>"
+        '<table border="1" cellpadding="6" cellspacing="0" '
+        'style="border-collapse:collapse;border-color:#cbd5e1;font-size:13px">'
+        "<tr><th>Condition</th><th>NVR</th><th>Ch.</th><th>Camera</th><th>Reason</th></tr>"
+        + "".join(attention_rows) + "</table>"
+    ) if attention_rows else ""
 
     html = f"""<!doctype html>
 <html lang="en">
@@ -227,7 +270,10 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         <td>Cameras offline</td><td>{offline}</td></tr>
     <tr><td>Recent recording evidence</td><td>{evidence}</td>
         <td>No recent evidence</td><td>{missing_evidence}</td></tr>
-    <tr><td>ONLINE missing expected recordings</td><td>{online_missing_expected}</td></tr>
+    <tr><td>Stopped recording</td><td>{stopped_recording}</td>
+        <td>No footage 30+ days</td><td>{no_footage_30}</td></tr>
+    <tr><td>Cameras with gaps</td><td>{gaps}</td>
+        <td>Online but not recording</td><td>{online_missing_expected}</td></tr>
     <tr><td>Recording search errors</td><td>{recording_errors}</td></tr>
   </table>
   <h3>Per-NVR results</h3>
@@ -236,6 +282,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     {headers}
     {''.join(rows)}
   </table>
+  {attention_html}
   <p style="color:#64748b;font-size:12px">
     Generated by NVR Tracking. See the local dashboard for detailed
     findings and individual JSON reports.
@@ -252,19 +299,23 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         f"Cameras online: {online}; Cameras offline: {offline}",
         f"Recording evidence: {evidence}; no recent evidence: {missing_evidence}; "
         f"online missing expected: {online_missing_expected}; search errors: {recording_errors}",
+        f"Stopped recording: {stopped_recording}; no footage 30+ days: {no_footage_30}; "
+        f"cameras with gaps: {gaps}",
         "",
     ]
 
     for item in summary:
         plain_lines.append(
-            f"{item.get('id')} ({item.get('ip')}): "
+            f"{' - '.join(str(v) for v in (item.get('id'), item.get('name')) if v)} ({item.get('ip')}): "
             f"{item.get('overall')} | storage={item.get('storage')} | "
-            f"recording={item.get('recording')} | "
             f"online={item.get('online')} | offline={item.get('offline')} | "
-            f"evidence={item.get('recording_evidence', 0)} | "
-            f"no_recent={item.get('recording_missing', 0)}"
+            f"recording_now={item.get('recording_evidence', 0)} | "
+            f"stopped={item.get('stopped_recording', 0)} | "
+            f"no_footage_30d={item.get('no_footage_30', 0)} | gaps={item.get('gaps', 0)}"
             f" | online_missing_expected={item.get('online_missing_expected', 0)}"
         )
+    if attention_text:
+        plain_lines += ["", "Cameras that need action:", *attention_text]
 
     message = EmailMessage()
     message["Subject"] = subject
@@ -419,6 +470,7 @@ def main() -> int:
             "recording_missing": report.get("per_camera_recording", {}).get("no_recent_evidence", 0),
             "recording_errors": report.get("per_camera_recording", {}).get("search_errors", 0),
             "online_missing_expected": report.get("per_camera_recording", {}).get("online_missing_expected", 0),
+            **camera_conditions(report),
         })
 
     # Always publish an attempt record, even if one NVR saved no JSON report.

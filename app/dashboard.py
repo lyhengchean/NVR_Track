@@ -10,6 +10,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from app.camera_condition import CONDITIONS, classify
+
 
 REPORTS_DIR = Path(os.environ.get("REPORTS_DIR", "reports"))
 HOST = "0.0.0.0"
@@ -224,6 +226,7 @@ def _public_report(report: dict, path: Path) -> dict:
                     channel.get("reported_status", "UNKNOWN")
                 ),
             })
+            channels[-1]["condition"] = classify(channels[-1])
 
     disks = []
     raw_disks = storage.get("disks", [])
@@ -280,6 +283,8 @@ def _public_report(report: dict, path: Path) -> dict:
         ),
         "report_file": path.name,
         "channels": channels,
+        "condition_counts": {code: sum(ch["condition"]["code"] == code for ch in channels)
+                             for code in CONDITIONS},
         "disks": disks,
     }
 
@@ -420,6 +425,8 @@ def read_dashboard_data() -> dict:
         "latest_run_reporting": len(current_nvrs),
         "last_known_cameras_on_failed_nvrs": sum(len(nvr["channels"]) for nvr in nvrs
                                                if nvr["last_run_failed"]),
+        "condition_counts": {code: sum(nvr["condition_counts"][code] for nvr in current_nvrs)
+                             for code in CONDITIONS},
         "cameras_online": sum(nvr["online_channels"] or 0 for nvr in current_nvrs),
         "cameras_offline": sum(nvr["offline_channels"] or 0 for nvr in current_nvrs),
         "cameras_unknown": sum(nvr["unknown_channels"] or 0 for nvr in current_nvrs),

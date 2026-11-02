@@ -288,6 +288,28 @@ cron line, the last email result, `.env` permissions, Git ignores and the
 server's packet loss. It ends with `RESULT: n PASS, n WARN, n FAIL` and saves
 the log to `/root/nvr-track-check-<time>.txt`.
 
+## Reading the dashboard
+
+Each camera gets one **Condition**, built from results already in the report
+(no extra NVR requests). The same verdict appears in the daily email.
+
+| Condition | Meaning |
+|---|---|
+| No footage 30+ days | No video now and none on any day of the 30-day calendar. Camera is dead, disconnected or removed. |
+| Stopped recording | No video in the last hour, but older video exists (calendar or 7-day history). |
+| Check failed | The recording check could not be completed (network, track or permission). Never counted as recording. |
+| Gaps (N days) | Recording now, but N days since its oldest footage have no video. |
+| Offline, still recording | NVR reports the camera offline, yet it recorded in the last hour. |
+| Short history (N days) | Recording now, but the NVR holds only N days (overwritten early, or camera added recently). |
+| OK | Recording now with every calendar day covered. |
+
+The camera table shows 9 columns by default; tick **Show all columns** for
+track IDs, history search details and raw messages (remembered per browser).
+**Problems only** hides OK and Short-history cameras. Overview tiles for
+Stopped recording, No footage 30+ days, Gaps and Check failed filter the list
+when clicked. Tiles for rare problems (check failures, unreachable NVRs,
+pending calendars) appear only when their count is above zero.
+
 ## NVR display names
 
 Each NVR's `id` (`nvr-01` … `nvr-12`) is the technical key: it selects the
