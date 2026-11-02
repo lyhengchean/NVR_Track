@@ -10,12 +10,16 @@ set -u
 
 APP_DIR=${APP_DIR:-/opt/NVR_Track}
 STAMP=$(date +%Y%m%d-%H%M%S)
-LOG=/root/nvr-track-check-$STAMP.txt
 PASS=0; WARN=0; FAIL=0
 
 cd "$APP_DIR" || { echo "Cannot open $APP_DIR"; exit 1; }
-: > "$LOG" && chmod 600 "$LOG"
-exec > >(tee -a "$LOG") 2>&1
+if [ -n "${NVR_DEPLOY_CHECK_LOG:-}" ]; then
+    LOG=$NVR_DEPLOY_CHECK_LOG  # Restarted after updating itself; output is already logged.
+else
+    LOG=/root/nvr-track-check-$STAMP.txt
+    : > "$LOG" && chmod 600 "$LOG"
+    exec > >(tee -a "$LOG") 2>&1
+fi
 
 pass() { PASS=$((PASS + 1)); echo "  [PASS] $*"; }
 warn() { WARN=$((WARN + 1)); echo "  [WARN] $*"; }
@@ -35,10 +39,17 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
     fail "Tracked files were edited on the server; not pulling. Review: git status"
     exit 1
 fi
+BEFORE=$(git rev-parse HEAD)
 if git pull --ff-only -q; then
     pass "Pulled main: $(git log --oneline -1)"
 else
     fail "git pull --ff-only failed"; exit 1
+fi
+# Bash keeps running the copy of this script it started with. If the pull
+# changed this file, restart once so every later section is the new version.
+if [ -z "${NVR_DEPLOY_CHECK_LOG:-}" ] && ! git diff --quiet "$BEFORE" HEAD -- scripts/deploy_check.sh; then
+    echo "  deploy_check.sh was updated by this pull; restarting it"
+    NVR_DEPLOY_CHECK_LOG=$LOG exec bash "$APP_DIR/scripts/deploy_check.sh"
 fi
 if [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)" ]; then
     pass "Server matches GitHub main"
@@ -92,10 +103,11 @@ echo "  NVR_RECORDING_MAX_NVR_SECONDS (default 300 s) plus about a minute."
 for ip in $IPS; do
     START=$(date +%s)
     echo "  ... $ip started $(date +%H:%M:%S)"
-    # </dev/null: `timeout` runs the command outside the terminal's foreground
-    # group, and the nvr-report service keeps stdin open. Reading the terminal
-    # would freeze docker compose (SIGTTIN) after the report is already saved.
-    OUT=$(timeout 900 docker compose run --rm -T nvr-report --ip "$ip" </dev/null 2>&1)
+    # The nvr-report service keeps stdin open. Without --foreground, timeout
+    # moves compose out of the terminal's foreground group, and touching the
+    # terminal there stops the whole group (state T) so even the timeout never
+    # fires. --foreground and </dev/null each prevent that on their own.
+    OUT=$(timeout --foreground -k 30 900 docker compose run --rm -T nvr-report --ip "$ip" </dev/null 2>&1)
     ID=$(echo "$OUT" | sed -n 's/^Checking NVR \([^ ]*\) at.*/\1/p')
     OVERALL=$(echo "$OUT" | sed -n 's/^Overall status: //p')
     PERCAM=$(echo "$OUT" | sed -n 's/^Per-camera recording: //p')
