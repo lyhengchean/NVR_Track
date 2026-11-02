@@ -43,7 +43,8 @@ class DisplayNameTests(unittest.TestCase):
             nvrs = {n["id"]: n for n in dashboard.read_dashboard_data()["nvrs"]}
         self.assertEqual(nvrs["nvr-01"]["name"], "Kiln <b>Building</b>")
         self.assertEqual(nvrs["nvr-02"]["name"], "")
-        self.assertIn('el("h3","",nvr.name||nvr.id)', dashboard.HTML)
+        self.assertIn('function nvrTitle(nvr) { return nvr.name || nvr.id; }', dashboard.HTML)
+        self.assertIn('el("h3", "", nvrTitle(nvr))', dashboard.HTML)
 
     @patch("scripts.run_all_nvr_reports.smtplib.SMTP")
     def test_email_shows_id_and_escaped_name(self, smtp):

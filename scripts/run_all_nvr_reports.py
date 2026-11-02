@@ -53,6 +53,22 @@ FLEET_RUN_FILENAME = "fleet_latest_run.json"
 LOCK_CONFLICT_RETRIES = 2
 LOCK_CONFLICT_RETRY_DELAY_SECONDS = 5
 
+# The per-camera budget covers only recording searches. Device, channel and
+# storage reads (each retried once after a network drop), the NVR-wide probe
+# and the last in-flight search run outside it, so allow a fixed margin.
+REPORT_TIMEOUT_MARGIN_SECONDS = 300
+
+
+def report_timeout_seconds() -> int:
+    """Child-process timeout; uses the reporter's own bounds and default."""
+    try:
+        budget = int(os.environ.get("NVR_RECORDING_MAX_NVR_SECONDS", "300"))
+    except ValueError:
+        budget = 300
+    if not 15 <= budget <= 3600:
+        budget = 300
+    return budget + REPORT_TIMEOUT_MARGIN_SECONDS
+
 
 def is_lock_conflict(result: subprocess.CompletedProcess, nvr_id: str) -> bool:
     """Recognize the exact safe-to-retry message from the child reporter."""
@@ -379,13 +395,9 @@ def main() -> int:
 
         try:
             result = run_report_with_lock_retry(
-                command, nvr.id,
-                timeout=max(
-                    150,
-                    int(os.environ.get("NVR_RECORDING_MAX_NVR_SECONDS", "300")) + 120,
-                ),
+                command, nvr.id, timeout=report_timeout_seconds(),
             )
-        except (subprocess.TimeoutExpired, ValueError, OSError) as exc:
+        except (subprocess.TimeoutExpired, OSError) as exc:
             execution_errors += 1
             failure_code = ("PROCESS_TIMEOUT" if isinstance(exc, subprocess.TimeoutExpired)
                             else "PROCESS_START_FAILURE")

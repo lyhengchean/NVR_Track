@@ -26,8 +26,8 @@ class DefaultExpectationTests(unittest.TestCase):
 class DashboardLabelTests(unittest.TestCase):
     def test_recording_cameras_show_history_not_needed(self):
         html = (ROOT / "app" / "dashboard_ui.html").read_text(encoding="utf-8")
-        self.assertIn('HISTORICAL_NOT_NEEDED:"Not needed (recording now)"', html)
-        self.assertIn('status(notNeeded?"HISTORICAL_NOT_NEEDED":h.status)', html)
+        self.assertIn('HISTORICAL_NOT_NEEDED: "Not needed (recording now)"', html)
+        self.assertIn('pill(notNeeded(ch) ? "HISTORICAL_NOT_NEEDED" : h(ch).status)', html)
 
 
 class EnvExampleTests(unittest.TestCase):

@@ -3,288 +3,1153 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#0f172a">
-<title>NVR Track | Operations Console</title>
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0e1a2b">
+<title>NVR Track</title>
 <style>
-:root{font-family:Arial,"Noto Sans Khmer",sans-serif;color:#172b4d;background:#f4f7fb;font-synthesis:none}*{box-sizing:border-box}
-body{margin:0;min-width:310px}button,input,select{font:inherit}button{cursor:pointer}button:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #93c5fd;outline-offset:2px} .app-header{background:#101d34;color:#fff;border-bottom:3px solid #3b82f6}.header-inner{max-width:1600px;margin:auto;padding:22px 28px;display:flex;gap:18px;align-items:center;justify-content:space-between;flex-wrap:wrap}.brand{display:flex;gap:14px;align-items:center}.brand-icon{width:46px;height:46px;background:#1d4ed8;border-radius:13px;display:grid;place-items:center;color:#fff;font-weight:800;letter-spacing:-2px;font-size:22px}.eyebrow{text-transform:uppercase;font-size:10px;font-weight:800;letter-spacing:1.8px;color:#9bb6de}.brand h1{margin:2px 0;font-size:23px;letter-spacing:-.7px;font-weight:750}.brand p{margin:0;color:#b9cbe4;font-size:12px}.header-actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.refresh-status{font-size:12px;color:#b9cbe4;text-align:right}.refresh-status strong{display:block;color:#fff;font-weight:600;margin-bottom:4px}.btn{border:1px solid #2563eb;color:white;background:#2563eb;border-radius:9px;padding:10px 15px;font-weight:650;font-size:13px}.btn:hover{background:#1d4ed8}.btn:disabled{opacity:.65;cursor:wait}.workspace{max-width:1600px;margin:auto;padding:26px 28px 40px}.section-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:2px 0 15px}.section-head h2{font-size:17px;margin:0;letter-spacing:-.35px}.section-head p{font-size:12px;color:#64748b;margin:0}.summary{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:13px;margin-bottom:27px}.summary-card{padding:17px 18px;background:#fff;border:1px solid #e2e8f0;border-radius:13px;box-shadow:0 2px 10px #13294a07;min-height:112px;position:relative}.summary-card:before{content:"";height:3px;position:absolute;top:0;left:20px;right:20px;background:#e2e8f0;border-radius:0 0 5px 5px}.summary-card.positive:before{background:#10b981}.summary-card.attention:before{background:#f59e0b}.summary-card.danger:before{background:#ef4444}.summary-card.info:before{background:#3b82f6}.summary-card span{display:block;color:#64748b;font-size:12px;font-weight:550;line-height:1.45;min-height:35px}.summary-card strong{font-size:29px;line-height:1.2;font-weight:760;font-variant-numeric:tabular-nums;letter-spacing:-.8px}.panel{background:#fff;border:1px solid #e2e8f0;border-radius:14px;box-shadow:0 2px 11px #13294a06;padding:18px;margin-bottom:18px}.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:13px}.panel-head h2{font-size:16px;letter-spacing:-.25px;margin:0}.small{font-size:12px;color:#64748b}.filters{display:grid;grid-template-columns:minmax(220px,2fr) repeat(4,minmax(140px,1fr));gap:9px}.control{height:42px;background:#fff;border:1px solid #d6dfeb;border-radius:9px;padding:0 12px;color:#1e293b;width:100%;min-width:0;font-size:13px}.control:hover{border-color:#94a3b8}.quick-filters{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}.chip{display:inline-flex;align-items:center;gap:7px;padding:8px 11px;border-radius:22px;border:1px solid #d8e2ef;background:#f8fafc;font-size:12px;color:#475569;cursor:pointer}.chip:has(input:checked){background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;font-weight:650}.chip input{accent-color:#2563eb;margin:0}.list{display:grid;gap:14px}.nvr{border:1px solid #dce4ef;background:#fff;border-radius:14px;box-shadow:0 3px 12px #12253d09;overflow:hidden}.nvr-top{padding:20px 22px 17px}.nvr-main{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}.nvr-title{display:flex;align-items:center;gap:11px}.device-dot{width:10px;height:10px;border-radius:50%;background:#94a3b8;box-shadow:0 0 0 4px #f1f5f9;flex-shrink:0}.device-dot.HEALTHY{background:#10b981;box-shadow:0 0 0 4px #ecfdf5}.device-dot.WARNING{background:#f59e0b;box-shadow:0 0 0 4px #fffbeb}.device-dot.CRITICAL{background:#ef4444;box-shadow:0 0 0 4px #fef2f2}.nvr h3{margin:0;font-size:18px;font-weight:720;letter-spacing:-.3px}.subline{font-size:12px;color:#64748b;margin:7px 0 0 21px;overflow-wrap:anywhere}.badges{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.status{font-size:11px;border-radius:6px;display:inline-flex;align-items:center;font-weight:720;letter-spacing:.1px;padding:5px 8px;white-space:normal;overflow-wrap:anywhere;max-width:100%;background:#f1f5f9;color:#475569}.status.HEALTHY,.status.ONLINE,.status.RECORDING{background:#dcfce7;color:#166534}.status.CRITICAL,.status.OFFLINE,.status.NO_RECENT_RECORDING_EVIDENCE,.status.CHECK_ERROR{background:#fee2e2;color:#b91c1c}.status.WARNING,.status.RECORDING_EVIDENCE_WITH_ANOMALY{background:#fef3c7;color:#92400e}.nvr-metrics{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;margin-top:17px}.mini{border:1px solid #edf0f6;background:#f8fafc;border-radius:9px;padding:11px 12px;min-width:0}.mini span{display:block;color:#64748b;font-size:11px;line-height:1.35}.mini strong{display:block;font-size:19px;margin-top:5px;font-weight:720;font-variant-numeric:tabular-nums}.nvr-bottom{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:13px;color:#64748b;font-size:12px}.stale{color:#a16207;font-weight:700}.nvr details{border-top:1px solid #e7edf5}.nvr summary{list-style:none;display:flex;justify-content:space-between;gap:10px;align-items:center;padding:13px 22px;color:#2563eb;font-size:13px;font-weight:680;background:#fafcff;cursor:pointer}.nvr summary::-webkit-details-marker{display:none}.nvr summary:after{content:"⌄";font-size:19px;transition:transform .12s}.nvr details[open] summary:after{transform:rotate(180deg)}.nvr summary:hover{background:#f0f6ff}.details-inner{padding:19px 22px 24px}.detail-title{display:flex;justify-content:space-between;gap:12px;align-items:baseline;flex-wrap:wrap;margin:0 0 12px}.detail-title h4{font-size:14px;margin:0}.scroll-table{overflow-x:auto;border:1px solid #e2e8f0;border-radius:10px;margin-bottom:20px}table{width:100%;border-collapse:collapse;font-size:12px}th{font-weight:700;color:#64748b;text-align:left;background:#f8fafc;white-space:nowrap}th,td{padding:11px 12px;border-bottom:1px solid #edf1f6;vertical-align:top}tbody tr:last-child td{border-bottom:0}tbody tr:hover{background:#f8fbff}td{max-width:360px;overflow-wrap:anywhere}td .status{max-width:200px}th button{border:0;background:transparent;color:inherit;font-weight:700;padding:0;cursor:pointer}.empty-row{text-align:center;padding:20px;color:#64748b}.detail-columns{display:grid;grid-template-columns:1.1fr 1fr;gap:24px}.findings{margin:0;padding-left:17px;color:#475569;font-size:12px;line-height:1.7}.findings li{margin-bottom:7px;overflow-wrap:anywhere}.muted{font-size:12px;color:#64748b;overflow-wrap:anywhere}.message{min-height:18px;font-size:13px;color:#64748b;margin:0 0 16px}.message.error{color:#b91c1c}.footer{border-top:1px solid #e2e8f0;padding-top:16px;color:#64748b;font-size:12px;margin-top:28px}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}.align-right{text-align:right}#nvr-counter{font-size:12px;color:#64748b}
-@media(max-width:1300px){.summary{grid-template-columns:repeat(4,minmax(0,1fr))}.filters{grid-template-columns:repeat(3,minmax(0,1fr))}.filters input{grid-column:span 3}.nvr-metrics{grid-template-columns:repeat(4,minmax(0,1fr))}}@media(max-width:800px){.header-inner,.workspace{padding-left:16px;padding-right:16px}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}.filters{grid-template-columns:repeat(2,minmax(0,1fr))}.filters input{grid-column:span 2}.nvr-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-columns{grid-template-columns:1fr}.nvr-top{padding:17px}.nvr summary,.details-inner{padding-left:17px;padding-right:17px}}@media(max-width:430px){.filters{grid-template-columns:1fr}.filters input{grid-column:span 1}.header-actions{width:100%;justify-content:space-between}.summary-card{min-height:100px;padding:14px}.summary-card strong{font-size:26px}}
-@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+:root{
+  --bg:#eef2f6;--panel:#fff;--panel-2:#f6f8fb;--ink:#0e1a2b;--ink-2:#2c3b50;--muted:#5d6d82;--line:#d9e1ea;--line-2:#e8edf3;
+  --accent:#3b82f6;--accent-ink:#1d4ed8;--accent-soft:#e3edff;--focus:#93c5fd;
+  --ok:#1f9d55;--short:#7cc49a;--offrec:#0ea5e9;--gaps:#e5a000;--failed:#8b5cf6;--stopped:#e5484d;--nofootage:#8f1d22;--unmon:#b4c0ce;
+  --ok-soft:#e3f6eb;--warn-soft:#fff4d6;--crit-soft:#fde7e8;--info-soft:#e4f4fc;--violet-soft:#efe9ff;--gray-soft:#edf1f5;
+  --ok-text:#116b38;--warn-text:#8a5a00;--crit-text:#a3191f;--info-text:#075f86;--violet-text:#5b30c4;--gray-text:#4c5b6e;
+  --shadow:0 1px 2px rgba(14,26,43,.06),0 8px 24px -12px rgba(14,26,43,.18);
+  --font:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Ubuntu","Noto Sans","Noto Sans Khmer",sans-serif;
+  --mono:"Cascadia Mono","SF Mono",ui-monospace,"Ubuntu Mono",Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0a111d;--panel:#101a2a;--panel-2:#0d1624;--ink:#e6edf6;--ink-2:#c3cfdd;--muted:#8fa0b6;--line:#22314a;--line-2:#1a2639;
+  --accent:#3b82f6;--accent-ink:#8ab4ff;--accent-soft:#16284a;--focus:#3b82f6;
+  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;
+  --ok-soft:#0f2d1e;--warn-soft:#33270a;--crit-soft:#3a1418;--info-soft:#0b2a3a;--violet-soft:#241a45;--gray-soft:#1a2537;
+  --ok-text:#7ee2a6;--warn-text:#f6cf6b;--crit-text:#ff9da1;--info-text:#8fdcff;--violet-text:#c9b8ff;--gray-text:#a9b6c7;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0a111d;--panel:#101a2a;--panel-2:#0d1624;--ink:#e6edf6;--ink-2:#c3cfdd;--muted:#8fa0b6;--line:#22314a;--line-2:#1a2639;
+  --accent:#3b82f6;--accent-ink:#8ab4ff;--accent-soft:#16284a;--focus:#3b82f6;
+  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;
+  --ok-soft:#0f2d1e;--warn-soft:#33270a;--crit-soft:#3a1418;--info-soft:#0b2a3a;--violet-soft:#241a45;--gray-soft:#1a2537;
+  --ok-text:#7ee2a6;--warn-text:#f6cf6b;--crit-text:#ff9da1;--info-text:#8fdcff;--violet-text:#c9b8ff;--gray-text:#a9b6c7;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;min-width:320px;background:var(--bg);color:var(--ink);font:14px/1.5 var(--font);font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:6px}
+.wrap{max-width:1680px;margin:0 auto;padding:0 28px}
+.visually-hidden{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
-/* Readability revision: statuses, dense camera table, and responsive horizontal scrolling. */
-.status.RETENTION_VERIFIED{background:#dcfce7;color:#166534}
-.status.RETENTION_PARTIAL,.status.RETENTION_STALE,.status.RETENTION_INCONCLUSIVE,.status.RETENTION_ERROR{background:#fef3c7;color:#92400e}
-.status.RETENTION_PENDING,.status.RETENTION_NOT_CONFIGURED,.status.RETENTION_UNVERIFIED,.status.RETENTION_UNSUPPORTED{background:#f1f5f9;color:#475569}
-.retention-count{font-weight:650;white-space:nowrap;font-variant-numeric:tabular-nums}
-.retention-calendar{width:150px;display:grid;grid-template-columns:repeat(10,10px);gap:4px;align-items:center}
-.retention-day{width:10px;height:13px;border-radius:2px;background:#cbd5e1}
-.retention-day.present{background:#16a34a}
-.retention-day.absent{background:#f59e0b}
-.retention-day.unknown{background:#cbd5e1}
+/* Header */
+.topbar{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--panel) 88%,transparent);backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--line)}
+.topbar .wrap{display:flex;align-items:center;gap:20px;min-height:60px}
+.brand{display:flex;align-items:center;gap:12px;margin-right:auto;min-width:0}
+.mark{display:grid;grid-template-columns:repeat(3,7px);gap:2px;padding:6px;border-radius:9px;background:#0e1a2b;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+.mark i{width:7px;height:7px;border-radius:2px;background:#2fb86a}
+.mark i:nth-child(5){background:#f2555a}.mark i:nth-child(7){background:#f0b429}.mark i:nth-child(3){background:#3d4c63}
+.brand h1{font-size:17px;line-height:1.1;margin:0;font-weight:680;letter-spacing:-.01em;white-space:nowrap}
+.brand p{margin:1px 0 0;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.freshness{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--muted);text-align:right}
+.freshness strong{display:block;color:var(--ink);font-weight:600;font-size:13px}
+.pulse{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
+.pulse.fresh{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 20%,transparent)}
+.pulse.stale{background:var(--gaps);box-shadow:0 0 0 4px color-mix(in srgb,var(--gaps) 22%,transparent)}
+.pulse.error{background:var(--stopped);box-shadow:0 0 0 4px color-mix(in srgb,var(--stopped) 22%,transparent)}
+.btn{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);font-weight:600;font-size:13px;white-space:nowrap}
+.btn:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:var(--panel-2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:#2f6fe0}
+.btn[disabled]{opacity:.6;cursor:progress}
+.btn svg{width:16px;height:16px;flex:none}
+.btn.icon{width:36px;padding:0;justify-content:center}
+.spin svg{animation:spin .9s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 
-.status{
-  white-space:nowrap;
-  overflow-wrap:normal;
-  word-break:keep-all;
-  max-width:none;
-  border-radius:999px;
-  padding:5px 10px;
-  line-height:1.25;
-  flex-shrink:0;
-}
-.status.HISTORICAL_RECORDING_FOUND{background:#dcfce7;color:#166534}
-.status.HISTORICAL_CHECK_ERROR,.status.HISTORICAL_CHECK_INCONCLUSIVE{background:#fef3c7;color:#92400e}
-.status.NO_HISTORICAL_EVIDENCE_IN_WINDOW{background:#fff7ed;color:#9a3412}
-.status.HISTORICAL_NOT_CHECKED,.status.HISTORICAL_NOT_NEEDED,.status.HISTORICAL_NOT_CONFIGURED,.status.NOT_CHECKED,.status.NOT_CONFIGURED{background:#f1f5f9;color:#475569}
-.status.CHECK_INCONCLUSIVE{background:#fef3c7;color:#92400e}
-.status.ERROR{background:#fee2e2;color:#991b1b}
-.fleet-failure{margin:14px 0 0;padding:11px 13px;border:1px solid #fecaca;background:#fff1f2;color:#9f1239;font-size:12px;line-height:1.5;border-radius:9px;font-weight:650}
-.nvr.run-failed{border-color:#fca5a5}
-.nvr.run-failed .nvr-top{background:#fffafa}
-.nvr.run-failed .nvr-metrics{opacity:.72}
+/* Banner */
+.banner{margin:18px 0 0;padding:12px 16px;border-radius:10px;border:1px solid;font-size:13.5px;display:flex;gap:10px;align-items:flex-start}
+.banner b{font-weight:650}
+.banner.warn{background:var(--warn-soft);border-color:color-mix(in srgb,var(--gaps) 40%,transparent);color:var(--warn-text)}
+.banner.crit{background:var(--crit-soft);border-color:color-mix(in srgb,var(--stopped) 40%,transparent);color:var(--crit-text)}
+.banner .btn{margin-left:auto;height:30px}
 
-.table-hint{font-size:12px;line-height:1.5;color:#64748b;margin:0 0 10px}
-.scroll-table{overflow-x:auto;overscroll-behavior-x:contain;scrollbar-gutter:stable}
-.scroll-table:focus-visible{outline:3px solid #93c5fd;outline-offset:2px}
-.camera-table{
-  width:max-content;
-  min-width:100%;
-  border-collapse:separate;
-  border-spacing:0;
-  font-size:12px;
+/* Hero */
+.hero{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;padding:30px 0 6px}
+.headline{margin:0;font-size:clamp(26px,3.1vw,38px);line-height:1.12;font-weight:700;letter-spacing:-.025em;max-width:24ch}
+.headline.good{color:var(--ok-text)}
+.headline.bad{color:var(--ink)}
+.subline{margin:10px 0 0;color:var(--ink-2);font-size:15px;max-width:78ch}
+.condbar{display:flex;height:16px;border-radius:5px;overflow:hidden;background:var(--line-2);gap:2px}
+.condbar span{display:block;height:100%;min-width:3px;transition:flex-grow .8s cubic-bezier(.2,.8,.2,1)}
+.legend{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.legend button{display:inline-flex;align-items:center;gap:7px;padding:5px 11px 5px 9px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:12.5px;color:var(--ink-2)}
+.legend button b{font-weight:680;color:var(--ink)}
+.legend button:hover{border-color:var(--muted)}
+.legend button[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.legend button[disabled]{opacity:.45;cursor:default}
+.swatch{width:10px;height:10px;border-radius:3px;flex:none}
+
+/* Condition palette, used by bar, legend, wall cells and badges */
+.k-OK{--k:var(--ok)}.k-SHORT_HISTORY{--k:var(--short)}.k-OFFLINE_RECORDING{--k:var(--offrec)}.k-GAPS{--k:var(--gaps)}
+.k-CHECK_FAILED{--k:var(--failed)}.k-NOT_RECORDING{--k:var(--stopped)}.k-NO_FOOTAGE_30{--k:var(--nofootage)}.k-NOT_MONITORED{--k:var(--unmon)}.k-NONE{--k:transparent}
+.swatch,.condbar span{background:var(--k)}
+
+/* Facts */
+.facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:22px 0 0;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.facts section{padding:14px 18px;border-left:1px solid var(--line-2);min-width:0}
+.facts section:first-child{border-left:0}
+.facts h2{margin:0 0 8px;font-size:12.5px;font-weight:650;color:var(--muted)}
+.facts dl{margin:0;display:grid;grid-template-columns:1fr auto;row-gap:4px;column-gap:12px;font-size:13px}
+.facts dt{color:var(--ink-2);display:flex;align-items:center;gap:7px;min-width:0}
+.facts dd{margin:0;font-weight:650;text-align:right}
+.facts dd.zero{color:var(--muted);font-weight:500}
+.dot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--muted)}
+.dot.ok{background:var(--ok)}.dot.warn{background:var(--gaps)}.dot.crit{background:var(--stopped)}.dot.info{background:var(--offrec)}.dot.violet{background:var(--failed)}
+
+/* Toolbar */
+.toolbar{position:sticky;top:60px;z-index:15;margin:22px -28px 0;padding:12px 28px;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid transparent}
+.toolbar.stuck{border-bottom-color:var(--line)}
+.tools{display:grid;grid-template-columns:minmax(220px,1.7fr) repeat(5,minmax(120px,1fr));gap:8px}
+.field{position:relative;min-width:0}
+.field svg{position:absolute;left:11px;top:50%;width:16px;height:16px;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+.control{width:100%;height:38px;border-radius:8px;border:1px solid var(--line);background:var(--panel);padding:0 11px;font-size:13px;min-width:0}
+.control:hover{border-color:color-mix(in srgb,var(--muted) 60%,var(--line))}
+input.control{padding-left:34px}
+input.control::placeholder{color:var(--muted)}
+.kbd{position:absolute;right:9px;top:50%;transform:translateY(-50%);font:11px var(--mono);color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 5px;pointer-events:none}
+select.control.active{border-color:var(--accent);background:var(--accent-soft)}
+.tools2{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px}
+.toggle{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:12.5px;cursor:pointer;user-select:none}
+.toggle input{accent-color:var(--accent);margin:0}
+.toggle:has(input:checked){border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+.tools2 select.control{width:auto;height:32px;font-size:12.5px}
+.tools2 .btn{height:32px;font-size:12.5px}
+.count{margin-left:auto;font-size:12.5px;color:var(--muted)}
+.linkbtn{border:0;background:none;color:var(--accent-ink);font-weight:600;font-size:12.5px;padding:4px 6px}
+.linkbtn:hover{text-decoration:underline}
+
+/* NVR list */
+.nvr,.drawer,.cam tr{scroll-margin-top:178px}
+.list{display:grid;gap:12px;margin:14px 0 0}
+.nvr{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+.nvr::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--muted)}
+.nvr.s-HEALTHY::before{background:var(--ok)}.nvr.s-WARNING::before{background:var(--gaps)}.nvr.s-CRITICAL::before{background:var(--stopped)}.nvr.s-ERROR::before{background:var(--nofootage)}
+.nvr-head{padding:16px 20px 14px 24px}
+.nvr-row{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.nvr-name{margin-right:auto;min-width:0}
+.nvr-name h3{margin:0;font-size:17px;font-weight:680;letter-spacing:-.01em;overflow-wrap:anywhere}
+.meta{display:flex;flex-wrap:wrap;gap:4px 16px;margin-top:3px;font-size:12.5px;color:var(--muted)}
+.meta span{white-space:nowrap}
+.meta .id{color:var(--ink-2);font-weight:600}
+.ip{font-family:var(--mono);font-size:12px}
+.pills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:620;white-space:nowrap;background:var(--gray-soft);color:var(--gray-text)}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.HEALTHY,.pill.ONLINE,.pill.RECORDING{background:var(--ok-soft);color:var(--ok-text)}
+.pill.WARNING,.pill.RECORDING_EVIDENCE_WITH_ANOMALY,.pill.CHECK_INCONCLUSIVE{background:var(--warn-soft);color:var(--warn-text)}
+.pill.CRITICAL,.pill.ERROR,.pill.OFFLINE,.pill.NO_RECENT_RECORDING_EVIDENCE,.pill.CHECK_ERROR{background:var(--crit-soft);color:var(--crit-text)}
+.pill.TRACK_NOT_FOUND,.pill.TRACK_MAPPING_UNVERIFIED{background:var(--violet-soft);color:var(--violet-text)}
+.pill.HISTORICAL_RECORDING_FOUND,.pill.RETENTION_VERIFIED{background:var(--ok-soft);color:var(--ok-text)}
+.pill.NO_HISTORICAL_EVIDENCE_IN_WINDOW,.pill.HISTORICAL_CHECK_ERROR,.pill.RETENTION_ERROR{background:var(--crit-soft);color:var(--crit-text)}
+.pill.HISTORICAL_CHECK_INCONCLUSIVE,.pill.RETENTION_PARTIAL,.pill.RETENTION_STALE,.pill.RETENTION_INCONCLUSIVE{background:var(--warn-soft);color:var(--warn-text)}
+.pill.plain::before{display:none}
+.livecounts{display:flex;gap:14px;font-size:12.5px;color:var(--muted);align-items:center}
+.livecounts b{color:var(--ink);font-weight:650}
+
+.wall{display:flex;flex-wrap:wrap;gap:3px;margin-top:13px}
+.cell{width:15px;height:15px;border-radius:3px;background:var(--k);cursor:pointer;position:relative;transition:opacity .15s,transform .15s}
+.cell:hover{transform:scale(1.35);z-index:2;box-shadow:0 0 0 2px var(--panel),0 0 0 3px var(--ink)}
+.cell.offline{background:repeating-linear-gradient(135deg,var(--k) 0 3px,color-mix(in srgb,var(--k) 25%,var(--panel)) 3px 5px)}
+.cell.liveunknown{box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--panel) 65%,transparent)}
+.cell.ghost{background:transparent;border:1.5px dashed var(--muted);cursor:default}
+.cell.ghost:hover{transform:none;box-shadow:none}
+.cell.dim{opacity:.13}
+.wall.stale .cell{opacity:.55}
+.wall.stale .cell.dim{opacity:.1}
+.nvr-foot{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px;font-size:12.5px;color:var(--muted)}
+.alerts{color:var(--ink-2);font-weight:560;margin-right:auto}
+.alerts .bad{color:var(--crit-text)}
+.when.stale{color:var(--warn-text);font-weight:600}
+.expand{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:7px;border:1px solid var(--line);background:var(--panel-2);font-size:12.5px;font-weight:620;color:var(--accent-ink)}
+.expand:hover{border-color:var(--accent)}
+.expand::after{content:"";width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translateY(-2px) rotate(45deg);transition:transform .15s}
+.expand[aria-expanded="true"]::after{transform:translateY(2px) rotate(-135deg)}
+.runfail{margin:12px 0 0;padding:9px 12px;border-radius:8px;background:var(--crit-soft);color:var(--crit-text);font-size:12.5px;font-weight:600}
+
+/* Drawer */
+.drawer{border-top:1px solid var(--line);background:var(--panel-2)}
+.tabs{display:flex;gap:2px;padding:0 20px 0 22px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tab{border:0;background:none;padding:11px 12px 10px;font-size:13px;font-weight:620;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tab[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.tab .n{display:inline-block;margin-left:6px;padding:0 6px;border-radius:999px;background:var(--line-2);font-size:11.5px;color:var(--ink-2)}
+.panel{padding:16px 20px 20px 24px}
+.note{margin:0 0 10px;font-size:12.5px;color:var(--muted);max-width:110ch}
+.scroller{overflow:auto;max-height:70vh;border:1px solid var(--line);border-radius:10px;background:var(--panel)}
+table{border-collapse:separate;border-spacing:0;width:100%;font-size:12.8px}
+th,td{padding:9px 12px;text-align:left;vertical-align:middle;border-bottom:1px solid var(--line-2);white-space:nowrap}
+thead th{position:sticky;top:0;z-index:3;background:var(--panel-2);font-weight:640;color:var(--muted);font-size:12px;border-bottom:1px solid var(--line)}
+th button{border:0;background:none;padding:0;font-weight:640;color:inherit;display:inline-flex;align-items:center;gap:4px}
+th button:hover{color:var(--ink)}
+th[aria-sort="ascending"] button::after{content:"▲";font-size:8px}
+th[aria-sort="descending"] button::after{content:"▼";font-size:8px}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:color-mix(in srgb,var(--accent) 5%,var(--panel))}
+.cam td:first-child,.cam th:first-child{position:sticky;left:0;z-index:2;background:var(--panel)}
+.cam thead th:first-child{z-index:4;background:var(--panel-2)}
+.cam td:nth-child(2){white-space:normal;min-width:180px;max-width:260px;overflow-wrap:anywhere;font-weight:560}
+.cam td.why{white-space:normal;min-width:260px;max-width:420px;color:var(--ink-2)}
+.cam tr.hit td{background:var(--accent-soft)!important}
+.cam tr.sev-critical td:first-child{box-shadow:inset 3px 0 0 var(--stopped)}
+.cam tr.sev-warning td:first-child{box-shadow:inset 3px 0 0 var(--gaps)}
+.num{text-align:right}
+.chan{font-weight:650;color:var(--ink-2)}
+.cond{display:inline-flex;align-items:center;gap:7px;font-weight:620}
+.cond .swatch{width:9px;height:9px}
+.sub{display:block;font-size:11.5px;color:var(--muted);font-weight:400}
+.bad{color:var(--crit-text);font-weight:600}
+.cal{display:inline-grid;grid-auto-flow:column;grid-auto-columns:4px;gap:1px;height:14px;align-items:end;margin-left:8px;vertical-align:middle}
+.cal i{display:block;height:14px;border-radius:1px;background:var(--line)}
+.cal i.y{background:var(--ok)}.cal i.n{background:var(--gaps);height:6px}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+.bar{display:inline-block;width:90px;height:7px;border-radius:4px;background:var(--line-2);vertical-align:middle;margin-left:8px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent)}
+.bar i.full{background:var(--gaps)}
+.findings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.findings section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.findings h4{margin:0 0 8px;font-size:13px}
+.findings ul{margin:0;padding-left:18px;font-size:13px;color:var(--ink-2)}
+.findings li{margin:3px 0;overflow-wrap:anywhere}
+.findings li.c::marker{color:var(--stopped)}.findings li.w::marker{color:var(--gaps)}.findings li.u::marker{color:var(--failed)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;margin:0;font-size:13px}
+.kv dt{color:var(--muted)}.kv dd{margin:0;overflow-wrap:anywhere}
+
+/* Loading */
+.skeleton{height:150px;border-radius:12px;background:linear-gradient(90deg,var(--panel) 0%,var(--panel-2) 50%,var(--panel) 100%);background-size:200% 100%;animation:shimmer 1.4s ease-in-out infinite;border:1px solid var(--line)}
+@keyframes shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
+.zero-state{padding:40px 28px;text-align:center;background:var(--panel);border:1px dashed var(--line);border-radius:12px;color:var(--ink-2)}
+.zero-state code{font-family:var(--mono);font-size:12.5px;background:var(--panel-2);padding:2px 6px;border-radius:5px;border:1px solid var(--line)}
+footer{margin:30px 0 40px;font-size:12.5px;color:var(--muted);max-width:110ch}
+
+#tip{position:fixed;z-index:50;pointer-events:none;max-width:280px;padding:8px 10px;border-radius:8px;background:var(--ink);color:var(--bg);font-size:12px;line-height:1.45;box-shadow:var(--shadow);opacity:0;transform:translateY(4px);transition:opacity .08s,transform .08s}
+#tip.on{opacity:1;transform:none}
+#tip b{display:block;font-size:12.5px}
+
+@media (max-width:1280px){
+  .tools{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .tools .field{grid-column:span 3}
+  .facts{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .facts section:nth-child(3){border-left:0}
+  .facts section:nth-child(n+3){border-top:1px solid var(--line-2)}
 }
-.camera-table th,.camera-table td{padding:12px 14px;white-space:nowrap;max-width:none;vertical-align:middle}
-.camera-table thead th{position:sticky;top:0;z-index:2;background:#f8fafc}
-.camera-table tbody tr:nth-child(even){background:#fbfdff}
-.camera-table tbody tr:hover{background:#eef5ff}
-.camera-table td:nth-child(1),.camera-table th:nth-child(1){min-width:65px;width:65px}
-.camera-table td:nth-child(2),.camera-table th:nth-child(2){min-width:205px;width:205px;max-width:205px}
-.camera-table td:nth-child(2){white-space:normal;overflow-wrap:break-word;line-height:1.45}
-.camera-table td:nth-child(3),.camera-table th:nth-child(3){min-width:135px}
-.camera-table td:nth-child(4),.camera-table th:nth-child(4){min-width:105px}
-.camera-table td:nth-child(5),.camera-table th:nth-child(5){min-width:150px}
-.camera-table td:nth-child(6),.camera-table th:nth-child(6){min-width:165px}
-.camera-table td:nth-child(7),.camera-table th:nth-child(7){min-width:115px}
-.camera-table td:nth-child(8),.camera-table th:nth-child(8){min-width:180px}
-.camera-table td:nth-child(9),.camera-table th:nth-child(9){min-width:160px}
-.camera-table td:nth-child(23){white-space:normal;min-width:260px;max-width:390px;overflow-wrap:break-word;line-height:1.5}
-.camera-table .status{font-size:11px;white-space:nowrap;max-width:none}
-.camera-table .window-text{white-space:nowrap;color:#475569;font-variant-numeric:tabular-nums}
-/* Keep the channel and camera name visible while reviewing far-right columns. */
-.camera-table th:first-child,.camera-table td:first-child{
-  position:sticky;left:0;z-index:3;background:#fff;
+@media (max-width:760px){
+  .wrap{padding:0 16px}
+  .toolbar{margin:18px -16px 0;padding:10px 16px;position:static}
+  .topbar .wrap{gap:10px}
+  .brand p,.freshness .detail{display:none}
+  .freshness strong{font-size:12px;font-weight:600}
+  .nvr,.drawer,.cam tr{scroll-margin-top:72px}
+  .tools{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .tools .field{grid-column:span 2}
+  .facts{grid-template-columns:1fr}
+  .facts section{border-left:0;border-top:1px solid var(--line-2)}
+  .facts section:first-child{border-top:0}
+  .nvr-head{padding:14px 14px 12px 18px}
+  .panel{padding:14px 12px 16px 16px}
+  .tabs{padding:0 12px 0 14px}
+  .findings{grid-template-columns:1fr}
+  .count{margin-left:0;width:100%}
+  .cell{width:13px;height:13px}
+  .btn .label{display:none}
+  .btn.primary{width:36px;padding:0;justify-content:center}
 }
-.camera-table th:nth-child(2),.camera-table td:nth-child(2){
-  position:sticky;left:65px;z-index:3;background:#fff;
-  box-shadow:2px 0 0 #e2e8f0;
-}
-.camera-table thead th:first-child,.camera-table thead th:nth-child(2){z-index:4;background:#f8fafc}
-.camera-table tbody tr:nth-child(even) td:first-child,
-.camera-table tbody tr:nth-child(even) td:nth-child(2){background:#fbfdff}
-.camera-table tbody tr:hover td:first-child,
-.camera-table tbody tr:hover td:nth-child(2){background:#eef5ff}
-@media(max-width:800px){
-  .camera-table th:nth-child(2),.camera-table td:nth-child(2){position:static;box-shadow:none}
-  .camera-table td:nth-child(2),.camera-table th:nth-child(2){min-width:165px;width:165px;max-width:165px}
-  .camera-table th,.camera-table td{padding:10px 12px}
-}
-.summary-card.clickable{text-align:left;font:inherit;color:inherit;cursor:pointer;width:100%}
-.summary-card.clickable:hover{border-color:#93c5fd;box-shadow:0 4px 14px #2563eb1a}
-.summary-card strong.text-value{font-size:17px;letter-spacing:0;line-height:1.35}
-.condition{display:inline-block;padding:4px 9px;border-radius:12px;font-size:12px;font-weight:700;white-space:nowrap}
-.condition.critical{background:#fee2e2;color:#991b1b}
-.condition.warning{background:#fef3c7;color:#92400e}
-.condition.info{background:#e0f2fe;color:#075985}
-.condition.ok{background:#dcfce7;color:#166534}
-.camera-table tbody tr.row-critical td{background:#fff5f5}
-.camera-table tbody tr.row-warning td{background:#fffbeb}
-.bad-text{color:#b91c1c;font-weight:650}
-.nvr-alert{margin:13px 0 0;padding:9px 12px;border-radius:9px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;font-size:13px;font-weight:600}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+@media print{.topbar,.toolbar,.expand{display:none}.nvr{box-shadow:none;break-inside:avoid}}
 </style>
 </head>
 <body>
-<header class="app-header"><div class="header-inner"><div class="brand"><div class="brand-icon" aria-hidden="true">NT</div><div><div class="eyebrow">Monitoring / Operations</div><h1>NVR Track</h1><p>Hikvision recording assurance · Read-only console</p></div></div><div class="header-actions"><div class="refresh-status"><strong id="refresh-label">Waiting for reports</strong><span id="refresh-time">Latest saved JSON snapshots</span></div><button type="button" class="btn" id="refresh">↻ Refresh reports</button></div></div></header>
-<main class="workspace"><div class="section-head"><h2>System overview</h2><p>Recording evidence is independent of camera connectivity</p></div><section id="stats" class="summary" aria-label="Monitoring summary"></section><section class="panel" aria-label="Filter reports"><div class="panel-head"><h2>Find devices & cameras</h2><span id="nvr-counter"></span></div><div class="filters"><input id="search" class="control" type="search" autocomplete="off" aria-label="Search NVR or camera" placeholder="Search NVR, channel, camera name or IP…"><select id="overall-filter" class="control" aria-label="NVR health"><option value="">All NVR health</option><option>HEALTHY</option><option>WARNING</option><option>CRITICAL</option><option>ERROR</option><option>UNKNOWN</option></select><select id="live-filter" class="control" aria-label="Camera connectivity"><option value="">All live statuses</option><option>ONLINE</option><option>OFFLINE</option><option>UNKNOWN</option><option>NOT_RETURNED</option></select><select id="condition-filter" class="control" aria-label="Camera condition"><option value="">All camera conditions</option><option value="NO_FOOTAGE_30">No footage 30+ days</option><option value="NOT_RECORDING">Stopped recording</option><option value="CHECK_FAILED">Check failed</option><option value="GAPS">Gaps</option><option value="OFFLINE_RECORDING">Offline, still recording</option><option value="SHORT_HISTORY">Short history</option><option value="OK">OK</option></select><select id="storage-filter" class="control" aria-label="Storage health"><option value="">All storage statuses</option><option>HEALTHY</option><option>WARNING</option><option>CRITICAL</option><option>ERROR</option><option>UNKNOWN</option></select></div><div class="quick-filters"><label class="chip"><input id="only-problems" type="checkbox"> Problems only</label><label class="chip"><input id="all-columns" type="checkbox"> Show all columns</label><select id="sort" class="control" aria-label="Sort NVRs" style="width:auto;height:35px"><option value="priority">Sort: most urgent first</option><option value="id">Sort: NVR ID</option><option value="recent">Sort: last report</option></select></div></section><p id="message" class="message" role="status">Loading latest saved reports…</p><div class="section-head"><h2>NVR fleet</h2><p>Select an NVR to inspect camera recordings, storage and findings</p></div><section id="nvr-list" class="list" aria-label="NVR reports"></section><p class="footer">Read-only monitoring. Results come from saved reports, not live device queries. “Not recording” refers to the last hour; recorded days come from the NVR’s 30-day calendar. Failed checks are never counted as recording.</p></main>
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div><h1>NVR Track</h1><p>Recording assurance for Hikvision NVRs, read-only</p></div>
+    </div>
+    <div class="freshness" id="freshness" aria-live="polite">
+      <span class="pulse" id="pulse"></span>
+      <div><strong id="fresh-main">Loading reports</strong><span class="detail" id="fresh-detail">Saved JSON snapshots</span></div>
+    </div>
+    <button type="button" class="btn primary" id="refresh" title="Reload the latest saved reports (R)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+      <span class="label">Refresh</span>
+    </button>
+    <button type="button" class="btn icon" id="theme" title="Theme: follow system" aria-label="Change colour theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="banners"></div>
+
+  <section class="hero" aria-labelledby="headline">
+    <div>
+      <h2 class="headline" id="headline">Reading saved reports…</h2>
+      <p class="subline" id="subline"></p>
+    </div>
+    <div>
+      <div class="condbar" id="condbar" role="img" aria-label="Camera conditions across all NVRs"></div>
+      <div class="legend" id="legend" aria-label="Filter cameras by condition"></div>
+    </div>
+  </section>
+
+  <div class="facts" id="facts" aria-label="Fleet facts"></div>
+
+  <div class="toolbar" id="toolbar">
+    <div class="tools" role="search">
+      <div class="field">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="search" class="control" type="search" autocomplete="off" spellcheck="false" placeholder="Search NVRs, cameras, channels, IPs" aria-label="Search NVRs and cameras">
+        <span class="kbd" aria-hidden="true">/</span>
+      </div>
+      <select id="overall-filter" class="control" aria-label="NVR health">
+        <option value="">All NVR health</option><option value="CRITICAL">Critical</option><option value="WARNING">Warning</option><option value="HEALTHY">Healthy</option><option value="UNKNOWN">Unknown</option><option value="ERROR">Report failed</option>
+      </select>
+      <select id="live-filter" class="control" aria-label="Camera live status">
+        <option value="">All live statuses</option><option value="ONLINE">Online</option><option value="OFFLINE">Offline</option><option value="UNKNOWN">Unknown</option><option value="NOT_RETURNED">Not returned</option>
+      </select>
+      <select id="condition-filter" class="control" aria-label="Camera condition">
+        <option value="">All conditions</option><option value="NO_FOOTAGE_30">No footage 30+ days</option><option value="NOT_RECORDING">Stopped recording</option><option value="CHECK_FAILED">Check failed</option><option value="GAPS">Gaps</option><option value="OFFLINE_RECORDING">Offline, still recording</option><option value="SHORT_HISTORY">Short history</option><option value="NOT_MONITORED">Not monitored</option><option value="OK">OK</option>
+      </select>
+      <select id="recording-filter" class="control" aria-label="Recording check result">
+        <option value="">All recording results</option><option value="EVIDENCE">Recorded in window</option><option value="NO_RECENT_RECORDING_EVIDENCE">No recent evidence</option><option value="OFFLINE_EVIDENCE">Offline, footage found</option><option value="FAILED">Failed or unverified</option><option value="NOT_CHECKED">Not checked or not enabled</option>
+      </select>
+      <select id="storage-filter" class="control" aria-label="Storage health">
+        <option value="">All storage</option><option value="CRITICAL">Storage critical</option><option value="WARNING">Storage warning</option><option value="HEALTHY">Storage healthy</option><option value="UNKNOWN">Storage unknown</option>
+      </select>
+    </div>
+    <div class="tools2">
+      <label class="toggle"><input id="only-problems" type="checkbox"> Problems only</label>
+      <label class="toggle"><input id="all-columns" type="checkbox"> All columns</label>
+      <select id="sort" class="control" aria-label="Sort NVRs">
+        <option value="priority">Most urgent first</option><option value="id">NVR ID</option><option value="recent">Latest report first</option><option value="cameras">Most cameras with problems</option>
+      </select>
+      <button type="button" class="btn" id="csv" title="Download the cameras in this view as CSV">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+        <span class="label">CSV</span>
+      </button>
+      <button type="button" class="linkbtn" id="clear" hidden>Clear filters</button>
+      <span class="count" id="count" aria-live="polite"></span>
+    </div>
+  </div>
+
+  <section class="list" id="nvr-list" aria-label="NVRs">
+    <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+  </section>
+
+  <footer id="footer">Read-only. The dashboard shows the latest saved report for each NVR and never queries devices. A camera without footage in the search window is not proof it never recorded; failed, unverified and disabled checks are never counted as recording.</footer>
+</main>
+<div id="tip" role="tooltip"></div>
+
 <script>
 "use strict";
-const $=id=>document.getElementById(id);
-const evidence=new Set(["RECORDING","RECORDING_EVIDENCE_WITH_ANOMALY"]);
-const unverified=new Set(["TRACK_NOT_FOUND","TRACK_MAPPING_UNVERIFIED","CHECK_INCONCLUSIVE","CHECK_ERROR","NOT_CHECKED","NOT_CONFIGURED"]);
-const ranks={ERROR:-1,CRITICAL:0,WARNING:1,UNKNOWN:2,HEALTHY:3};
-let nvrs=[], timer=null, debounce=null;
-function el(tag,cls,text){const node=document.createElement(tag);if(cls)node.className=cls;if(text!==undefined&&text!==null)node.textContent=String(text);return node;}
-function pretty(s){return String(s||"UNKNOWN").replaceAll("_"," ").toLowerCase().replace(/\b[a-z]/g,m=>m.toUpperCase());}
-// Short, readable labels. Keep original codes in title attributes for troubleshooting.
-const statusLabels = {
-  HEALTHY:"Healthy", WARNING:"Warning", CRITICAL:"Critical", ERROR:"Report failed", UNKNOWN:"Unknown",
-  ONLINE:"Online", OFFLINE:"Offline", NOT_RETURNED:"Not returned",
-  RECORDING:"Recording", RECORDING_EVIDENCE_WITH_ANOMALY:"Recording anomaly",
-  NO_RECENT_RECORDING_EVIDENCE:"No recent evidence", CHECK_ERROR:"Check error",
-  CHECK_INCONCLUSIVE:"Inconclusive", TRACK_NOT_FOUND:"Track not found",
-  TRACK_MAPPING_UNVERIFIED:"Track unverified", NOT_CHECKED:"Not checked",
-  NOT_CONFIGURED:"Not configured", HISTORICAL_RECORDING_FOUND:"Historical found",
-  NO_HISTORICAL_EVIDENCE_IN_WINDOW:"No historical evidence",
-  HISTORICAL_CHECK_INCONCLUSIVE:"Historical inconclusive",
-  HISTORICAL_CHECK_ERROR:"Historical error", HISTORICAL_NOT_CHECKED:"Not checked", HISTORICAL_NOT_NEEDED:"Not needed (recording now)",
-  HISTORICAL_NOT_CONFIGURED:"Not configured",
-  RETENTION_VERIFIED:"Verified dates", RETENTION_PARTIAL:"Partial calendar",
-  RETENTION_PENDING:"Pending", RETENTION_STALE:"Previous scan",
-  RETENTION_UNSUPPORTED:"Not supported", RETENTION_ERROR:"Query error",
-  RETENTION_INCONCLUSIVE:"Inconclusive", RETENTION_UNVERIFIED:"Unverified track",
-  RETENTION_NOT_CONFIGURED:"Not enabled"
+const $ = id => document.getElementById(id);
+const TZ = "Asia/Phnom_Penh";
+const EVIDENCE = new Set(["RECORDING", "RECORDING_EVIDENCE_WITH_ANOMALY"]);
+const FAILED_CHECKS = new Set(["TRACK_NOT_FOUND", "TRACK_MAPPING_UNVERIFIED", "CHECK_INCONCLUSIVE", "CHECK_ERROR"]);
+const NOT_RUN = new Set(["NOT_CHECKED", "NOT_CONFIGURED"]);
+const PROBLEMS = new Set(["NO_FOOTAGE_30", "NOT_RECORDING", "CHECK_FAILED", "GAPS", "OFFLINE_RECORDING"]);
+// Display order: urgent first, so a thin red slice is never hidden at the end.
+const CONDITIONS = [
+  ["NO_FOOTAGE_30", "No footage 30+ days"], ["NOT_RECORDING", "Stopped recording"],
+  ["CHECK_FAILED", "Check failed"], ["GAPS", "Gaps"], ["OFFLINE_RECORDING", "Offline, still recording"],
+  ["SHORT_HISTORY", "Short history"], ["NOT_MONITORED", "Not monitored"], ["OK", "OK"]
+];
+const CONDITION_LABEL = Object.fromEntries(CONDITIONS);
+const HEALTH_RANK = {ERROR: 0, CRITICAL: 1, WARNING: 2, UNKNOWN: 3, HEALTHY: 4};
+const LABELS = {
+  HEALTHY: "Healthy", WARNING: "Warning", CRITICAL: "Critical", ERROR: "Report failed", UNKNOWN: "Unknown",
+  ONLINE: "Online", OFFLINE: "Offline", NOT_RETURNED: "Not returned",
+  RECORDING: "Recorded", RECORDING_EVIDENCE_WITH_ANOMALY: "Recorded, time anomaly",
+  NO_RECENT_RECORDING_EVIDENCE: "No recent evidence", CHECK_ERROR: "Search error",
+  CHECK_INCONCLUSIVE: "Inconclusive", TRACK_NOT_FOUND: "Track not found",
+  TRACK_MAPPING_UNVERIFIED: "Track unverified", NOT_CHECKED: "Not checked", NOT_CONFIGURED: "Not enabled",
+  HISTORICAL_RECORDING_FOUND: "Older footage found", NO_HISTORICAL_EVIDENCE_IN_WINDOW: "No footage in 7 days",
+  HISTORICAL_CHECK_INCONCLUSIVE: "Inconclusive", HISTORICAL_CHECK_ERROR: "Search error",
+  HISTORICAL_NOT_CHECKED: "Not checked", HISTORICAL_NOT_NEEDED: "Not needed (recording now)",
+  HISTORICAL_NOT_CONFIGURED: "Not enabled",
+  RETENTION_VERIFIED: "Verified", RETENTION_PARTIAL: "Partial", RETENTION_PENDING: "Pending",
+  RETENTION_STALE: "Previous scan", RETENTION_UNSUPPORTED: "Not supported", RETENTION_ERROR: "Query error",
+  RETENTION_INCONCLUSIVE: "Inconclusive", RETENTION_UNVERIFIED: "Unverified track", RETENTION_NOT_CONFIGURED: "Not enabled"
 };
-const statusStyles = new Set([
-  "HEALTHY","WARNING","CRITICAL","ERROR","ONLINE","OFFLINE","RECORDING",
-  "RECORDING_EVIDENCE_WITH_ANOMALY","NO_RECENT_RECORDING_EVIDENCE",
-  "CHECK_ERROR","CHECK_INCONCLUSIVE","HISTORICAL_RECORDING_FOUND",
-  "NO_HISTORICAL_EVIDENCE_IN_WINDOW","HISTORICAL_CHECK_ERROR",
-  "HISTORICAL_CHECK_INCONCLUSIVE","HISTORICAL_NOT_CHECKED",
-  "HISTORICAL_NOT_CONFIGURED","NOT_CHECKED","NOT_CONFIGURED",
-  "RETENTION_VERIFIED","RETENTION_PARTIAL","RETENTION_PENDING","RETENTION_STALE",
-  "RETENTION_UNSUPPORTED","RETENTION_ERROR","RETENTION_INCONCLUSIVE",
-  "RETENTION_UNVERIFIED","RETENTION_NOT_CONFIGURED"
-]);
-function status(s){
-  const val=String(s||"UNKNOWN");
-  const node=el("span","status"+(statusStyles.has(val)?" "+val:""),statusLabels[val]||pretty(val));
-  node.title=val;
+const STORAGE_LABEL = {HEALTHY: "Storage healthy", WARNING: "Storage warning", CRITICAL: "Storage critical", UNKNOWN: "Storage unknown"};
+
+const state = {data: null, nvrs: [], open: new Map(), closed: new Set(), sort: new Map(), hit: null, timer: null, loadedAt: null, firstPaint: true};
+
+// ---------- small helpers; device text is only ever assigned as textContent ----------
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined && text !== null) node.textContent = String(text);
   return node;
 }
-function stamp(s){if(!s)return "—";const d=new Date(s);return Number.isNaN(d.valueOf())?String(s):new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Phnom_Penh",year:"numeric",month:"short",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false}).format(d)+" ICT";}
-function isStale(nvr){if(nvr.last_run_failed)return true;const t=new Date(nvr.last_check).getTime();return !Number.isFinite(t)||Date.now()-t>26*3600000;}
-function summary(data){const c=data.condition_counts||{};const failedRuns=data.latest_run_failed||0;
-// Always shown; [title, value, colour, condition filter applied on click].
-const items=[
-["NVRs reporting",`${data.latest_run_reporting??data.total_nvrs} / ${data.total_nvrs}`,failedRuns?"danger":"info"],
-["Last report",stamp(data.last_successful_report),"info"],
-["NVR health",`${data.healthy||0} OK · ${data.warning||0} warn · ${data.critical||0} crit`,data.critical?"danger":"attention"],
-["Cameras online",data.cameras_online,"positive"],["Cameras offline",data.cameras_offline,"danger"],
-["Recording now",data.recording_evidence,"positive"],
-["Stopped recording",c.NOT_RECORDING,"danger","NOT_RECORDING"],
-["No footage 30+ days",c.NO_FOOTAGE_30,"danger","NO_FOOTAGE_30"],
-["Cameras with gaps",c.GAPS,"attention","GAPS"],
-["Online but not recording",data.online_missing_expected,"danger"],
-["Storage warnings",data.storage_warnings,"attention"],["Critical storage",data.storage_critical,"danger"]];
-// Shown only when something needs attention.
-const optional=[
-["Check failed",c.CHECK_FAILED,"attention","CHECK_FAILED"],
-["Cameras with no result (NVR unreachable)",data.cameras_without_result,"danger"],
-["Stale / failed NVR reports",data.stale_reports,"attention"],
-["Live status unknown",data.cameras_unknown,"attention"],
-["Recording calendars pending",data.retention_pending,"attention"],
-["Recording calendar partial / errors",(data.retention_partial||0)+(data.retention_errors||0),"attention"],
-["Historical pending (no recent)",data.historical_pending_no_recent,"attention"],
-["Failed historical checks",data.historical_errors,"danger"]];
-optional.forEach(item=>{if(Number(item[1])>0)items.push(item);});
-const node=$("stats");node.replaceChildren();items.forEach(([title,value,kind,filter])=>{const card=el(filter?"button":"div","summary-card "+kind+(filter?" clickable":""));if(filter){card.type="button";card.title="Show these cameras";card.addEventListener("click",()=>{$("condition-filter").value=filter;$("only-problems").checked=false;render();$("nvr-list").scrollIntoView({behavior:"smooth"});});}card.append(el("span","",title),el("strong",typeof value==="string"&&!/^[0-9 \/]+$/.test(value)?"text-value":"",value??0));node.append(card);});}
-function mini(title,value){const node=el("div","mini");node.append(el("span","",title),el("strong","",value??"—"));return node;}
-// Keep rendering text-only: camera/NVR-provided strings must never become HTML.
-function table(headers,rows,tableClass=""){
-  const wrap=el("div","scroll-table");
-  wrap.tabIndex=0; // keyboard users can scroll horizontally
-  wrap.setAttribute("role","region");
-  wrap.setAttribute("aria-label",tableClass==="camera-table"?"Camera recording details; scroll horizontally for more columns":"Storage disk details");
-  const tbl=el("table",tableClass);
-  const head=el("thead"),headerRow=el("tr");
-  headers.forEach(label=>headerRow.append(el("th","",label)));
-  head.append(headerRow);
-  const body=el("tbody");
-  if(!rows.length){
-    const tr=el("tr"),cell=el("td","empty-row","No rows match this view.");
-    cell.colSpan=headers.length;
-    tr.append(cell);body.append(tr);
-  }
-  for(const entry of rows){
-    const row=Array.isArray(entry)?entry:entry.cells;const tr=el("tr",Array.isArray(entry)?"":entry.cls||"");
-    for(const value of row){
-      const td=el("td");
-      if(value instanceof Node){td.append(value);}
-      else {
-        td.textContent=String(value??"—");
-        if(String(value??"").length>24) td.title=String(value);
-      }
-      tr.append(td);
+function label(code) { return LABELS[code] || String(code || "Unknown").replaceAll("_", " ").toLowerCase().replace(/^./, c => c.toUpperCase()); }
+function pill(code, text, extra) {
+  const node = el("span", "pill " + (/^[A-Z_]+$/.test(String(code)) ? code : "") + (extra ? " " + extra : ""), text || label(code));
+  node.title = String(code || "");
+  return node;
+}
+function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
+function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+const dateFmt = new Intl.DateTimeFormat("en-GB", {timeZone: TZ, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false});
+const timeFmt = new Intl.DateTimeFormat("en-GB", {timeZone: TZ, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false});
+const dayFmt = new Intl.DateTimeFormat("en-CA", {timeZone: TZ});
+function parse(value) { if (!value) return null; const d = new Date(value); return Number.isNaN(d.valueOf()) ? null : d; }
+function stamp(value) { const d = parse(value); return d ? dateFmt.format(d) : (value ? String(value) : "—"); }
+function ago(value) {
+  const d = parse(value); if (!d) return "";
+  const s = Math.round((Date.now() - d.getTime()) / 1000);
+  if (s < 0) return "in the future";
+  if (s < 90) return "just now";
+  if (s < 5400) return Math.round(s / 60) + " min ago";
+  if (s < 172800) return Math.round(s / 3600) + " h ago";
+  return Math.round(s / 86400) + " days ago";
+}
+function stamped(value, cls) {
+  const node = el("span", cls || "", stamp(value));
+  const rel = ago(value);
+  if (rel) node.append(el("span", "sub", rel));
+  if (value) node.title = String(value);
+  return node;
+}
+function isStale(nvr) {
+  if (nvr.last_run_failed) return true;
+  const d = parse(nvr.last_check);
+  return !d || Date.now() - d.getTime() > 26 * 3600 * 1000;
+}
+function nvrTitle(nvr) { return nvr.name || nvr.id; }
+function windowText(minutes) {
+  const m = Number(minutes);
+  if (!Number.isInteger(m) || m <= 0) return "the search window";
+  if (m % 60 === 0) return m === 60 ? "the last hour" : "the last " + (m / 60) + " hours";
+  return "the last " + m + " minutes";
+}
+function cond(ch) { return ch.condition || {code: "CHECK_FAILED", label: "Check failed", severity: "warning", rank: 2, detail: ""}; }
+
+// ---------- filtering ----------
+function filters() {
+  return {
+    query: $("search").value.trim().toLowerCase(),
+    overall: $("overall-filter").value, live: $("live-filter").value,
+    condition: $("condition-filter").value, recording: $("recording-filter").value,
+    storage: $("storage-filter").value, problems: $("only-problems").checked
+  };
+}
+function recordingMatches(ch, want) {
+  const s = ch.recording_result.status;
+  if (want === "EVIDENCE") return EVIDENCE.has(s);
+  if (want === "OFFLINE_EVIDENCE") return ch.reported_status === "OFFLINE" && (EVIDENCE.has(s) || ch.historical_recording_result.status === "HISTORICAL_RECORDING_FOUND");
+  if (want === "FAILED") return FAILED_CHECKS.has(s);
+  if (want === "NOT_CHECKED") return NOT_RUN.has(s);
+  return s === want;
+}
+function nvrText(nvr) { return [nvr.id, nvr.name, nvr.ip, nvr.model, nvr.firmware_version].join(" ").toLowerCase(); }
+function cameraText(ch) { return [ch.channel_id, "ch" + ch.channel_id, ch.name, ch.camera_ip, cond(ch).label].join(" ").toLowerCase(); }
+function select() {
+  const f = filters();
+  const cameraFilter = Boolean(f.live || f.condition || f.recording || f.problems);
+  const rows = [];
+  for (const nvr of state.nvrs) {
+    if (f.overall && nvr.overall_status !== f.overall) continue;
+    if (f.storage && nvr.storage_status !== f.storage) continue;
+    const nvrHit = !f.query || nvrText(nvr).includes(f.query);
+    const match = new Set();
+    for (const ch of nvr.channels) {
+      const code = cond(ch).code;
+      if (f.query && !nvrHit && !cameraText(ch).includes(f.query)) continue;
+      if (f.live && ch.reported_status !== f.live) continue;
+      if (f.condition && code !== f.condition) continue;
+      if (f.recording && !recordingMatches(ch, f.recording)) continue;
+      if (f.problems && !PROBLEMS.has(code)) continue;
+      match.add(ch);
     }
-    body.append(tr);
+    const narrowed = cameraFilter || (f.query && !nvrHit);
+    if (narrowed && !match.size) continue;
+    rows.push({nvr, match, narrowed, cameraFilter});
   }
-  tbl.append(head,body);wrap.append(tbl);
+  const sort = $("sort").value;
+  const problemCount = r => r.nvr.channels.filter(ch => PROBLEMS.has(cond(ch).code)).length;
+  rows.sort((a, b) => {
+    if (sort === "id") return a.nvr.id.localeCompare(b.nvr.id, undefined, {numeric: true});
+    if (sort === "recent") return (parse(b.nvr.last_check)?.getTime() || 0) - (parse(a.nvr.last_check)?.getTime() || 0);
+    if (sort === "cameras") return problemCount(b) - problemCount(a) || a.nvr.id.localeCompare(b.nvr.id, undefined, {numeric: true});
+    return (HEALTH_RANK[a.nvr.overall_status] ?? 3) - (HEALTH_RANK[b.nvr.overall_status] ?? 3)
+      || problemCount(b) - problemCount(a) || a.nvr.id.localeCompare(b.nvr.id, undefined, {numeric: true});
+  });
+  return {rows, f, active: Boolean(f.query || f.overall || f.storage || cameraFilter)};
+}
+
+// ---------- header, banners, hero, facts ----------
+function renderFreshness() {
+  const s = state.data?.summary || {};
+  const pulse = $("pulse");
+  const last = s.last_successful_report;
+  const stale = num(s.stale_reports) > 0 || num(s.latest_run_failed) > 0;
+  pulse.className = "pulse " + (state.error ? "error" : stale ? "stale" : last ? "fresh" : "");
+  $("fresh-main").textContent = state.error ? "Refresh failed" : last ? "Reports from " + stamp(last) : "No reports yet";
+  const loaded = state.loadedAt ? "Loaded " + timeFmt.format(state.loadedAt) : "";
+  const every = num(state.data?.refresh_seconds) > 0 ? ", reloads every " + Math.max(15, num(state.data.refresh_seconds)) + " s" : "";
+  $("fresh-detail").textContent = loaded + every;
+}
+function renderBanners() {
+  const host = $("banners");
+  host.replaceChildren();
+  const s = state.data?.summary || {};
+  const add = (kind, strong, text, retry) => {
+    const b = el("div", "banner " + kind);
+    b.setAttribute("role", kind === "crit" ? "alert" : "status");
+    const body = el("div");
+    body.append(el("b", "", strong), " " + text);
+    b.append(body);
+    if (retry) { const btn = el("button", "btn", "Try again"); btn.type = "button"; btn.addEventListener("click", refresh); b.append(btn); }
+    host.append(b);
+  };
+  if (state.error) add("crit", "Could not reload reports.", state.error + " The last loaded results stay on screen.", true);
+  if (num(s.latest_run_failed) > 0)
+    add("crit", "Latest fleet run failed for " + plural(num(s.latest_run_failed), "NVR") + ".",
+      "Their cameras are left out of the fleet totals; each card shows the last successful report for reference.");
+  const staleOnly = num(s.stale_reports) - num(s.latest_run_failed);
+  if (staleOnly > 0) add("warn", plural(staleOnly, "NVR report") + " older than 26 hours.", "Check that the 08:00 schedule still runs.");
+  if (num(state.data?.report_errors) > 0)
+    add("warn", plural(num(state.data.report_errors), "report file") + " could not be read.", "Other reports are shown normally.");
+}
+function renderHero() {
+  const s = state.data?.summary || {};
+  const c = s.condition_counts || {};
+  const total = CONDITIONS.reduce((sum, [code]) => sum + num(c[code]), 0);
+  const stopped = num(c.NOT_RECORDING) + num(c.NO_FOOTAGE_30);
+  const failed = num(c.CHECK_FAILED), unmonitored = num(c.NOT_MONITORED);
+  const headline = $("headline");
+  let text, good = false;
+  if (!state.nvrs.length) text = "No saved reports yet";
+  else if (stopped) text = plural(stopped, "camera is", "cameras are") + " not recording";
+  else if (failed) text = plural(failed, "camera", "cameras") + " could not be checked";
+  else if (total > unmonitored) { text = "Every monitored camera is recording"; good = true; }
+  else text = "No cameras are monitored yet";
+  headline.textContent = text;
+  headline.className = "headline " + (good ? "good" : "bad");
+  const parts = [];
+  if (total) parts.push(num(s.recording_evidence) + " of " + total + " cameras recorded video in " + windowText(s.window_minutes) + ".");
+  if (num(c.GAPS)) parts.push(plural(num(c.GAPS), "camera has", "cameras have") + " missing days in the 30-day calendar.");
+  if (stopped && failed) parts.push(plural(failed, "check") + " could not be completed.");
+  if (unmonitored) parts.push(plural(unmonitored, "camera is", "cameras are") + " on NVRs without per-camera checks.");
+  if (num(s.cameras_without_result)) parts.push(plural(num(s.cameras_without_result), "expected camera has", "expected cameras have") + " no result because the NVR was unreachable.");
+  if (!state.nvrs.length) parts.push("Run the reporter once, then refresh: docker compose run --rm nvr-report-all");
+  $("subline").textContent = parts.join(" ");
+
+  const bar = $("condbar");
+  bar.replaceChildren();
+  const legend = $("legend");
+  legend.replaceChildren();
+  const active = $("condition-filter").value;
+  for (const [code, name] of CONDITIONS) {
+    const n = num(c[code]);
+    if (n) {
+      const seg = el("span", "k-" + code);
+      seg.style.flexGrow = state.firstPaint ? "0" : String(n);
+      seg.dataset.n = n;
+      seg.title = name + ": " + n;
+      bar.append(seg);
+    }
+    const b = el("button", "");
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(active === code));
+    b.disabled = !n && active !== code;
+    b.append(el("span", "swatch k-" + code), name, el("b", "", n));
+    b.addEventListener("click", () => {
+      $("condition-filter").value = active === code ? "" : code;
+      state.closed.clear();
+      render();
+      if (active !== code) $("toolbar").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start"});
+    });
+    legend.append(b);
+  }
+  bar.setAttribute("aria-label", "Camera conditions: " + CONDITIONS.filter(([k]) => num(c[k])).map(([k, n]) => n + " " + num(c[k])).join(", "));
+  if (state.firstPaint && total) {
+    state.firstPaint = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      for (const seg of bar.children) seg.style.flexGrow = seg.dataset.n;
+    }));
+  }
+}
+function renderFacts() {
+  const s = state.data?.summary || {};
+  const host = $("facts");
+  host.replaceChildren();
+  const group = (title, rows) => {
+    const sec = el("section");
+    sec.append(el("h2", "", title));
+    const dl = el("dl");
+    for (const [name, value, tone, always] of rows) {
+      if (!always && !num(value)) continue;
+      const dt = el("dt");
+      dt.append(el("span", "dot " + (tone || "")), name);
+      const dd = el("dd", typeof value === "number" && !value ? "zero" : "", value ?? 0);
+      dl.append(dt, dd);
+    }
+    sec.append(dl);
+    host.append(sec);
+  };
+  group("NVRs", [
+    ["Reporting", (s.latest_run_reporting ?? s.total_nvrs ?? 0) + " of " + (s.total_nvrs ?? 0), num(s.latest_run_failed) ? "crit" : "ok", true],
+    ["Healthy", num(s.healthy), "ok", true], ["Warning", num(s.warning), "warn", true],
+    ["Critical", num(s.critical), "crit", true], ["Latest run failed", num(s.latest_run_failed), "crit"]
+  ]);
+  group("Cameras live", [
+    ["Online", num(s.cameras_online), "ok", true], ["Offline", num(s.cameras_offline), "crit", true],
+    ["Unknown", num(s.cameras_unknown), "warn", true], ["No result (NVR unreachable)", num(s.cameras_without_result), "crit"]
+  ]);
+  const failedChecks = Math.max(0, num(s.recording_unverified) - num(s.recording_not_checked));
+  group("Recording in " + windowText(s.window_minutes), [
+    ["Footage found", num(s.recording_evidence), "ok", true],
+    ["No recent evidence", num(s.recording_no_evidence), "crit", true],
+    ["Offline, footage found", num(s.offline_with_evidence), "info", true],
+    ["Failed or unverified checks", failedChecks, "violet", true],
+    ["Not checked or not enabled", num(s.recording_not_checked), ""],
+    ["Historical pending (no recent)", num(s.historical_pending_no_recent), "warn"],
+    ["Calendars pending", num(s.retention_pending), "warn"]
+  ]);
+  group("Storage", [
+    ["Critical", num(s.storage_critical), "crit", true], ["Warning", num(s.storage_warnings), "warn", true],
+    ["Calendar errors", num(s.retention_errors) + num(s.retention_partial), "warn"],
+    ["Failed history searches", num(s.historical_errors), "crit"]
+  ]);
+}
+
+// ---------- NVR cards ----------
+function wall(nvr, match, narrowed) {
+  const box = el("div", "wall" + (nvr.last_run_failed ? " stale" : ""));
+  box.setAttribute("role", "img");
+  const counts = nvr.condition_counts || {};
+  box.setAttribute("aria-label", "Camera wall for " + nvrTitle(nvr) + ": " +
+    CONDITIONS.filter(([k]) => num(counts[k])).map(([k, n]) => num(counts[k]) + " " + n).join(", "));
+  const ordered = [...nvr.channels].sort((a, b) => num(a.channel_id) - num(b.channel_id));
+  for (const ch of ordered) {
+    const c = cond(ch);
+    const live = ch.reported_status;
+    const cell = el("span", "cell k-" + c.code + (live === "OFFLINE" ? " offline" : live !== "ONLINE" ? " liveunknown" : "") + (narrowed && !match.has(ch) ? " dim" : ""));
+    cell.dataset.nvr = nvr.id;
+    cell.dataset.ch = ch.channel_id;
+    box.append(cell);
+  }
+  const missing = Number.isInteger(nvr.expected_channels) ? Math.max(0, nvr.expected_channels - nvr.channels.length) : 0;
+  for (let i = 0; i < missing; i++) {
+    const ghost = el("span", "cell ghost");
+    ghost.dataset.ghost = "1";
+    box.append(ghost);
+  }
+  return box;
+}
+function card(row) {
+  const {nvr, match, narrowed} = row;
+  const counts = nvr.condition_counts || {};
+  const art = el("article", "nvr s-" + nvr.overall_status);
+  art.dataset.nvrId = nvr.id;
+  const head = el("div", "nvr-head");
+  const top = el("div", "nvr-row");
+  const name = el("div", "nvr-name");
+  name.append(el("h3", "", nvrTitle(nvr)));
+  const meta = el("div", "meta");
+  if (nvr.name) meta.append(el("span", "id", nvr.id));
+  if (nvr.ip) meta.append(el("span", "ip", nvr.ip));
+  if (nvr.model) meta.append(el("span", "", nvr.model));
+  if (nvr.firmware_version) meta.append(el("span", "", "Firmware " + nvr.firmware_version));
+  name.append(meta);
+  const pills = el("div", "pills");
+  pills.append(pill(nvr.overall_status));
+  pills.append(pill(nvr.storage_status, (nvr.last_run_failed ? "Last known: " : "") + (STORAGE_LABEL[nvr.storage_status] || "Storage " + label(nvr.storage_status).toLowerCase())));
+  top.append(name, pills);
+  head.append(top);
+  if (nvr.last_run_failed) {
+    head.append(el("p", "runfail", "Latest fleet check failed (" + (nvr.last_run_failure_code || "REPORT_UNAVAILABLE") +
+      "). Cameras and disks below are from the last successful report, " + (nvr.last_check ? stamp(nvr.last_check) : "none saved") + ", not current observations."));
+  }
+  head.append(wall(nvr, match, narrowed));
+
+  const foot = el("div", "nvr-foot");
+  const alerts = el("span", "alerts");
+  const items = [
+    [num(counts.NO_FOOTAGE_30), "no footage for 30+ days", true], [num(counts.NOT_RECORDING), "stopped recording", true],
+    [num(counts.CHECK_FAILED), "not checked", false], [num(counts.GAPS), "with missing days", false]
+  ].filter(([n]) => n > 0);
+  if (items.length) {
+    items.forEach(([n, text, bad], i) => {
+      if (i) alerts.append(", ");
+      alerts.append(el("span", bad ? "bad" : "", plural(n, "camera") + " " + text));
+    });
+  } else if (nvr.channels.length && !num(counts.NOT_MONITORED)) {
+    alerts.append("All cameras recorded in " + windowText(nvr.per_camera_recording?.window_minutes));
+  } else if (num(counts.NOT_MONITORED)) {
+    alerts.append("Per-camera checks are not enabled for this NVR");
+  } else {
+    alerts.append("No camera list in this report");
+  }
+  const live = el("span", "livecounts");
+  const lv = (n, t) => { const s = el("span"); s.append(el("b", "", n), " " + t); return s; };
+  live.append(lv(num(nvr.online_channels), "online"), lv(num(nvr.offline_channels), "offline"));
+  if (num(nvr.unknown_channels)) live.append(lv(num(nvr.unknown_channels), "unknown"));
+  const chans = el("span", "", (nvr.configured_channels ?? "—") + " of " + (nvr.expected_channels ?? "—") + " channels");
+  const when = el("span", "when" + (isStale(nvr) ? " stale" : ""), (nvr.last_run_failed ? "Last good report " : "Report ") + stamp(nvr.last_check));
+  when.title = (nvr.last_check || "") + (isStale(nvr) ? " (stale)" : "");
+  const btn = el("button", "expand", "Details");
+  btn.type = "button";
+  btn.setAttribute("aria-expanded", String(isOpen(row)));
+  btn.setAttribute("aria-controls", "drawer-" + nvr.id);
+  btn.addEventListener("click", () => toggle(nvr.id));
+  foot.append(alerts, live, chans, when, btn);
+  head.append(foot);
+  art.append(head);
+  if (isOpen(row)) art.append(drawer(row));
+  return art;
+}
+// Camera filters open the matching NVRs, unless the user closed one.
+function isOpen(row) {
+  return state.open.has(row.nvr.id) || (row.cameraFilter && !state.closed.has(row.nvr.id));
+}
+function toggle(id) {
+  const row = select().rows.find(r => r.nvr.id === id);
+  if (row && isOpen(row)) { state.open.delete(id); state.closed.add(id); }
+  else { state.open.set(id, state.open.get(id) || "cameras"); state.closed.delete(id); }
+  render();
+}
+
+// ---------- drawer ----------
+function drawer(row) {
+  const {nvr} = row;
+  const box = el("div", "drawer");
+  box.id = "drawer-" + nvr.id;
+  const active = state.open.get(nvr.id) || "cameras";
+  const findings = nvr.critical_reasons.length + nvr.warnings.length + nvr.unknown_checks.length;
+  const tabs = el("div", "tabs");
+  tabs.setAttribute("role", "tablist");
+  const defs = [["cameras", "Cameras", row.narrowed ? row.match.size + " of " + nvr.channels.length : nvr.channels.length],
+                ["storage", "Storage", nvr.disks.length], ["findings", "Findings", findings]];
+  for (const [key, name, n] of defs) {
+    const t = el("button", "tab", name);
+    t.type = "button";
+    t.setAttribute("role", "tab");
+    t.setAttribute("aria-selected", String(key === active));
+    t.tabIndex = key === active ? 0 : -1;
+    t.append(el("span", "n", n));
+    t.addEventListener("click", () => { state.open.set(nvr.id, key); render(); });
+    t.addEventListener("keydown", e => {
+      const i = defs.findIndex(d => d[0] === key);
+      const next = e.key === "ArrowRight" ? defs[(i + 1) % defs.length] : e.key === "ArrowLeft" ? defs[(i + defs.length - 1) % defs.length] : null;
+      if (next) { e.preventDefault(); state.open.set(nvr.id, next[0]); render(); document.querySelector(`#drawer-${CSS.escape(nvr.id)} .tab[aria-selected="true"]`)?.focus(); }
+    });
+    tabs.append(t);
+  }
+  const panel = el("div", "panel");
+  panel.setAttribute("role", "tabpanel");
+  if (active === "storage") panel.append(storagePanel(nvr));
+  else if (active === "findings") panel.append(findingsPanel(nvr));
+  else panel.append(cameraPanel(row));
+  box.append(tabs, panel);
+  return box;
+}
+function lastVideo(ch) {
+  const r = ch.recording_result, h = ch.historical_recording_result, c = cond(ch);
+  const pick = r.most_recent_segment_end ? [r.most_recent_segment_end, r.latest_segment_complete]
+    : h.most_recent_segment_end ? [h.most_recent_segment_end, h.latest_segment_complete] : null;
+  if (pick) {
+    const node = stamped(pick[0]);
+    if (pick[1] === false) {
+      node.firstChild.textContent = stamp(pick[0]) + " or later";
+      node.title = "The NVR listed only part of the footage; the newest segment ends at or after this time.";
+    }
+    return node;
+  }
+  if (c.code === "NO_FOOTAGE_30") return el("span", "bad", "None in 30 days");
+  if (c.last_day) return el("span", "", "On " + c.last_day);
+  if (c.code === "NOT_MONITORED") return "—";
+  if (c.code === "CHECK_FAILED") return el("span", "", "Not checked");
+  return el("span", "", "None in " + windowText(r.window_minutes));
+}
+function lastVideoTime(ch) {
+  return parse(ch.recording_result.most_recent_segment_end || ch.historical_recording_result.most_recent_segment_end)?.getTime()
+    || (cond(ch).last_day ? Date.parse(cond(ch).last_day) : 0);
+}
+function recordedDays(t) {
+  if (!Number.isInteger(t?.days_with_footage)) return "—";
+  const wrap = el("span");
+  wrap.append(el("span", "", t.days_with_footage + " / " + (t.window_days ?? "—")));
+  if (Array.isArray(t.calendar) && t.calendar.length) {
+    const strip = el("span", "cal");
+    strip.setAttribute("aria-hidden", "true");
+    for (const day of t.calendar) strip.append(el("i", day.has_recording === true ? "y" : day.has_recording === false ? "n" : ""));
+    wrap.append(strip);
+  }
+  wrap.title = "Days with any footage, as of " + (t.as_of_date || "unknown") + (t.status === "RETENTION_STALE" ? " (previous scan)" : "") + ". Green: footage that day, amber: none, grey: unknown.";
   return wrap;
 }
-// Localize interval labels for readability while preserving the original UTC values on hover.
-function timeWindow(window){
-  const raw=[window?.start,window?.end].filter(Boolean);
-  if(!raw.length)return "—";
-  const short=value=>{
-    const d=new Date(value);
-    if(!Number.isFinite(d.getTime()))return String(value);
-    return new Intl.DateTimeFormat("en-GB",{
-      timeZone:"Asia/Phnom_Penh",day:"2-digit",month:"short",year:"numeric",
-      hour:"2-digit",minute:"2-digit",hour12:false
-    }).format(d);
-  };
-  const node=el("span","window-text",raw.map(short).join(" → ")+" ICT");
-  node.title="Original timestamps: "+raw.join(" → ");
+function conditionCell(c) {
+  const node = el("span", "cond");
+  node.append(el("span", "swatch k-" + c.code), c.label + (c.code === "GAPS" ? " (" + c.missing_days + " days)" : c.code === "SHORT_HISTORY" ? " (" + c.history_days + " days)" : ""));
+  node.title = c.detail || "";
   return node;
 }
-function recordingDays(retention){
-  if(!Number.isInteger(retention?.days_with_footage))return "—";
-  const scanned=retention.days_examined;
-  const windowDays=retention.window_days;
-  const node=el("span","retention-count",retention.days_with_footage+" / "+windowDays+" days");
-  node.title="Days with any footage: "+retention.days_with_footage+". Explicit days examined: "+scanned+
-    " / "+windowDays+". As of "+(retention.as_of_date||"unknown")+
-    ". This does not prove continuous recording.";
-  if(retention.status==="RETENTION_STALE")node.classList.add("stale");
-  return node;
-}
-function calendarStrip(retention){
-  if(!Array.isArray(retention?.calendar)||!retention.calendar.length)return "—";
-  const wrapper=el("div","retention-calendar");
-  wrapper.setAttribute("aria-label","Recording calendar; green = footage found, amber = no footage reported, gray = unknown");
-  for(const day of retention.calendar){
-    const state=day.has_recording===true?"present":day.has_recording===false?"absent":"unknown";
-    const square=el("span","retention-day "+state);
-    square.title=day.date+": "+(state==="present"?"Video found":state==="absent"?"No video reported":"Unverified");
-    wrapper.append(square);
+function cameraPanel(row) {
+  const {nvr} = row;
+  const full = $("all-columns").checked;
+  const frag = document.createDocumentFragment();
+  const pc = nvr.per_camera_recording || {};
+  const notes = [];
+  notes.push(pc.enabled ? "Recording is checked in " + windowText(pc.window_minutes) + " on each camera's verified recording track." : "Per-camera recording checks are not enabled for this NVR; add it to NVR_PER_CAMERA_RECORDING_IDS once its track mapping is verified.");
+  if (pc.enabled && pc.track_mapping_status && pc.track_mapping_status !== "VERIFIED") notes.push("Track list: " + label(pc.track_mapping_status) + ".");
+  if (nvr.channel_source === "CHANNEL_STATUS_FALLBACK") notes.push("Camera names and IPs are missing because the channel list request failed; rows come from the status list.");
+  if (row.narrowed) notes.push("Showing " + row.match.size + " of " + nvr.channels.length + " cameras that match the filters.");
+  frag.append(el("p", "note", notes.join(" ")));
+
+  const sortKey = state.sort.get(nvr.id) || ["condition", 1];
+  const cols = [
+    ["ch", "Ch.", ch => el("span", "chan", ch.channel_id), (a, b) => num(a.channel_id) - num(b.channel_id)],
+    ["name", "Camera", ch => ch.name || "—", (a, b) => (a.name || "").localeCompare(b.name || "", undefined, {numeric: true})],
+    ["ip", "Camera IP", ch => el("span", "ip", ch.camera_ip || "—"), null],
+    ["condition", "Condition", ch => conditionCell(cond(ch)), (a, b) => cond(a).rank - cond(b).rank || num(a.channel_id) - num(b.channel_id)],
+    ["live", "Live", ch => pill(ch.reported_status), (a, b) => String(a.reported_status).localeCompare(String(b.reported_status))],
+    ["last", "Last video", lastVideo, (a, b) => lastVideoTime(a) - lastVideoTime(b)],
+    ["days", "Recorded days", ch => recordedDays(ch.retention_result), (a, b) => num(a.retention_result.days_with_footage) - num(b.retention_result.days_with_footage)]
+  ];
+  if (full) {
+    const r = ch => ch.recording_result, h = ch => ch.historical_recording_result;
+    const notNeeded = ch => EVIDENCE.has(r(ch).status) && h(ch).status === "HISTORICAL_NOT_CHECKED" && !h(ch).checked_at;
+    cols.push(
+      ["recent", "Recent check", ch => pill(r(ch).status), null],
+      ["matches", "Segments", ch => r(ch).num_matches == null ? "—" : r(ch).num_matches + (r(ch).more_available ? "+" : ""), null],
+      ["track", "Track", ch => r(ch).track_id ?? "—", null],
+      ["checked", "Checked", ch => r(ch).checked_at ? stamped(r(ch).checked_at) : "—", null],
+      ["hist", "History (7 days)", ch => pill(notNeeded(ch) ? "HISTORICAL_NOT_NEEDED" : h(ch).status), null],
+      ["histwhen", "History checked", ch => h(ch).checked_at ? stamp(h(ch).checked_at) + (h(ch).from_cache ? " (cached)" : "") : "—", null],
+      ["cal", "Calendar", ch => pill(ch.retention_result.status), null],
+      ["expect", "Expectation", ch => ch.recording_expectation, null]
+    );
   }
-  wrapper.title="Calendar as of "+(retention.as_of_date||"unknown")+". Green: some footage; amber: no footage reported; gray: unknown.";
-  return wrapper;
+  cols.push(["why", "Why", ch => {
+    const c = cond(ch), r = ch.recording_result, h = ch.historical_recording_result;
+    const parts = [c.detail];
+    if (full) {
+      if (r.message && r.message !== c.detail) parts.push(r.message);
+      if (h.message && h.status !== "HISTORICAL_NOT_CHECKED" && h.status !== "HISTORICAL_NOT_CONFIGURED") parts.push(h.message);
+      if (r.anomalies?.length) parts.push("Anomalies: " + r.anomalies.join(", "));
+    }
+    return parts.filter(Boolean).join(" ");
+  }, null]);
+
+  const source = row.narrowed ? nvr.channels.filter(ch => row.match.has(ch)) : nvr.channels;
+  const sorter = cols.find(c => c[0] === sortKey[0])?.[3] || cols[3][3];
+  const rows = [...source].sort((a, b) => sortKey[1] * sorter(a, b));
+
+  const scroller = el("div", "scroller");
+  scroller.tabIndex = 0;
+  scroller.setAttribute("role", "region");
+  scroller.setAttribute("aria-label", "Cameras on " + nvrTitle(nvr));
+  const table = el("table", "cam");
+  const thead = el("thead"), hr = el("tr");
+  for (const [key, title, , cmp] of cols) {
+    const th = el("th");
+    th.scope = "col";
+    if (cmp) {
+      const b = el("button", "", title);
+      b.type = "button";
+      b.addEventListener("click", () => {
+        const cur = state.sort.get(nvr.id) || ["condition", 1];
+        state.sort.set(nvr.id, [key, cur[0] === key ? -cur[1] : 1]);
+        render();
+      });
+      th.append(b);
+      if (sortKey[0] === key) th.setAttribute("aria-sort", sortKey[1] > 0 ? "ascending" : "descending");
+    } else th.textContent = title;
+    if (key === "matches" || key === "track") th.className = "num";
+    hr.append(th);
+  }
+  thead.append(hr);
+  const tbody = el("tbody");
+  if (!rows.length) {
+    const tr = el("tr"), td = el("td", "empty", nvr.channels.length ? "No cameras match these filters." : "This report has no camera list, usually because the NVR could not be reached.");
+    td.colSpan = cols.length;
+    tr.append(td);
+    tbody.append(tr);
+  }
+  for (const ch of rows) {
+    const c = cond(ch);
+    const tr = el("tr", "sev-" + c.severity + (state.hit && state.hit[0] === nvr.id && state.hit[1] === String(ch.channel_id) ? " hit" : ""));
+    tr.dataset.ch = ch.channel_id;
+    for (const [key, , render] of cols) {
+      const td = el("td", key === "why" ? "why" : key === "matches" || key === "track" ? "num" : "");
+      const v = render(ch);
+      if (v instanceof Node) td.append(v); else td.textContent = String(v ?? "—");
+      tr.append(td);
+    }
+    tbody.append(tr);
+  }
+  table.append(thead, tbody);
+  scroller.append(table);
+  frag.append(scroller);
+  return frag;
 }
-function subhead(title,meta){const h=el("div","detail-title");h.append(el("h4","",title),el("span","small",meta||""));return h;}
-function conditionBadge(cond){const extra=cond.code==="GAPS"?" ("+cond.missing_days+" days)":cond.code==="SHORT_HISTORY"?" ("+cond.history_days+" days)":"";const node=el("span","condition "+cond.severity,cond.label+extra);node.title=cond.detail;return node;}
-function oldestDay(t,cond){if(cond.code==="NO_FOOTAGE_30")return el("span","bad-text","None in 30 days");return t.oldest_verified_date||"—";}
-function lastVideo(r,h,cond){if(r.most_recent_segment_end)return stamp(r.most_recent_segment_end);if(h.most_recent_segment_end)return stamp(h.most_recent_segment_end);if(cond.code==="NO_FOOTAGE_30")return el("span","bad-text","None in 30 days");if(cond.last_day)return "Day "+cond.last_day;if(cond.code==="CHECK_FAILED")return "Not checked";return "Not in last hour";}
-function makeCard(nvr,channels){const full=$("all-columns").checked;const counts=nvr.condition_counts||{};const article=el("article","nvr"+(nvr.last_run_failed?" run-failed":""));article.dataset.nvrId=nvr.id;const top=el("div","nvr-top");const main=el("div","nvr-main");const left=el("div");const heading=el("div","nvr-title");heading.append(el("span","device-dot "+nvr.overall_status),el("h3","",nvr.name||nvr.id));left.append(heading,el("p","subline",[nvr.name?nvr.id:"",nvr.ip,nvr.model,nvr.firmware_version].filter(Boolean).join("  ·  ")));const badges=el("div","badges");badges.append(status(nvr.overall_status),el("span","small",nvr.last_run_failed?"Storage (last known)":"Storage"),status(nvr.storage_status));main.append(left,badges);top.append(main);
-if(nvr.last_run_failed){
-  top.append(el("p","fleet-failure","Latest fleet check FAILED ("+(nvr.last_run_failure_code||"REPORT_UNAVAILABLE")+"). Camera and disk details below are from the LAST SUCCESSFUL report, not current observations."));
+function space(mb) {
+  const n = Number(mb);
+  if (mb === null || mb === undefined || mb === "" || !Number.isFinite(n)) return "—";
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + " TB";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + " GB";
+  return n + " MB";
 }
-const notRecording=(counts.NOT_RECORDING||0)+(counts.NO_FOOTAGE_30||0);const metrics=el("div","nvr-metrics");metrics.append(mini("Channels",(nvr.configured_channels??"—")+" / "+(nvr.expected_channels??"—")),mini("Online",nvr.online_channels),mini("Offline",nvr.offline_channels));if(nvr.unknown_channels)metrics.append(mini("Live unknown",nvr.unknown_channels));metrics.append(mini("Recording now",nvr.channels.filter(c=>evidence.has(c.recording_result.status)).length),mini("Not recording",notRecording));if(counts.CHECK_FAILED)metrics.append(mini("Check failed",counts.CHECK_FAILED));metrics.append(mini("Missing expected",nvr.channels.filter(c=>c.recording_expectation==="continuous"&&c.reported_status==="ONLINE"&&c.recording_result.status==="NO_RECENT_RECORDING_EVIDENCE").length));top.append(metrics);
-const alerts=[[counts.NO_FOOTAGE_30,"without footage for 30+ days"],[counts.NOT_RECORDING,"stopped recording"],[counts.GAPS,"with missing days"],[counts.CHECK_FAILED,"not checked"]].filter(([n])=>n>0).map(([n,text])=>n+" camera"+(n===1?"":"s")+" "+text);if(alerts.length)top.append(el("p","nvr-alert","⚠ "+alerts.join("  ·  ")));
-const bottom=el("div","nvr-bottom");const date=el("span",isStale(nvr)?"stale":"",(nvr.last_run_failed?"Last successful report: ":"Last report: ")+stamp(nvr.last_check)+(isStale(nvr)?"  ·  STALE / FAILED":""));bottom.append(date);top.append(bottom);article.append(top);
-const details=el("details");const toggle=el("summary","",`View details · ${channels.length} camera(s) in view · ${nvr.disks.length} disk(s)`);details.append(toggle);const inside=el("div","details-inner");const windowMins=nvr.per_camera_recording?.window_minutes;inside.append(subhead("Cameras",windowMins?"“Not recording” = no video in the last "+windowMins+" minutes":"Older report · per-camera results may be unavailable"));
-inside.append(el("p","table-hint","Recorded days and the coloured squares come from the NVR’s 30-day calendar (green: video that day, amber: none, gray: unknown). Hover a condition for the reason."+(full?" All columns shown.":" Tick “Show all columns” for technical details.")));
-const headers=["Ch.","Camera","Camera IP","Condition","Live","Recorded days","Oldest day","Date evidence","Last video"];
-if(full)headers.push("Expectation","Recent check","Historical check","Calendar status","Track","Matches","Historical segment end","Historical window","Historical checked","Intervals","Complete","Explanation");
-inside.append(table(headers,channels.map(ch=>{
-    const r=ch.recording_result||{},h=ch.historical_recording_result||{},t=ch.retention_result||{},cond=ch.condition||{code:"CHECK_FAILED",label:"Check failed",severity:"warning",detail:""};
-    const notNeeded=evidence.has(r.status)&&h.status==="HISTORICAL_NOT_CHECKED"&&!h.checked_at;
-    const cells=[ch.channel_id,ch.name||"—",ch.camera_ip||"—",conditionBadge(cond),status(ch.reported_status),recordingDays(t),oldestDay(t,cond),calendarStrip(t),lastVideo(r,h,cond)];
-    if(full)cells.push(ch.recording_expectation,status(r.status),status(notNeeded?"HISTORICAL_NOT_NEEDED":h.status),status(t.status),r.track_id,r.num_matches,
-      stamp(h.most_recent_segment_end),timeWindow(h.requested_window_utc),h.checked_at?stamp(h.checked_at)+(h.from_cache?" (cached)":""):"—",
-      notNeeded?"—":h.intervals_examined?.length??0,notNeeded?"—":h.search_complete?"Yes":"No",
-      [cond.detail,r.message,notNeeded?"":h.message].filter(Boolean).join(" · "));
-    return {cells,cls:"row-"+cond.severity};
-  }),"camera-table"));
-const columns=el("div","detail-columns");const disks=el("section");disks.append(subhead("Storage disks",nvr.storage_status));const diskHeaders=["ID","Disk / type","State","Capacity"];if(full)diskHeaders.push("Free","Property","Group");disks.append(table(diskHeaders,nvr.disks.map(d=>{const row=[d.id,[d.name,d.type].filter(v=>v&&v!=="NOT_RETURNED").join(" / ")||"—",status(d.reported_status),space(d.capacity_mb)];if(full)row.push(space(d.free_space_mb),d.property||"—",d.group&&d.group!=="NOT_RETURNED"?d.group:"—");return row;})));
-const findings=el("section");findings.append(subhead("Health findings", "NVR and device checks"));const list=el("ul","findings");const messages=[...nvr.critical_reasons.map(s=>"CRITICAL · "+s),...nvr.warnings.map(s=>"WARNING · "+s),...nvr.unknown_checks.map(s=>"UNVERIFIED · "+s)];if(!messages.length)messages.push("No health findings in this report.");messages.forEach(m=>list.append(el("li","",m)));findings.append(list,el("p","muted","Storage: "+(nvr.storage_message||"—")));const mapping=nvr.per_camera_recording?.track_mapping_status;if(full||mapping!=="VERIFIED")findings.append(el("p","muted","Track inventory: "+(mapping||"Not reported")));if(full)findings.append(el("p","muted","Report file: "+(nvr.report_file||"—")));
-columns.append(disks,findings);inside.append(columns);details.append(inside);article.append(details);return article;}
-function space(val){if(val===null||val===undefined||val==="")return "—";const n=Number(val);if(!Number.isFinite(n))return "—";if(n>=1000000)return (n/1000000).toFixed(2)+" TB";if(n>=1000)return (n/1000).toFixed(1)+" GB";return n+" MB";}
-const problemCodes=new Set(["NO_FOOTAGE_30","NOT_RECORDING","CHECK_FAILED","GAPS","OFFLINE_RECORDING"]);
-function render(){const query=$("search").value.toLowerCase().trim(),overall=$("overall-filter").value,live=$("live-filter").value,condition=$("condition-filter").value,storage=$("storage-filter").value,problems=$("only-problems").checked,sort=$("sort").value;
-const hasCameraFilters=Boolean(live||condition||problems);let selected=[];for(const nvr of nvrs){if(overall&&nvr.overall_status!==overall||storage&&nvr.storage_status!==storage)continue;const meta=[nvr.id,nvr.name,nvr.ip,nvr.model,nvr.firmware_version].join(" ").toLowerCase().includes(query);let channels=nvr.channels.filter(ch=>{const code=ch.condition?.code;const text=[ch.name,ch.channel_id,ch.camera_ip,ch.reported_status,ch.condition?.label].join(" ").toLowerCase();return (!query||meta||text.includes(query))&&(!live||ch.reported_status===live)&&(!condition||code===condition)&&(!problems||problemCodes.has(code));});if(sort==="priority")channels=[...channels].sort((a,b)=>(a.condition?.rank??9)-(b.condition?.rank??9)||(Number(a.channel_id)||0)-(Number(b.channel_id)||0));if((hasCameraFilters||query)&&!channels.length&&!((!hasCameraFilters)&&meta))continue;selected.push([nvr,channels]);}
-selected.sort((a,b)=>sort==="id"?a[0].id.localeCompare(b[0].id):sort==="recent"?(Date.parse(b[0].last_check)||0)-(Date.parse(a[0].last_check)||0):(ranks[a[0].overall_status]??4)-(ranks[b[0].overall_status]??4)||a[0].id.localeCompare(b[0].id));const list=$("nvr-list");const expandedIds=new Set([...list.querySelectorAll(".nvr")].filter(card=>card.querySelector("details")?.open).map(card=>card.dataset.nvrId));list.replaceChildren();for(const [nvr,channels] of selected){const card=makeCard(nvr,channels);const details=card.querySelector("details");if(details)details.open=expandedIds.has(nvr.id)||(hasCameraFilters&&channels.length>0);list.append(card);}if(!selected.length)list.append(el("div","panel muted","No NVRs or cameras match these filters. Clear one or more filters, or refresh saved reports."));$("nvr-counter").textContent=`${selected.length} of ${nvrs.length} NVRs · ${selected.reduce((sum,row)=>sum+row[1].length,0)} camera rows in view${selected.some(row=>row[0].last_run_failed)?" (including previous snapshots)":""}`;}
-async function refresh(){const btn=$("refresh");btn.disabled=true;$("message").className="message";$("message").textContent="Loading saved reports…";try{const response=await fetch("/api/dashboard",{cache:"no-store"});if(!response.ok)throw Error("API HTTP "+response.status);const data=await response.json();if(!Array.isArray(data.nvrs))throw Error("Invalid dashboard response");nvrs=data.nvrs;summary(data.summary||{});render();$("refresh-label").textContent="Reports loaded";$("refresh-time").textContent="Updated "+new Date().toLocaleString();$("message").textContent=(data.report_errors?`${data.report_errors} unreadable report(s). `:"")+(nvrs.length?"Showing latest saved NVR snapshots.":"No reports found. Run the reporter to populate this dashboard.");if((data.summary?.latest_run_failed||0)>0){$("message").className="message error";$("message").textContent=`Latest fleet run failed for ${data.summary.latest_run_failed} NVR(s). Fleet camera totals exclude failed devices; their last successful snapshots remain visible for reference.`;}clearInterval(timer);const secs=Number(data.refresh_seconds);if(secs>0)timer=setInterval(refresh,Math.max(15,secs)*1000);}catch(error){$("message").className="message error";$("message").textContent="Could not refresh saved reports: "+error.message+". Previous results remain visible.";$("refresh-label").textContent="Refresh failed";}finally{btn.disabled=false;}}
-$("refresh").addEventListener("click",refresh);try{$("all-columns").checked=localStorage.getItem("nvrtrack.allColumns")==="1";}catch(e){}$("all-columns").addEventListener("change",()=>{try{localStorage.setItem("nvrtrack.allColumns",$("all-columns").checked?"1":"0");}catch(e){}});for(const id of ["search","overall-filter","live-filter","condition-filter","storage-filter","only-problems","all-columns","sort"]){$(id).addEventListener(id==="search"?"input":"change",()=>{clearTimeout(debounce);debounce=setTimeout(render,80);});}refresh();
+function storagePanel(nvr) {
+  const frag = document.createDocumentFragment();
+  frag.append(el("p", "note", nvr.storage_message || "No storage message in this report."));
+  const scroller = el("div", "scroller");
+  const table = el("table");
+  const thead = el("thead"), hr = el("tr");
+  ["Disk", "Name", "Type", "State", "Capacity", "Free", "Used", "Property", "Group"].forEach(t => { const th = el("th", "", t); th.scope = "col"; hr.append(th); });
+  thead.append(hr);
+  const tbody = el("tbody");
+  if (!nvr.disks.length) {
+    const tr = el("tr"), td = el("td", "empty", "No disks were returned in this report.");
+    td.colSpan = 9; tr.append(td); tbody.append(tr);
+  }
+  const clean = v => v && v !== "NOT_RETURNED" ? v : "—";
+  for (const d of nvr.disks) {
+    const tr = el("tr");
+    const state_ = String(d.reported_status || "unknown").toLowerCase();
+    const tone = ["ok", "normal", "idle"].includes(state_) ? "HEALTHY" : state_ === "notexist" ? "UNKNOWN" : "CRITICAL";
+    const used = el("span");
+    const cap = Number(d.capacity_mb), free = Number(d.free_space_mb);
+    if (Number.isFinite(cap) && cap > 0 && Number.isFinite(free)) {
+      const pct = Math.min(100, Math.max(0, Math.round((cap - free) / cap * 100)));
+      used.append(pct + "%");
+      const bar = el("span", "bar"), fill = el("i", pct >= 99 ? "full" : "");
+      fill.style.width = pct + "%";
+      bar.append(fill); used.append(bar);
+      if (pct >= 99) used.title = "Full. NVRs normally overwrite the oldest footage when full; confirm the overwrite policy.";
+    } else used.append("—");
+    const cells = [d.id, clean(d.name), clean(d.type), pill(tone, state_ === "notexist" ? "Not detected" : d.reported_status), space(d.capacity_mb), space(d.free_space_mb), used, clean(d.property), clean(d.group)];
+    for (const v of cells) { const td = el("td"); if (v instanceof Node) td.append(v); else td.textContent = String(v); tr.append(td); }
+    tbody.append(tr);
+  }
+  table.append(thead, tbody);
+  scroller.append(table);
+  frag.append(scroller);
+  return frag;
+}
+function findingsPanel(nvr) {
+  const grid = el("div", "findings");
+  const list = el("section");
+  list.append(el("h4", "", "Health findings"));
+  const ul = el("ul");
+  nvr.critical_reasons.forEach(t => ul.append(el("li", "c", "Critical: " + t)));
+  nvr.warnings.forEach(t => ul.append(el("li", "w", "Warning: " + t)));
+  nvr.unknown_checks.forEach(t => ul.append(el("li", "u", "Unverified: " + t)));
+  if (Number.isInteger(nvr.configured_channels) && Number.isInteger(nvr.expected_channels) && nvr.configured_channels !== nvr.expected_channels)
+    ul.append(el("li", "w", "Inventory mismatch: " + nvr.configured_channels + " configured, " + nvr.expected_channels + " expected."));
+  if (!ul.children.length) ul.append(el("li", "", "No findings in this report."));
+  list.append(ul);
+  const facts = el("section");
+  facts.append(el("h4", "", "Report details"));
+  const dl = el("dl", "kv");
+  const pc = nvr.per_camera_recording || {};
+  const add = (k, v) => { dl.append(el("dt", "", k), el("dd", "", v)); };
+  add("Report time", stamp(nvr.last_check));
+  if (nvr.last_run_failed) add("Latest run", "Failed: " + (nvr.last_run_failure_code || "REPORT_UNAVAILABLE"));
+  add("NVR-wide probe", label(nvr.recording_status) + (nvr.recording_track_id ? " (track " + nvr.recording_track_id + ")" : "") + ". One track only, never used for camera status.");
+  add("Per-camera checks", pc.enabled ? "Enabled, " + windowText(pc.window_minutes) : "Not enabled");
+  add("Track list", label(pc.track_mapping_status || "NOT_CONFIGURED"));
+  if (Number.isInteger(pc.nvr_clock_offset_seconds_approx)) add("NVR clock offset", pc.nvr_clock_offset_seconds_approx + " s");
+  add("Camera list source", nvr.channel_source === "CHANNEL_STATUS_FALLBACK" ? "Status list (channel list failed)" : "Channel inventory");
+  add("Ports", "HTTP " + (nvr.http_port ?? "—") + ", server " + (nvr.server_port ?? "—"));
+  add("Report file", nvr.report_file || "—");
+  facts.append(dl);
+  grid.append(list, facts);
+  return grid;
+}
+
+// ---------- list ----------
+function render() {
+  const {rows, active} = select();
+  const list = $("nvr-list");
+  const scrollers = new Map([...list.querySelectorAll(".nvr")].map(a => [a.dataset.nvrId, a.querySelector(".scroller")?.scrollLeft || 0]));
+  list.replaceChildren();
+  if (!state.nvrs.length && state.data) {
+    const z = el("div", "zero-state");
+    z.append(el("p", "", "No NVR reports were found in the reports folder."), el("p", "", "Run all reports once on the server, then press Refresh:"), el("code", "", "cd /opt/NVR_Track && docker compose run --rm -T nvr-report-all"));
+    list.append(z);
+  } else if (!rows.length && state.data) {
+    const z = el("div", "zero-state");
+    z.append(el("p", "", "Nothing matches these filters."));
+    const b = el("button", "btn", "Clear filters");
+    b.type = "button";
+    b.addEventListener("click", clearFilters);
+    z.append(b);
+    list.append(z);
+  }
+  for (const row of rows) {
+    const art = card(row);
+    list.append(art);
+    const left = scrollers.get(row.nvr.id);
+    if (left) { const sc = art.querySelector(".scroller"); if (sc) sc.scrollLeft = left; }
+  }
+  const cams = rows.reduce((n, r) => n + (r.narrowed ? r.match.size : r.nvr.channels.length), 0);
+  $("count").textContent = plural(rows.length, "NVR") + " and " + plural(cams, "camera") + " in view";
+  $("clear").hidden = !active;
+  for (const id of ["overall-filter", "live-filter", "condition-filter", "recording-filter", "storage-filter"]) $(id).classList.toggle("active", Boolean($(id).value));
+  renderHero();
+}
+function clearFilters() {
+  $("search").value = "";
+  for (const id of ["overall-filter", "live-filter", "condition-filter", "recording-filter", "storage-filter"]) $(id).value = "";
+  $("only-problems").checked = false;
+  render();
+}
+
+// ---------- data ----------
+async function refresh() {
+  const btn = $("refresh");
+  btn.disabled = true;
+  btn.classList.add("spin");
+  try {
+    const response = await fetch("/api/dashboard", {cache: "no-store", credentials: "same-origin"});
+    if (!response.ok) throw new Error("The server answered HTTP " + response.status + ".");
+    const data = await response.json();
+    if (!Array.isArray(data.nvrs) || typeof data.summary !== "object") throw new Error("The server sent an unexpected response.");
+    state.data = data;
+    state.nvrs = data.nvrs;
+    state.error = null;
+    state.loadedAt = new Date();
+    clearTimeout(state.timer);
+    const secs = num(data.refresh_seconds);
+    if (secs > 0) state.timer = setTimeout(refresh, Math.max(15, secs) * 1000);
+  } catch (error) {
+    state.error = error instanceof TypeError ? "The dashboard server could not be reached." : error.message;
+    clearTimeout(state.timer);
+    state.timer = setTimeout(refresh, 60000);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("spin");
+  }
+  renderFreshness();
+  renderBanners();
+  renderFacts();
+  render();
+}
+
+function csvCell(value) {
+  let text = String(value ?? "");
+  if (/^[=+\-@\t\r]/.test(text)) text = "'" + text; // keep spreadsheet formulas inert
+  return /[",\n\r]/.test(text) ? '"' + text.replaceAll('"', '""') + '"' : text;
+}
+function downloadCsv() {
+  const {rows} = select();
+  const lines = [["NVR", "NVR name", "NVR IP", "Channel", "Camera", "Camera IP", "Live", "Condition", "Recording check", "Last video", "Days with footage", "Track", "Detail", "Report time"]];
+  for (const {nvr, match, narrowed} of rows) {
+    for (const ch of nvr.channels) {
+      if (narrowed && !match.has(ch)) continue;
+      const r = ch.recording_result, c = cond(ch);
+      lines.push([nvr.id, nvr.name, nvr.ip, ch.channel_id, ch.name, ch.camera_ip, ch.reported_status, c.label, r.status,
+        r.most_recent_segment_end || ch.historical_recording_result.most_recent_segment_end || "", ch.retention_result.days_with_footage ?? "",
+        r.track_id ?? "", c.detail, nvr.last_check]);
+    }
+  }
+  const blob = new Blob(["﻿" + lines.map(l => l.map(csvCell).join(",")).join("\r\n")], {type: "text/csv;charset=utf-8"});
+  const a = el("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "nvr-cameras-" + dayFmt.format(new Date()) + ".csv";
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ---------- camera wall: hover card and click-through ----------
+const tip = $("tip");
+function findCamera(nvrId, ch) {
+  const nvr = state.nvrs.find(n => n.id === nvrId);
+  return nvr ? [nvr, nvr.channels.find(c => String(c.channel_id) === ch)] : [null, null];
+}
+document.addEventListener("pointerover", e => {
+  const cell = e.target.closest?.(".cell");
+  if (!cell) return;
+  tip.replaceChildren();
+  if (cell.dataset.ghost) {
+    tip.append(el("b", "", "No result"), "Expected camera missing from this report; the NVR could not be reached.");
+  } else {
+    const [nvr, ch] = findCamera(cell.dataset.nvr, cell.dataset.ch);
+    if (!ch) return;
+    const c = cond(ch);
+    tip.append(el("b", "", ch.name || "Channel " + ch.channel_id),
+      "Channel " + ch.channel_id + ", " + c.label.toLowerCase() + ", " + label(ch.reported_status).toLowerCase(), el("br"), c.detail || "");
+  }
+  const r = cell.getBoundingClientRect();
+  tip.classList.add("on");
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + "px";
+  tip.style.top = (r.top - h - 8 < 8 ? r.bottom + 8 : r.top - h - 8) + "px";
+});
+document.addEventListener("pointerout", e => { if (e.target.closest?.(".cell")) tip.classList.remove("on"); });
+document.addEventListener("scroll", () => tip.classList.remove("on"), {passive: true});
+document.addEventListener("click", e => {
+  const cell = e.target.closest?.(".cell");
+  if (!cell || cell.dataset.ghost) return;
+  tip.classList.remove("on");
+  state.hit = [cell.dataset.nvr, cell.dataset.ch];
+  const [nvr, ch] = findCamera(cell.dataset.nvr, cell.dataset.ch);
+  // Make sure the clicked camera is visible in the table even if filters hide it.
+  const shown = select().rows.find(r => r.nvr.id === cell.dataset.nvr);
+  if (shown && shown.narrowed && ch && !shown.match.has(ch)) clearFilters();
+  state.open.set(cell.dataset.nvr, "cameras");
+  state.closed.delete(cell.dataset.nvr);
+  render();
+  const row = document.querySelector(`#drawer-${CSS.escape(cell.dataset.nvr)} tr[data-ch="${CSS.escape(cell.dataset.ch)}"]`);
+  row?.scrollIntoView({block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+});
+
+// ---------- controls ----------
+let debounce = null;
+for (const id of ["search", "overall-filter", "live-filter", "condition-filter", "recording-filter", "storage-filter", "only-problems", "all-columns", "sort"]) {
+  $(id).addEventListener(id === "search" ? "input" : "change", () => {
+    if (id !== "all-columns" && id !== "sort") state.closed.clear();
+    clearTimeout(debounce);
+    debounce = setTimeout(render, id === "search" ? 120 : 0);
+  });
+}
+$("refresh").addEventListener("click", refresh);
+$("csv").addEventListener("click", downloadCsv);
+$("clear").addEventListener("click", clearFilters);
+document.addEventListener("keydown", e => {
+  const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || "");
+  if (e.key === "/" && !typing) { e.preventDefault(); $("search").focus(); }
+  else if (e.key === "Escape" && document.activeElement === $("search")) { $("search").value = ""; render(); }
+  else if ((e.key === "r" || e.key === "R") && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) refresh();
+});
+try { $("all-columns").checked = localStorage.getItem("nvrtrack.allColumns") === "1"; } catch (e) {}
+$("all-columns").addEventListener("change", () => { try { localStorage.setItem("nvrtrack.allColumns", $("all-columns").checked ? "1" : "0"); } catch (e) {} });
+
+const THEMES = ["auto", "light", "dark"];
+function applyTheme(mode) {
+  if (mode === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", mode);
+  $("theme").title = "Theme: " + (mode === "auto" ? "follow system" : mode);
+}
+let theme = "auto";
+try { theme = THEMES.includes(localStorage.getItem("nvrtrack.theme")) ? localStorage.getItem("nvrtrack.theme") : "auto"; } catch (e) {}
+applyTheme(theme);
+$("theme").addEventListener("click", () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  applyTheme(theme);
+  try { localStorage.setItem("nvrtrack.theme", theme); } catch (e) {}
+});
+const toolbar = $("toolbar");
+new IntersectionObserver(([entry]) => toolbar.classList.toggle("stuck", entry.intersectionRatio < 1), {rootMargin: "-61px 0px 0px 0px", threshold: [1]}).observe(toolbar);
+setInterval(renderFreshness, 30000);
+refresh();
 </script>
 </body>
 </html>

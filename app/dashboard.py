@@ -1,6 +1,7 @@
 """Read-only, password-protected NVR monitoring dashboard."""
 
 import base64
+import hashlib
 import hmac
 import json
 import os
@@ -23,6 +24,29 @@ DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
 
 HTML = (Path(__file__).with_name("dashboard_ui.html")
         .read_text(encoding="utf-8"))
+
+
+def _content_security_policy(page: str) -> str:
+    """Allow only this page's own inline script and style (by hash)."""
+    def hashes(tag: str) -> str:
+        found = re.findall(rf"<{tag}>(.*?)</{tag}>", page, flags=re.S)
+        return " ".join(
+            "'sha256-" + base64.b64encode(hashlib.sha256(body.encode("utf-8")).digest()).decode() + "'"
+            for body in found
+        ) or "'none'"
+    return ("default-src 'none'; "
+            f"script-src {hashes('script')}; style-src {hashes('style')}; "
+            "connect-src 'self'; img-src 'self' data:; base-uri 'none'; "
+            "form-action 'none'; frame-ancestors 'none'")
+
+
+CSP = _content_security_policy(HTML)
+
+# <id>_<YYYYmmddTHHMMSS[ffffff]+hhmm>.json, as written by run_nvr_report.
+REPORT_NAME = re.compile(
+    r"^(?P<id>.+?)_(?P<stamp>\d{8}T\d{6}(?:\d{1,6})?[+-]\d{4})\.json$"
+)
+DEVICE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 
 
 def _list_of_text(value: object) -> list[str]:
@@ -91,6 +115,10 @@ def _public_recording(value: object) -> dict:
         "most_recent_segment_start": recording.get("most_recent_segment_start") or recording.get("latest_segment_start"),
         "checked_at": recording.get("checked_at") or recording.get("check_time"),
         "window_minutes": recording.get("window_minutes"),
+        "more_available": recording.get("more_available") is True,
+        "latest_segment_complete": (recording.get("latest_segment_complete")
+                                    if type(recording.get("latest_segment_complete")) is bool
+                                    else None),
         "requested_window_utc": {
             "start": window.get("start"), "end": window.get("end")
         },
@@ -118,6 +146,9 @@ def _public_historical(value: object) -> dict:
         "most_recent_segment_start": raw.get("most_recent_segment_start"),
         "search_complete": raw.get("search_complete") is True,
         "from_cache": raw.get("from_cache") is True,
+        "latest_segment_complete": (raw.get("latest_segment_complete")
+                                    if type(raw.get("latest_segment_complete")) is bool
+                                    else None),
         "requested_window_utc": {"start": window.get("start"), "end": window.get("end")},
         "intervals_examined": [{
             "start": _as_dict(i).get("start"), "end": _as_dict(i).get("end"),
@@ -324,7 +355,8 @@ def _read_fleet_run_state() -> tuple[dict[str, str], datetime | None, int]:
             if not isinstance(item, dict):
                 raise ValueError("Invalid device row")
             device_id = item.get("id")
-            if not isinstance(device_id, str) or not re.fullmatch(r"nvr-\d{2,4}", device_id):
+            # Same rule as the inventory loader (app.config).
+            if not isinstance(device_id, str) or not DEVICE_ID.fullmatch(device_id):
                 raise ValueError("Invalid device ID")
             if item.get("result") == "ERROR":
                 reason = item.get("reason")
@@ -344,41 +376,103 @@ def _checked_after(timestamp: str, started_at: datetime) -> bool:
         return False
 
 
+def _name_timestamp(stamp: str) -> datetime | None:
+    for pattern in ("%Y%m%dT%H%M%S%f%z", "%Y%m%dT%H%M%S%z"):
+        try:
+            return datetime.strptime(stamp, pattern)
+        except ValueError:
+            continue
+    return None
+
+
+def _report_candidates() -> tuple[list[list[Path]], list[Path]]:
+    """Group timestamp-named reports per NVR, newest first.
+
+    Reports accumulate every day and are never deleted, so the dashboard must
+    not parse the whole history on every refresh. Files without the standard
+    timestamped name (rare, manual copies) are returned separately.
+    """
+    grouped: dict[str, list[tuple[datetime, str, Path]]] = {}
+    other: list[Path] = []
+    if not REPORTS_DIR.is_dir():
+        return [], other
+    for path in REPORTS_DIR.glob("nvr-*_*.json"):
+        match = REPORT_NAME.match(path.name)
+        stamp = _name_timestamp(match["stamp"]) if match else None
+        if stamp is None:
+            other.append(path)
+            continue
+        grouped.setdefault(match["id"], []).append((stamp, path.name, path))
+    ordered = [
+        [path for _, _, path in sorted(items, key=lambda item: (item[0], item[1]), reverse=True)]
+        for items in grouped.values()
+    ]
+    return ordered, other
+
+
+def _load_report(path: Path) -> tuple[str, int, dict] | None:
+    """Return (nvr_id, ordering_ns, report), or None if unusable."""
+    try:
+        with path.open("r", encoding="utf-8") as file:
+            report = json.load(file)
+        if not isinstance(report, dict):
+            return None
+        nvr_id = str(_as_dict(report.get("nvr")).get("id", ""))
+        if not nvr_id:
+            return None
+        recorded = report.get("check_completed_at") or report.get("check_started_at")
+        try:
+            completed = datetime.fromisoformat(recorded)
+            if completed.tzinfo is None:
+                raise ValueError("Timezone missing")
+            ordering_ns = int(completed.timestamp() * 1_000_000_000)
+        except (TypeError, ValueError, OverflowError):
+            ordering_ns = path.stat().st_mtime_ns
+        return nvr_id, ordering_ns, report
+    except (OSError, ValueError, RecursionError):
+        return None
+
+
+def _latest_check(values: list[str]) -> str | None:
+    """Newest ISO timestamp by actual time, not by string order."""
+    best = None
+    for value in values:
+        try:
+            moment = datetime.fromisoformat(value)
+        except (TypeError, ValueError):
+            continue
+        if moment.tzinfo is None:
+            continue
+        if best is None or moment > best[0]:
+            best = (moment, value)
+    return best[1] if best else None
+
+
 def read_dashboard_data() -> dict:
     """Read saved reports and annotate newer failed fleet attempts."""
     latest: dict[str, tuple[int, dict, Path]] = {}
     report_errors = 0
 
-    if REPORTS_DIR.is_dir():
-        for path in REPORTS_DIR.glob("nvr-*_*.json"):
-            try:
-                with path.open("r", encoding="utf-8") as file:
-                    report = json.load(file)
-                if not isinstance(report, dict):
-                    report_errors += 1
-                    continue
+    def consider(path: Path) -> bool:
+        nonlocal report_errors
+        loaded = _load_report(path)
+        if loaded is None:
+            report_errors += 1
+            return False
+        nvr_id, ordering_ns, report = loaded
+        previous = latest.get(nvr_id)
+        if previous is None or ordering_ns > previous[0]:
+            latest[nvr_id] = (ordering_ns, report, path)
+        return True
 
-                nvr = _as_dict(report.get("nvr"))
-                nvr_id = str(nvr.get("id", ""))
-                if not nvr_id:
-                    report_errors += 1
-                    continue
-
-                modified_ns = path.stat().st_mtime_ns
-                recorded = report.get("check_completed_at") or report.get("check_started_at")
-                try:
-                    completed = datetime.fromisoformat(recorded)
-                    if completed.tzinfo is None:
-                        raise ValueError("Timezone missing")
-                    ordering_ns = int(completed.timestamp() * 1_000_000_000)
-                except (TypeError, ValueError, OverflowError):
-                    ordering_ns = modified_ns
-                previous = latest.get(nvr_id)
-                if previous is None or ordering_ns > previous[0]:
-                    latest[nvr_id] = (ordering_ns, report, path)
-
-            except (OSError, json.JSONDecodeError):
-                report_errors += 1
+    grouped, other = _report_candidates()
+    for paths in grouped:
+        # Newest name first; fall back to an older file only if it is unreadable.
+        for path in paths:
+            if consider(path):
+                break
+    for path in other:
+        consider(path)
 
     nvrs = [
         _public_report(report, path)
@@ -474,9 +568,13 @@ def read_dashboard_data() -> dict:
         "stale_reports": sum(
             nvr["last_run_failed"] or not nvr["last_check"] or not _is_fresh(nvr["last_check"]) for nvr in nvrs
         ),
-        "last_successful_report": max(
-            (nvr["last_check"] for nvr in current_nvrs if nvr["last_check"] and
-             nvr["overall_status"] in {"HEALTHY", "WARNING", "CRITICAL"}),
+        "last_successful_report": _latest_check([
+            nvr["last_check"] for nvr in current_nvrs
+            if nvr["overall_status"] in {"HEALTHY", "WARNING", "CRITICAL"}
+        ]),
+        "window_minutes": max(
+            (nvr["per_camera_recording"]["window_minutes"] for nvr in current_nvrs
+             if nvr["per_camera_recording"]["enabled"]),
             default=None,
         ),
         "offline_with_evidence": sum(ch["reported_status"] == "OFFLINE"
@@ -512,6 +610,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Content-Security-Policy", CSP)
         self.end_headers()
         self.wfile.write(body)
 

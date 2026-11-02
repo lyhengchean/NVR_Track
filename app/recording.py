@@ -2,6 +2,8 @@
 
 from datetime import datetime, timedelta, timezone, tzinfo
 from ipaddress import ip_address
+import time
+from typing import Callable
 import uuid
 import xml.etree.ElementTree as ET
 
@@ -11,6 +13,10 @@ from requests.exceptions import RequestException
 
 
 API_NS = "http://www.isapi.org/ver20/XMLSchema"
+EVIDENCE_STATUSES = {
+    "RECORDING_EVIDENCE_FOUND",
+    "RECORDING_EVIDENCE_FOUND_WITH_TIME_ANOMALY",
+}
 
 
 def qname(name: str) -> str:
@@ -218,8 +224,14 @@ def _result(
     total_matches: int | None = None,
     matches: list | None = None,
     anomalies: list[str] | None = None,
+    more_available: bool = False,
 ) -> dict:
-    """Create a JSON-friendly search result."""
+    """Create a JSON-friendly search result.
+
+    Parsed matches carry private datetime helpers (``_start``/``_end``).
+    They are dropped here so every result, including error and
+    inconsistent-response results, can be written to a JSON report.
+    """
     return {
         "status": status,
         "message": message,
@@ -231,8 +243,15 @@ def _result(
         },
         "num_matches": num_matches,
         "total_matches": total_matches,
-        "matches": matches or [],
+        "matches": [
+            {key: value for key, value in match.items()
+             if not str(key).startswith("_")}
+            for match in (matches or [])
+            if isinstance(match, dict)
+        ],
         "anomalies": anomalies or [],
+        # The NVR returned only the first page of segments (status MORE).
+        "more_available": more_available,
     }
 
 
@@ -618,6 +637,7 @@ def check_recording_evidence(
                     ),
                     matches=matches,
                     anomalies=sorted(set(anomalies)),
+                    more_available=search_status == "MORE",
                     **shared,
                 )
 
@@ -629,6 +649,7 @@ def check_recording_evidence(
                 "RECORDING_EVIDENCE_FOUND",
                 message,
                 matches=matches,
+                more_available=search_status == "MORE",
                 **shared,
             )
 
@@ -638,3 +659,106 @@ def check_recording_evidence(
             "The recording-search request failed or timed out.",
             track_id=track_id,
         )
+
+
+def _segments(result: dict, track_id: int) -> list[tuple[datetime, datetime]]:
+    """Validated (start, end) pairs for one track from a search result."""
+    window = result.get("requested_window_utc") or {}
+    try:
+        window_start = datetime.fromisoformat(window["start"])
+        window_end = datetime.fromisoformat(window["end"])
+    except (KeyError, TypeError, ValueError):
+        return []
+    pairs = []
+    for item in result.get("matches") or []:
+        if not isinstance(item, dict) or item.get("track_id") != track_id:
+            continue
+        try:
+            start = datetime.fromisoformat(item["start_utc"])
+            end = datetime.fromisoformat(item["end_utc"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if (start.tzinfo and end.tzinfo and start < end
+                and start <= window_end and end >= window_start):
+            pairs.append((start, end))
+    return pairs
+
+
+def refine_latest_segment(
+    first: dict,
+    *,
+    track_id: int,
+    search_window: Callable[[datetime, datetime], dict],
+    max_searches: int = 8,
+    deadline: float | None = None,
+    min_span: timedelta = timedelta(minutes=5),
+) -> dict | None:
+    """Find the newest segment when the NVR truncated a result (status MORE).
+
+    The NVR returns at most ``maxResults`` segments, oldest first, so the first
+    page of a busy window can miss the newest footage by hours. The newest
+    segment is located by repeatedly searching the later half of the window
+    (a segment that crosses the midpoint is returned by both halves), then
+    reading forward once the window is small. Every request is the same
+    read-only search, sequential, and bounded by ``max_searches`` and
+    ``deadline``. Returns None when ``first`` holds no usable segment.
+    """
+    known = max(_segments(first, track_id), key=lambda pair: pair[1], default=None)
+    window = first.get("requested_window_utc") or {}
+    try:
+        low = datetime.fromisoformat(window["start"])
+        high = datetime.fromisoformat(window["end"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if known is None:
+        return None
+
+    more = bool(first.get("more_available"))
+    searches = 0
+    while (more and searches < max_searches
+           and (deadline is None or time.monotonic() < deadline)):
+        if high - low <= min_span:
+            page_start = max(low, known[0])
+            if page_start >= high:
+                break
+            try:
+                page = search_window(page_start, high)
+            except Exception:
+                break
+            searches += 1
+            if page.get("status") not in EVIDENCE_STATUSES:
+                break
+            newest = max(_segments(page, track_id), key=lambda pair: pair[1], default=None)
+            if newest is None or newest[0] <= known[0]:
+                break  # No forward progress; keep the verified lower bound.
+            known = max(known, newest, key=lambda pair: pair[1])
+            low, more = page_start, bool(page.get("more_available"))
+            continue
+
+        middle = (low + (high - low) / 2).replace(microsecond=0)
+        if not low < middle < high:
+            break
+        try:
+            tail = search_window(middle, high)
+        except Exception:
+            break
+        searches += 1
+        if tail.get("status") in EVIDENCE_STATUSES:
+            newest = max(_segments(tail, track_id), key=lambda pair: pair[1], default=None)
+            if newest is None:
+                break
+            known = max(known, newest, key=lambda pair: pair[1])
+            low, more = middle, bool(tail.get("more_available"))
+        elif tail.get("status") == "NO_MATCHES_IN_WINDOW":
+            # Nothing touches the later half, so the newest segment ends
+            # before the midpoint; keep narrowing the earlier half.
+            high = middle
+        else:
+            break
+
+    return {
+        "start_utc": known[0].isoformat(),
+        "end_utc": known[1].isoformat(),
+        "complete": not more,
+        "searches": searches,
+    }
