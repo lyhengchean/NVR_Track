@@ -209,9 +209,10 @@ tbody tr:hover td{background:color-mix(in srgb,var(--accent) 5%,var(--panel))}
 .cond .swatch{width:9px;height:9px}
 .sub{display:block;font-size:11.5px;color:var(--muted);font-weight:400}
 .bad{color:var(--crit-text);font-weight:600}
-.cal{display:inline-grid;grid-auto-flow:column;grid-auto-columns:4px;gap:1px;height:14px;align-items:end;margin-left:8px;vertical-align:middle}
+.cal{display:inline-grid;grid-auto-flow:column;grid-auto-columns:4px;gap:1px;height:22px;padding:4px 0;align-items:end;margin-left:8px;vertical-align:middle;cursor:default}
 .cal i{display:block;height:14px;border-radius:1px;background:var(--line)}
 .cal i.y{background:var(--ok)}.cal i.n{background:var(--gaps);height:6px}
+.cal i.hover{outline:2px solid var(--ink);outline-offset:1px;position:relative;z-index:1}
 .empty{padding:28px;text-align:center;color:var(--muted)}
 .bar{display:inline-block;width:90px;height:7px;border-radius:4px;background:var(--line-2);vertical-align:middle;margin-left:8px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--accent)}
@@ -782,14 +783,25 @@ function lastVideoTime(ch) {
 function recordedDays(t) {
   if (!Number.isInteger(t?.days_with_footage)) return "—";
   const wrap = el("span");
-  wrap.append(el("span", "", t.days_with_footage + " / " + (t.window_days ?? "—")));
+  const count = el("span", "", t.days_with_footage + " / " + (t.window_days ?? "—"));
+  count.title = "Days with any footage in the " + (t.window_days ?? "") + "-day calendar, as of " + (t.as_of_date || "unknown") +
+    (t.status === "RETENTION_STALE" ? " (previous scan)" : "") + ". Hover the strip for each day.";
+  wrap.append(count);
   if (Array.isArray(t.calendar) && t.calendar.length) {
     const strip = el("span", "cal");
     strip.setAttribute("aria-hidden", "true");
-    for (const day of t.calendar) strip.append(el("i", day.has_recording === true ? "y" : day.has_recording === false ? "n" : ""));
+    strip.dataset.asOf = t.as_of_date || "";
+    if (t.status === "RETENTION_STALE") strip.dataset.stale = "1";
+    t.calendar.forEach((day, i) => {
+      const kind = day.has_recording === true ? "y" : day.has_recording === false ? "n" : "";
+      const square = el("i", kind);
+      square.dataset.date = day.date;
+      square.dataset.state = kind || "u";
+      square.dataset.pos = (i + 1) + " of " + t.calendar.length;
+      strip.append(square);
+    });
     wrap.append(strip);
   }
-  wrap.title = "Days with any footage, as of " + (t.as_of_date || "unknown") + (t.status === "RETENTION_STALE" ? " (previous scan)" : "") + ". Green: footage that day, amber: none, grey: unknown.";
   return wrap;
 }
 function conditionCell(c) {
@@ -1087,14 +1099,55 @@ document.addEventListener("pointerover", e => {
     tip.append(el("b", "", ch.name || "Channel " + ch.channel_id),
       "Channel " + ch.channel_id + ", " + c.label.toLowerCase() + ", " + label(ch.reported_status).toLowerCase(), el("br"), c.detail || "");
   }
-  const r = cell.getBoundingClientRect();
+  placeTip(cell.getBoundingClientRect());
+});
+function placeTip(r) {
   tip.classList.add("on");
   const w = tip.offsetWidth, h = tip.offsetHeight;
   tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + "px";
   tip.style.top = (r.top - h - 8 < 8 ? r.bottom + 8 : r.top - h - 8) + "px";
+}
+// Recorded-days strip: each day is only 4 px wide, so show the day nearest
+// the pointer anywhere over the strip, and mark it.
+const longDay = new Intl.DateTimeFormat("en-GB", {timeZone: "UTC", weekday: "short", day: "2-digit", month: "short", year: "numeric"});
+const DAY_STATE = {y: "Footage recorded this day", n: "No footage this day", u: "Not reported by the NVR (unknown)"};
+let hoveredDay = null;
+function clearDay() {
+  hoveredDay?.classList.remove("hover");
+  hoveredDay = null;
+  tip.classList.remove("on");
+}
+function showDay(e) {
+  const strip = e.target.closest?.(".cal");
+  if (!strip) return;
+  let best = null, gap = Infinity;
+  for (const square of strip.children) {
+    const r = square.getBoundingClientRect();
+    const d = Math.abs(e.clientX - (r.left + r.width / 2));
+    if (d < gap) { gap = d; best = square; }
+  }
+  if (!best || best === hoveredDay) return;
+  hoveredDay?.classList.remove("hover");
+  hoveredDay = best;
+  best.classList.add("hover");
+  const date = new Date(best.dataset.date + "T00:00:00Z");
+  tip.replaceChildren(
+    el("b", "", Number.isNaN(date.valueOf()) ? best.dataset.date : longDay.format(date)),
+    DAY_STATE[best.dataset.state] || DAY_STATE.u, el("br"),
+    "Day " + best.dataset.pos + (strip.dataset.asOf ? ", calendar as of " + strip.dataset.asOf : "") +
+      (strip.dataset.stale ? " (previous scan)" : "")
+  );
+  placeTip(best.getBoundingClientRect());
+}
+document.addEventListener("pointermove", showDay);
+document.addEventListener("pointerdown", showDay);
+document.addEventListener("pointerout", e => {
+  if (e.target.closest?.(".cell")) tip.classList.remove("on");
+  const strip = e.target.closest?.(".cal");
+  if (strip && !strip.contains(e.relatedTarget)) clearDay();
 });
-document.addEventListener("pointerout", e => { if (e.target.closest?.(".cell")) tip.classList.remove("on"); });
-document.addEventListener("scroll", () => tip.classList.remove("on"), {passive: true});
+// Capture phase: also hide when the camera table itself scrolls.
+document.addEventListener("scroll", clearDay, {passive: true, capture: true});
 document.addEventListener("click", e => {
   const cell = e.target.closest?.(".cell");
   if (!cell || cell.dataset.ghost) return;
