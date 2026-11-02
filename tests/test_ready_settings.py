@@ -34,7 +34,9 @@ class EnvExampleTests(unittest.TestCase):
     def test_calendar_limit_covers_largest_nvr_in_two_runs(self):
         text = (ROOT / ".env.example").read_text(encoding="utf-8")
         limit = int(re.search(r"^NVR_RETENTION_MAX_CAMERAS_PER_RUN=(\d+)$", text, re.M).group(1))
-        self.assertGreaterEqual(limit * 2, 56)
+        self.assertGreaterEqual(limit, 56)   # one run covers the largest NVR
+        hours = int(re.search(r"^NVR_RETENTION_CACHE_HOURS=(\d+)$", text, re.M).group(1))
+        self.assertLess(hours, 24)           # the daily run refreshes every calendar
         self.assertIn("NVR_DEFAULT_RECORDING_EXPECTATION=continuous", text)
 
 

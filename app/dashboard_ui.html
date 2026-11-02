@@ -801,6 +801,13 @@ function recordedDays(t) {
       strip.append(square);
     });
     wrap.append(strip);
+    // The strip ends the day before its scan. Say so when that is not yesterday.
+    const last = t.calendar[t.calendar.length - 1]?.date;
+    const yesterday = dayFmt.format(new Date(Date.now() - 864e5));
+    if (last && last < yesterday) {
+      const lastDate = new Date(last + "T00:00:00Z");
+      wrap.append(el("span", "sub", "Calendar up to " + (Number.isNaN(lastDate.valueOf()) ? last : shortDay.format(lastDate))));
+    }
   }
   return wrap;
 }
@@ -1109,6 +1116,7 @@ function placeTip(r) {
 }
 // Recorded-days strip: each day is only 4 px wide, so show the day nearest
 // the pointer anywhere over the strip, and mark it.
+const shortDay = new Intl.DateTimeFormat("en-GB", {timeZone: "UTC", day: "2-digit", month: "short"});
 const longDay = new Intl.DateTimeFormat("en-GB", {timeZone: "UTC", weekday: "short", day: "2-digit", month: "short", year: "numeric"});
 const DAY_STATE = {y: "Footage recorded this day", n: "No footage this day", u: "Not reported by the NVR (unknown)"};
 let hoveredDay = null;

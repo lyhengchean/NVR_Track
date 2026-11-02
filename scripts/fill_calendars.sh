@@ -3,8 +3,9 @@
 #
 # Run on the Ubuntu server:  cd /opt/NVR_Track && sudo bash scripts/fill_calendars.sh
 #
-# 1. Sets three NVR_Track settings in .env (backup first; values never printed):
-#      NVR_RETENTION_MAX_CAMERAS_PER_RUN=32   calendar checks per NVR per run (was 2)
+# 1. Sets four NVR_Track settings in .env (backup first; values never printed):
+#      NVR_RETENTION_MAX_CAMERAS_PER_RUN=64   calendar checks per NVR per run (covers every camera)
+#      NVR_RETENTION_CACHE_HOURS=20           so the 08:00 run refreshes every calendar daily
 #      NVR_HISTORICAL_MAX_CAMERAS_PER_RUN=8   history searches per NVR per run (was 2)
 #      NVR_DEFAULT_RECORDING_EXPECTATION=continuous
 # 2. Rebuilds the images and recreates only nvr-dashboard.
@@ -30,11 +31,12 @@ set_env() {  # set KEY=VALUE in .env without printing anything else from the fil
 echo "== 1. Settings =="
 cp -p .env "/root/env-backup-$STAMP" && chmod 600 "/root/env-backup-$STAMP"
 echo "  .env backed up to /root/env-backup-$STAMP"
-set_env NVR_RETENTION_MAX_CAMERAS_PER_RUN 32
+set_env NVR_RETENTION_MAX_CAMERAS_PER_RUN 64
+set_env NVR_RETENTION_CACHE_HOURS 20
 set_env NVR_HISTORICAL_MAX_CAMERAS_PER_RUN 8
 set_env NVR_DEFAULT_RECORDING_EXPECTATION continuous
 chmod 600 .env
-echo "  Set: calendar checks 32/run, history searches 8/run, default expectation continuous"
+echo "  Set: calendar checks 64/run refreshed daily, history searches 8/run, default expectation continuous"
 if grep -q '^NVR_RETENTION_ENABLED=true' .env; then
     echo "  Calendar checks are enabled"
 else

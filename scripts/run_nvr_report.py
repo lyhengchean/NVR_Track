@@ -360,8 +360,10 @@ def main() -> int:
         previous_history=read_previous_history(report_dir, configured_nvr.id),
         retention_enabled=retention_enabled,
         retention_days=integer_setting("NVR_RETENTION_WINDOW_DAYS", 30, 1, 90),
-        retention_max_cameras=integer_setting("NVR_RETENTION_MAX_CAMERAS_PER_RUN", 2, 0, 32),
-        retention_ttl_hours=integer_setting("NVR_RETENTION_CACHE_HOURS", 168, 1, 720),
+        # Up to 64 so one daily run covers the largest NVR; a cache under 24 h
+        # makes each daily run refresh every calendar through yesterday.
+        retention_max_cameras=integer_setting("NVR_RETENTION_MAX_CAMERAS_PER_RUN", 2, 0, 64),
+        retention_ttl_hours=integer_setting("NVR_RETENTION_CACHE_HOURS", 20, 1, 720),
         previous_retention=read_previous_retention(report_dir, configured_nvr.id),
         retry_delay_seconds=retry_delay,
     )
