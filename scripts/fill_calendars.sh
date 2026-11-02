@@ -48,7 +48,7 @@ docker compose up -d --force-recreate nvr-dashboard >/dev/null 2>&1 && echo "  D
 
 echo
 echo "== 3. Fill calendars (read-only, no email) =="
-IPS=$(docker compose run --rm -T --entrypoint python nvr-report -c \
+IPS=$(docker compose run --rm -T --entrypoint python nvr-report </dev/null -c \
     "from app.config import load_inventory
 for n in load_inventory('config/nvrs.local.json'): print(n.ip)" 2>/dev/null)
 TODO=$IPS
@@ -57,7 +57,10 @@ for pass in 1 2 3 4; do
     TOTAL_PENDING=0
     NEXT=""
     for ip in $TODO; do
-        OUT=$(timeout 900 docker compose run --rm -T nvr-report --ip "$ip" 2>&1)
+        # </dev/null: `timeout` runs the command outside the terminal's foreground
+        # group, and the nvr-report service keeps stdin open. Reading the terminal
+        # would freeze docker compose (SIGTTIN) after the report is already saved.
+        OUT=$(timeout 900 docker compose run --rm -T nvr-report --ip "$ip" </dev/null 2>&1)
         ID=$(echo "$OUT" | sed -n 's/^Checking NVR \([^ ]*\) at.*/\1/p')
         CAL=$(echo "$OUT" | sed -n 's/^Recording calendar: //p')
         PENDING=$(echo "$CAL" | sed -n 's/.*; \([0-9]*\) pending;.*/\1/p')

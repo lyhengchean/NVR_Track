@@ -83,7 +83,7 @@ else
 fi
 
 section "5. Fresh report for every NVR (read-only, no email)"
-IPS=$(docker compose run --rm -T --entrypoint python nvr-report -c \
+IPS=$(docker compose run --rm -T --entrypoint python nvr-report </dev/null -c \
     "from app.config import load_inventory
 for n in load_inventory('config/nvrs.local.json'): print(n.ip)" 2>/dev/null)
 COUNT=$(echo "$IPS" | grep -c .)
@@ -92,7 +92,10 @@ echo "  NVR_RECORDING_MAX_NVR_SECONDS (default 300 s) plus about a minute."
 for ip in $IPS; do
     START=$(date +%s)
     echo "  ... $ip started $(date +%H:%M:%S)"
-    OUT=$(timeout 900 docker compose run --rm -T nvr-report --ip "$ip" 2>&1)
+    # </dev/null: `timeout` runs the command outside the terminal's foreground
+    # group, and the nvr-report service keeps stdin open. Reading the terminal
+    # would freeze docker compose (SIGTTIN) after the report is already saved.
+    OUT=$(timeout 900 docker compose run --rm -T nvr-report --ip "$ip" </dev/null 2>&1)
     ID=$(echo "$OUT" | sed -n 's/^Checking NVR \([^ ]*\) at.*/\1/p')
     OVERALL=$(echo "$OUT" | sed -n 's/^Overall status: //p')
     PERCAM=$(echo "$OUT" | sed -n 's/^Per-camera recording: //p')
