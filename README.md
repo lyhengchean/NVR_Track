@@ -296,19 +296,43 @@ Each camera gets one **Condition**, built from results already in the report
 | Condition | Meaning |
 |---|---|
 | No footage 30+ days | No video now and none on any day of the 30-day calendar. Camera is dead, disconnected or removed. |
-| Stopped recording | No video in the last hour, but older video exists (calendar or 7-day history). |
+| Stopped recording | No video in the search window, but older video exists (calendar or 7-day history). |
 | Check failed | The recording check could not be completed (network, track or permission). Never counted as recording. |
 | Gaps (N days) | Recording now, but N days since its oldest footage have no video. |
-| Offline, still recording | NVR reports the camera offline, yet it recorded in the last hour. |
+| Offline, still recording | NVR reports the camera offline, yet it recorded in the search window. |
 | Short history (N days) | Recording now, but the NVR holds only N days (overwritten early, or camera added recently). |
+| Not monitored | The NVR is not in `NVR_PER_CAMERA_RECORDING_IDS`, so no check ran. Never counted as recording or as a failure. |
 | OK | Recording now with every calendar day covered. |
 
-The camera table shows 9 columns by default; tick **Show all columns** for
-track IDs, history search details and raw messages (remembered per browser).
-**Problems only** hides OK and Short-history cameras. Overview tiles for
-Stopped recording, No footage 30+ days, Gaps and Check failed filter the list
-when clicked. Tiles for rare problems (check failures, unreachable NVRs,
-pending calendars) appear only when their count is above zero.
+Layout, top to bottom:
+
+- **Headline** answers the main question (how many cameras are not recording),
+  followed by a bar of every camera's condition. Each legend entry filters the
+  page to that condition; click it again to clear.
+- **Fleet facts**: NVRs reporting and their health, live camera status,
+  recording results for the search window, storage findings. Rare counts
+  (calendars pending, failed history searches) appear only when above zero.
+- **Filters**: search (NVR id, name, IP, model, firmware, camera name, channel,
+  camera IP), NVR health, live status, condition, recording result, storage,
+  **Problems only**, **All columns** (remembered per browser), sort, and
+  **CSV** (downloads exactly the cameras in view).
+- **NVR cards**: one coloured square per camera, the *camera wall*. Colour is
+  the condition; stripes mean the camera is reported offline; dashed empty
+  squares are expected cameras missing from the report because the NVR could
+  not be reached. Filters dim the squares that do not match. Hover a square for
+  the camera and reason; click it to open that camera's row.
+- **Details** opens three tabs: *Cameras* (sortable; condition, live status,
+  last video, recorded days with the 30-day strip, reason), *Storage* (disk
+  state, capacity, free space, used %) and *Findings* (critical, warning and
+  unverified checks, track list state, NVR clock offset, report file).
+
+"Last video" shows the end of the newest verified segment. When the NVR listed
+only part of the footage and the newest segment could not be confirmed within
+the time budget, it reads "*time* or later".
+
+Keyboard: `/` focuses search, `Esc` clears it, `R` reloads reports. The theme
+button cycles system, light and dark. The page is served with a strict
+Content-Security-Policy; all device-provided text is rendered as plain text.
 
 ## NVR display names
 
@@ -375,6 +399,19 @@ succeeds. No emails are sent by the unit tests.
 - `CHECK_ERROR`: check permissions, NVR reachability and request timeouts;
   no NVR configuration changes are needed.
 - `NOT_CHECKED`: investigate per-NVR time budget or systemic endpoint failure.
+- Busy cameras (motion/event recording, or continuous recording split into
+  many files): the NVR returns at most `NVR_RECORDING_MAX_RESULTS` segments,
+  oldest first, with status `MORE`. After every camera has its primary
+  result, the reporter uses the remaining time budget to locate the newest
+  segment with a few extra read-only searches (at most 6 per camera for the
+  recent window, 8 for a history interval). The recording status never
+  depends on this step; it only corrects "Last video".
+- A fleet run marks one NVR `PROCESS_TIMEOUT`: the runner allows
+  `NVR_RECORDING_MAX_NVR_SECONDS` + 300 seconds per NVR (an invalid value
+  falls back to 300 + 300). Raise the budget only if the NVR has many cameras.
+- Dashboard speed: only the newest report file per NVR is read (an older one
+  only if the newest is unreadable), so old reports in `reports/` do not slow
+  it down. Old files can be archived manually; nothing deletes them.
 - `CRITICAL` storage: investigate NVR-reported disk errors via the device
   administrator; **do not** format or change HDD settings from this app.
 - Missing NVR cards: confirm inventory, per-NVR report generation, report

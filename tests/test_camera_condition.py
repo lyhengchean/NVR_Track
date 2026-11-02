@@ -56,8 +56,10 @@ class ClassifyTests(unittest.TestCase):
                                    history="HISTORICAL_RECORDING_FOUND"), "NOT_RECORDING")
 
     def test_failed_or_missing_checks_are_never_ok(self):
-        for status in ("CHECK_ERROR", "TRACK_MAPPING_UNVERIFIED", "NOT_CONFIGURED", None):
+        for status in ("CHECK_ERROR", "TRACK_MAPPING_UNVERIFIED", None):
             self.assertEqual(self.code(status), "CHECK_FAILED", status)
+        # Disabled checks are unknown, not failed, and never OK.
+        self.assertEqual(self.code("NOT_CONFIGURED"), "NOT_MONITORED")
 
     def test_unknown_calendar_does_not_invent_problems(self):
         channel = camera("RECORDING")

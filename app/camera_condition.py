@@ -7,7 +7,7 @@ from __future__ import annotations
 
 EVIDENCE = {"RECORDING", "RECORDING_EVIDENCE_WITH_ANOMALY"}
 FAILED = {"TRACK_NOT_FOUND", "TRACK_MAPPING_UNVERIFIED", "CHECK_INCONCLUSIVE",
-          "CHECK_ERROR", "NOT_CHECKED", "NOT_CONFIGURED"}
+          "CHECK_ERROR", "NOT_CHECKED"}
 CALENDAR_KNOWN = {"RETENTION_VERIFIED", "RETENTION_PARTIAL", "RETENTION_STALE"}
 
 # code: (label, severity, rank) - rank orders the most urgent first.
@@ -18,8 +18,21 @@ CONDITIONS = {
     "GAPS": ("Gaps", "warning", 3),
     "OFFLINE_RECORDING": ("Offline, still recording", "warning", 4),
     "SHORT_HISTORY": ("Short history", "info", 5),
-    "OK": ("OK", "ok", 6),
+    # Checks are switched off for this NVR: unknown, never counted as OK.
+    "NOT_MONITORED": ("Not monitored", "info", 6),
+    "OK": ("OK", "ok", 7),
 }
+
+
+def window_text(recording: dict) -> str:
+    """'the last 60 minutes' from the report's own search window."""
+    minutes = recording.get("window_minutes")
+    if type(minutes) is not int or minutes <= 0:
+        return "the recent search window"
+    if minutes % 60 == 0:
+        hours = minutes // 60
+        return "the last hour" if hours == 1 else f"the last {hours} hours"
+    return f"the last {minutes} minutes"
 
 
 def _dict(value) -> dict:
@@ -55,10 +68,11 @@ def classify(channel: dict) -> dict:
     status = recording.get("status")
     live = channel.get("reported_status")
     cal = calendar_facts(channel.get("retention_result"))
+    window = window_text(recording)
 
     if status in EVIDENCE:
         if live == "OFFLINE":
-            code, detail = "OFFLINE_RECORDING", "Reported offline, but video was recorded in the last hour."
+            code, detail = "OFFLINE_RECORDING", f"Reported offline, but video was recorded in {window}."
         elif cal["known"] and cal["missing_days"]:
             code = "GAPS"
             detail = f"{cal['missing_days']} of the last {cal['history_days']} days have no video."
@@ -69,18 +83,18 @@ def classify(channel: dict) -> dict:
         else:
             code, detail = "OK", "Recording now."
     elif status == "NOT_CONFIGURED":
-        code, detail = "CHECK_FAILED", "Per-camera recording checks are not enabled for this NVR."
+        code, detail = "NOT_MONITORED", "Per-camera recording checks are not enabled for this NVR."
     elif status in FAILED or status is None:
         code, detail = "CHECK_FAILED", "The recording check could not be completed."
     elif history.get("status") == "HISTORICAL_RECORDING_FOUND":
-        code, detail = "NOT_RECORDING", "No video in the last hour; older video found in the last 7 days."
+        code, detail = "NOT_RECORDING", f"No video in {window}; older video found in the last 7 days."
     elif cal["known"] and cal["with_footage"] == 0:
         code = "NO_FOOTAGE_30"
         detail = f"No video on any of the last {cal['window']} days."
     else:
         code = "NOT_RECORDING"
-        detail = ("No video in the last hour; last recorded day " + cal["last_day"] + "."
-                  if cal["last_day"] else "No video in the last hour.")
+        detail = (f"No video in {window}; last recorded day " + cal["last_day"] + "."
+                  if cal["last_day"] else f"No video in {window}.")
 
     label, severity, rank = CONDITIONS[code]
     return {"code": code, "label": label, "severity": severity, "rank": rank,

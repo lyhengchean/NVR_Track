@@ -14,7 +14,9 @@ import requests
 from requests.auth import HTTPDigestAuth
 from requests.exceptions import RequestException
 
-from app.recording import check_recording_evidence, child_text, local_name
+from app.recording import (
+    check_recording_evidence, child_text, local_name, refine_latest_segment,
+)
 from app.retention import (
     scan_calendar, empty_result as empty_retention, cached_result as retention_cache,
     deferred_result as retention_deferred, previous_attempt_at as retention_attempt_at,
@@ -141,6 +143,9 @@ def new_result(status: str, reason: str, track_id: int | None = None, *,
         "requested_window_utc": {"start": None, "end": None},
         "checked_at": checked_at or datetime.now(timezone.utc).isoformat(),
         "window_minutes": minutes, "anomalies": [],
+        # False: the NVR listed only part of the window, so the newest
+        # segment shown is a lower bound. None: not applicable/unknown.
+        "latest_segment_complete": None,
     }
 
 
@@ -194,9 +199,11 @@ def simplify_search(raw: dict, track_id: int, minutes: int) -> dict:
             result["num_matches"] = None
         else:
             result["num_matches"] = len(matches)
-            most_recent = max(matches, key=lambda m: m["end_utc"])
+            most_recent = max(matches, key=lambda m: datetime.fromisoformat(m["end_utc"]))
             result["most_recent_segment_start"] = most_recent["start_utc"]
             result["most_recent_segment_end"] = most_recent["end_utc"]
+            result["more_available"] = bool(raw.get("more_available"))
+            result["latest_segment_complete"] = not raw.get("more_available")
     if status == "NO_RECENT_RECORDING_EVIDENCE":
         result["message"] = f"No recording evidence in the last {minutes} minutes; not proof of never recording."
     return result
@@ -339,6 +346,8 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
                     raw = run_search()
                     retried = True
                 ch["recording_result"] = simplify_search(raw, track_id, minutes)
+                if ch["recording_result"].get("latest_segment_complete") is False:
+                    ch["recording_result"]["_raw"] = raw  # Refined after all cameras.
                 if retried:
                     ch["recording_result"]["retried_after_connection_error"] = True
                 if raw.get("status") in {"AUTHENTICATION_FAILED", "PERMISSION_DENIED", "ENDPOINT_UNAVAILABLE"}:
@@ -350,6 +359,42 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
                     track_id, minutes=minutes, checked_at=datetime.now(timezone.utc).isoformat(),
                 )
                 ch["recording_result"]["track_verified"] = True
+    # Second pass, only with budget left after every camera has its primary
+    # result: a truncated (MORE) reply lists the oldest segments first, so
+    # find the newest one. This never changes a camera's recording status.
+    for ch in channels:
+        recent = ch["recording_result"]
+        raw_first = recent.pop("_raw", None)
+        if (raw_first is None or recent.get("latest_segment_complete") is not False
+                or time.monotonic() - started >= budget_seconds):
+            continue
+        track_id = recent["track_id"]
+
+        def search_window(low, high, track_id=track_id):
+            elapsed = timedelta(seconds=time.monotonic() - clock_read_at)
+            return search(ip=ip, username=username, password=password, port=port,
+                          track_id=track_id, minutes=minutes, max_results=max_results,
+                          clock_snapshot=(clock[0] + elapsed, clock[1]),
+                          window_start_utc=low, window_end_utc=high)
+        try:
+            refined = refine_latest_segment(
+                raw_first, track_id=track_id, search_window=search_window,
+                max_searches=6, deadline=started + budget_seconds,
+            )
+        except Exception:
+            refined = None
+        if refined is None:
+            continue
+        if (recent.get("most_recent_segment_end") is None
+                or datetime.fromisoformat(refined["end_utc"])
+                > datetime.fromisoformat(recent["most_recent_segment_end"])):
+            recent["most_recent_segment_start"] = refined["start_utc"]
+            recent["most_recent_segment_end"] = refined["end_utc"]
+        recent["latest_segment_complete"] = refined["complete"]
+        recent["latest_segment_searches"] = refined["searches"]
+    for ch in channels:
+        ch["recording_result"].pop("_raw", None)
+
     history_budget = time.monotonic() + max(0, budget_seconds - (time.monotonic() - started))
     previous_history = previous_history or {}
     pending_history = []
