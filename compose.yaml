@@ -46,11 +46,37 @@ services:
       DASHBOARD_REFRESH_SECONDS: "${DASHBOARD_REFRESH_SECONDS:-60}"
       DASHBOARD_USERNAME: "${DASHBOARD_USERNAME:?Set DASHBOARD_USERNAME in .env}"
       DASHBOARD_PASSWORD: "${DASHBOARD_PASSWORD:?Set DASHBOARD_PASSWORD in .env}"
+      SCAN_STATE_DIR: /app/state/scan
 
     ports:
       - "${DASHBOARD_BIND_IP:-127.0.0.1}:8080:8080"
 
     volumes:
       - ./reports:/app/reports:ro
+      # Scan requests only; this container never gets NVR credentials.
+      - ./state/scan:/app/state/scan
+
+    restart: unless-stopped
+
+  # Scheduled scans (NVR_SCAN_TIMES) and the dashboard's "Scan" requests.
+  # Runs the same read-only reporters as nvr-report / nvr-report-all.
+  nvr-scanner:
+    build:
+      context: .
+    image: nvr-track:local
+    entrypoint: ["python", "-m", "scripts.scan_worker"]
+
+    env_file:
+      - .env
+
+    environment:
+      TZ: Asia/Phnom_Penh
+      PYTHONUNBUFFERED: "1"
+      SCAN_STATE_DIR: /app/state/scan
+
+    volumes:
+      - ./config/nvrs.local.json:/app/config/nvrs.local.json:ro
+      - ./reports:/app/reports
+      - ./state/scan:/app/state/scan
 
     restart: unless-stopped

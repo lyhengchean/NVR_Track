@@ -65,6 +65,25 @@ button{cursor:pointer}
 .btn[disabled]{opacity:.6;cursor:progress}
 .btn svg{width:16px;height:16px;flex:none}
 .btn.icon{width:36px;padding:0;justify-content:center}
+.scanwrap{position:relative}
+.scan-chip{display:none;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:999px;background:var(--accent-soft);color:var(--accent-ink);font-size:12.5px;font-weight:620;white-space:nowrap;max-width:34vw;overflow:hidden;text-overflow:ellipsis}
+.scan-chip.on{display:inline-flex}
+.scan-chip i{width:11px;height:11px;flex:none;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin .8s linear infinite}
+.scan-panel{position:absolute;right:0;top:calc(100% + 10px);width:min(400px,calc(100vw - 32px));background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:16px 16px 14px;z-index:30}
+.scan-panel[hidden]{display:none}
+.scan-panel h2{margin:0 0 3px;font-size:15px}
+.scan-panel p{margin:0;font-size:12.5px;color:var(--muted);line-height:1.5}
+.scan-panel .btn.primary{width:100%;justify-content:center;margin-top:12px}
+.scan-row{display:flex;gap:8px;margin-top:8px}
+.scan-row select{flex:1;height:36px}
+.scan-msg{margin-top:10px!important;min-height:1em;color:var(--ink-2)!important}
+.scan-msg.err{color:var(--crit-text)!important;font-weight:600}
+.scan-meta{margin-top:10px!important;padding-top:10px;border-top:1px solid var(--line-2)}
+.cardbtn{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:7px;border:1px solid var(--line);background:var(--panel);font-size:12.5px;font-weight:620;color:var(--ink-2)}
+.cardbtn:hover:not([disabled]){border-color:var(--accent);color:var(--accent-ink)}
+.cardbtn[disabled]{opacity:.55;cursor:not-allowed}
+.cardbtn.running{opacity:1;color:var(--accent-ink);border-color:var(--accent);background:var(--accent-soft)}
+.banner.ok{background:var(--ok-soft);border-color:color-mix(in srgb,var(--ok) 40%,transparent);color:var(--ok-text)}
 .spin svg{animation:spin .9s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
@@ -263,6 +282,7 @@ footer{margin:30px 0 40px;font-size:12.5px;color:var(--muted);max-width:110ch}
   .count{margin-left:0;width:100%}
   .cell{width:13px;height:13px}
   .btn .label{display:none}
+  .scan-chip{max-width:42vw}
   .btn.primary{width:36px;padding:0;justify-content:center}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
@@ -279,6 +299,24 @@ footer{margin:30px 0 40px;font-size:12.5px;color:var(--muted);max-width:110ch}
     <div class="freshness" id="freshness" aria-live="polite">
       <span class="pulse" id="pulse"></span>
       <div><strong id="fresh-main">Loading reports</strong><span class="detail" id="fresh-detail">Saved JSON snapshots</span></div>
+    </div>
+    <span class="scan-chip" id="scan-chip" aria-live="polite"><i aria-hidden="true"></i><span id="scan-chip-text"></span></span>
+    <div class="scanwrap">
+      <button type="button" class="btn" id="scan-btn" aria-expanded="false" aria-controls="scan-panel" title="Scan NVRs now">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 12l5.5-5.5"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg>
+        <span class="label">Scan</span>
+      </button>
+      <div class="scan-panel" id="scan-panel" hidden role="dialog" aria-labelledby="scan-title">
+        <h2 id="scan-title">Scan now</h2>
+        <p>Checks the NVRs straight away and saves new reports, read-only. Use it after adding or fixing a camera.</p>
+        <button type="button" class="btn primary" id="scan-all">Scan all NVRs</button>
+        <div class="scan-row">
+          <select id="scan-select" class="control" aria-label="NVR to scan"></select>
+          <button type="button" class="btn" id="scan-one">Scan this NVR</button>
+        </div>
+        <p class="scan-msg" id="scan-msg" role="status"></p>
+        <p class="scan-meta" id="scan-meta"></p>
+      </div>
     </div>
     <button type="button" class="btn primary" id="refresh" title="Reload the latest saved reports (R)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
@@ -515,6 +553,13 @@ function renderBanners() {
     if (retry) { const btn = el("button", "btn", "Try again"); btn.type = "button"; btn.addEventListener("click", refresh); b.append(btn); }
     host.append(b);
   };
+  if (state.scanNotice) {
+    add(state.scanNotice.kind, state.scanNotice.strong, state.scanNotice.text);
+    const dismiss = el("button", "btn", "Dismiss");
+    dismiss.type = "button";
+    dismiss.addEventListener("click", () => { state.scanNotice = null; renderBanners(); });
+    host.lastChild.append(dismiss);
+  }
   if (state.error) add("crit", "Could not reload reports.", state.error + " The last loaded results stay on screen.", true);
   if (num(s.latest_run_failed) > 0)
     add("crit", "Latest fleet run failed for " + plural(num(s.latest_run_failed), "NVR") + ".",
@@ -707,7 +752,12 @@ function card(row) {
   btn.setAttribute("aria-expanded", String(isOpen(row)));
   btn.setAttribute("aria-controls", "drawer-" + nvr.id);
   btn.addEventListener("click", () => toggle(nvr.id));
-  foot.append(alerts, live, chans, when, btn);
+  const scanBtn = el("button", "cardbtn scan-nvr", "Scan");
+  scanBtn.type = "button";
+  scanBtn.dataset.nvr = nvr.id;
+  scanBtn.title = "Scan " + nvrTitle(nvr) + " now";
+  scanBtn.addEventListener("click", () => requestScan(nvr.id));
+  foot.append(alerts, live, chans, when, scanBtn, btn);
   head.append(foot);
   art.append(head);
   if (isOpen(row)) art.append(drawer(row));
@@ -1042,6 +1092,7 @@ async function refresh() {
     state.data = data;
     state.nvrs = data.nvrs;
     state.error = null;
+    applyScan(data.scan || null, true);
     state.loadedAt = new Date();
     clearTimeout(state.timer);
     const secs = num(data.refresh_seconds);
@@ -1058,6 +1109,140 @@ async function refresh() {
   renderBanners();
   renderFacts();
   render();
+  renderScan();
+}
+
+// ---------- scan now (the nvr-scanner service does the work) ----------
+function scanBusy(s) { return Boolean(s && (s.current || s.queued)); }
+function targetName(target) {
+  if (target === "all") return "all NVRs";
+  const nvr = state.nvrs.find(n => n.id === target);
+  return nvr && nvr.name ? nvr.name + " (" + target + ")" : String(target);
+}
+function scanBlocked() {
+  const s = state.scan;
+  return !s || !s.available || !s.on_demand_enabled || scanBusy(s) || num(s.cooldown_seconds) > 0 || state.scanPending;
+}
+function scanNotice(last) {
+  const name = targetName(last.target);
+  const when = last.finished_at ? " at " + timeFmt.format(new Date(last.finished_at)).slice(0, 5) : "";
+  const email = last.email ? " Email: " + (last.email_result || "unknown").toLowerCase() + "." : "";
+  if (last.result === "OK") {
+    return {kind: "ok", strong: "Scan of " + name + " finished" + when + ".",
+      text: (last.overall ? "Status: " + label(last.overall) + ". " : "") + "New reports are loaded." + email};
+  }
+  if (last.result === "ERRORS") {
+    return {kind: "warn", strong: "Scan of " + name + " finished" + when + ".",
+      text: plural(num(last.execution_errors), "NVR") + " could not be checked; see their cards." + email};
+  }
+  if (last.result === "BUSY") {
+    return {kind: "warn", strong: name + " was already being scanned.", text: "Another run had it locked. Try again in a minute."};
+  }
+  const why = {TIMEOUT: "it took too long and was stopped", INTERRUPTED: "the scanner restarted during it", FAILED: "no report was saved"}[last.result] || "it did not complete";
+  return {kind: "crit", strong: "Scan of " + name + " failed" + when + ":", text: why + ". Check: docker compose logs nvr-scanner"};
+}
+function applyScan(s, fromRefresh) {
+  const wasBusy = scanBusy(state.scan);
+  state.scan = s;
+  if (wasBusy && !scanBusy(s) && s && s.last) {
+    state.scanNotice = scanNotice(s.last);
+    if (!fromRefresh) refresh();
+    else renderBanners();
+  }
+  renderScan();
+  clearTimeout(state.scanTimer);
+  state.scanTimer = setTimeout(loadScan, scanBusy(s) ? 3000 : 30000);
+}
+async function loadScan() {
+  try {
+    const response = await fetch("/api/scan", {cache: "no-store", credentials: "same-origin"});
+    if (!response.ok) throw new Error();
+    applyScan(await response.json(), false);
+  } catch (e) {
+    clearTimeout(state.scanTimer);
+    state.scanTimer = setTimeout(loadScan, 30000);
+  }
+}
+async function requestScan(target) {
+  state.scanPending = true;
+  state.scanError = null;
+  renderScan();
+  try {
+    const response = await fetch("/api/scan", {
+      method: "POST", cache: "no-store", credentials: "same-origin",
+      headers: {"Content-Type": "application/json", "X-NVR-Track": "scan"},
+      body: JSON.stringify({target})
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) state.scanError = data.error || "The server answered HTTP " + response.status + ".";
+    else state.scanNotice = {kind: "ok", strong: "Scan of " + targetName(target) + " requested.", text: "It starts within a few seconds; new results load automatically."};
+    state.scanPending = false;
+    if (data.scan) applyScan(data.scan, false);
+  } catch (e) {
+    state.scanError = "The dashboard server could not be reached.";
+  } finally {
+    state.scanPending = false;
+    renderScan();
+    renderBanners();
+  }
+}
+function renderScan() {
+  const s = state.scan;
+  const busy = scanBusy(s);
+  const chip = $("scan-chip");
+  chip.classList.toggle("on", busy);
+  if (s && s.current) {
+    const p = s.current.progress || {};
+    $("scan-chip-text").textContent = s.current.target === "all"
+      ? (p.nvr ? "Scanning " + p.nvr + ", " + p.done + " of " + p.total : "Scanning all NVRs")
+      : "Scanning " + targetName(s.current.target);
+    chip.title = (s.current.trigger === "schedule" ? "Automatic scan" : "Requested scan") + " started " + stamp(s.current.started_at);
+  } else if (s && s.queued) {
+    $("scan-chip-text").textContent = "Starting scan of " + targetName(s.queued.target);
+  }
+  const blocked = scanBlocked();
+  $("scan-all").disabled = blocked;
+  $("scan-one").disabled = blocked || !$("scan-select").value;
+  // NVR list for the picker (keep the current choice).
+  const select = $("scan-select");
+  const chosen = select.value;
+  const ids = [...state.nvrs].sort((a, b) => a.id.localeCompare(b.id, undefined, {numeric: true}));
+  if (select.options.length !== ids.length || [...select.options].some((o, i) => o.value !== ids[i].id)) {
+    select.replaceChildren(...ids.map(n => { const o = el("option", "", n.name ? n.id + "  " + n.name : n.id); o.value = n.id; return o; }));
+    if (chosen) select.value = chosen;
+  }
+  const msg = $("scan-msg");
+  let text = "", err = false;
+  if (state.scanError) { text = state.scanError; err = true; }
+  else if (!s) text = "Checking the scanner service…";
+  else if (!s.available) { text = "The scanner service is not running. On the server run: docker compose up -d nvr-scanner"; err = true; }
+  else if (!s.on_demand_enabled) text = "Scan requests are turned off (NVR_ON_DEMAND_SCANS=false).";
+  else if (busy) text = "A scan is in progress. You can start another when it finishes.";
+  else if (num(s.cooldown_seconds) > 0) text = "Next scan possible in " + s.cooldown_seconds + " s.";
+  else if (s.rejected) { text = "Last request was refused: " + s.rejected.reason; err = true; }
+  msg.textContent = text;
+  msg.classList.toggle("err", err);
+  const meta = [];
+  if (s && s.scan_times.length) {
+    meta.push("Automatic scans at " + s.scan_times.join(", ") + ".");
+    if (s.email_times.length) meta.push("Email from the " + s.email_times.join(", ") + " scan.");
+    if (s.next_scheduled_at) meta.push("Next: " + stamp(s.next_scheduled_at) + ".");
+  } else if (s && s.available) meta.push("No automatic scans are set (NVR_SCAN_TIMES).");
+  if (s && s.last && s.last.finished_at) meta.push("Last scan: " + targetName(s.last.target) + ", " + stamp(s.last.finished_at) + ".");
+  $("scan-meta").textContent = meta.join(" ");
+  const scanningId = s && s.current ? (s.current.target === "all" ? s.current.progress?.nvr : s.current.target) : null;
+  for (const b of document.querySelectorAll(".scan-nvr")) {
+    const running = b.dataset.nvr === scanningId;
+    b.disabled = blocked;
+    b.classList.toggle("running", running);
+    b.textContent = running ? "Scanning…" : "Scan";
+  }
+}
+function closeScanPanel(focus) {
+  if ($("scan-panel").hidden) return;
+  $("scan-panel").hidden = true;
+  $("scan-btn").setAttribute("aria-expanded", "false");
+  if (focus) $("scan-btn").focus();
 }
 
 function csvCell(value) {
@@ -1182,11 +1367,22 @@ for (const id of ["search", "overall-filter", "live-filter", "condition-filter",
   });
 }
 $("refresh").addEventListener("click", refresh);
+$("scan-btn").addEventListener("click", () => {
+  const opening = $("scan-panel").hidden;
+  $("scan-panel").hidden = !opening;
+  $("scan-btn").setAttribute("aria-expanded", String(opening));
+  if (opening) { state.scanError = null; renderScan(); loadScan(); }
+});
+$("scan-all").addEventListener("click", () => requestScan("all"));
+$("scan-one").addEventListener("click", () => { if ($("scan-select").value) requestScan($("scan-select").value); });
+$("scan-select").addEventListener("change", renderScan);
+document.addEventListener("pointerdown", e => { if (!e.target.closest?.(".scanwrap")) closeScanPanel(false); });
 $("csv").addEventListener("click", downloadCsv);
 $("clear").addEventListener("click", clearFilters);
 document.addEventListener("keydown", e => {
   const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || "");
   if (e.key === "/" && !typing) { e.preventDefault(); $("search").focus(); }
+  else if (e.key === "Escape" && !$("scan-panel").hidden) closeScanPanel(true);
   else if (e.key === "Escape" && document.activeElement === $("search")) { $("search").value = ""; render(); }
   else if ((e.key === "r" || e.key === "R") && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) refresh();
 });

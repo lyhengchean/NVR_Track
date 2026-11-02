@@ -1,6 +1,7 @@
 
 """Run sequential monitoring reports for every configured NVR."""
 
+import argparse
 import json
 import os
 import re
@@ -364,7 +365,14 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
 
     return True, f"SENT to {len(recipients)} recipient(s)."
 
-def main() -> int:
+NO_EMAIL_MESSAGE = "NOT SENT (run without email)"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Report on every configured NVR, one at a time.")
+    parser.add_argument("--no-email", action="store_true",
+                        help="Save reports but do not send the consolidated email.")
+    args = parser.parse_args([] if argv is None else argv)
     try:
         nvrs = load_inventory(INVENTORY_PATH)
     except InventoryError as exc:
@@ -524,7 +532,10 @@ def main() -> int:
     )
     print(f"Individual JSON reports: {REPORTS_DIR}")
 
-    email_sent, email_message = send_email_report(summary)
+    if args.no_email:
+        email_sent, email_message = False, NO_EMAIL_MESSAGE
+    else:
+        email_sent, email_message = send_email_report(summary)
     print(f"Email report: {email_message}")
 
     if not email_sent and email_message.startswith("FAILED:"):
@@ -537,4 +548,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv[1:]))
