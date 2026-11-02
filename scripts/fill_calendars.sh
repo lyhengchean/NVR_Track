@@ -57,10 +57,11 @@ for pass in 1 2 3 4; do
     TOTAL_PENDING=0
     NEXT=""
     for ip in $TODO; do
-        # </dev/null: `timeout` runs the command outside the terminal's foreground
-        # group, and the nvr-report service keeps stdin open. Reading the terminal
-        # would freeze docker compose (SIGTTIN) after the report is already saved.
-        OUT=$(timeout 900 docker compose run --rm -T nvr-report --ip "$ip" </dev/null 2>&1)
+        # The nvr-report service keeps stdin open. Without --foreground, timeout
+        # moves compose out of the terminal's foreground group, and touching the
+        # terminal there stops the whole group (state T) so even the timeout never
+        # fires. --foreground and </dev/null each prevent that on their own.
+        OUT=$(timeout --foreground -k 30 900 docker compose run --rm -T nvr-report --ip "$ip" </dev/null 2>&1)
         ID=$(echo "$OUT" | sed -n 's/^Checking NVR \([^ ]*\) at.*/\1/p')
         CAL=$(echo "$OUT" | sed -n 's/^Recording calendar: //p')
         PENDING=$(echo "$CAL" | sed -n 's/.*; \([0-9]*\) pending;.*/\1/p')
