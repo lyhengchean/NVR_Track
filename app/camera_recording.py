@@ -22,6 +22,7 @@ from app.retention import (
     deferred_result as retention_deferred, previous_attempt_at as retention_attempt_at,
     summarize_retention, NOT_CONFIGURED as RET_NOT_CONFIGURED,
     UNVERIFIED as RET_UNVERIFIED, UNSUPPORTED as RET_UNSUPPORTED,
+    PENDING as RET_PENDING,
 )
 from app.historical_recording import (
     empty_result, search_history, summarize_history, valid_cache,
@@ -527,6 +528,10 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
                 )
             except Exception:
                 retention = empty_retention("RETENTION_ERROR", "Unexpected calendar audit failure.", track_id)
+            if retention["status"] == RET_PENDING:
+                # The budget ran out between monthly queries. Keep the earlier
+                # calendar (shown as a previous scan), like any deferred camera.
+                retention = retention_deferred(old, track_id, "NVR recording-search time budget exhausted.")
             if retention["status"] == RET_UNSUPPORTED:
                 skip_remaining = True
         ch["retention_result"] = retention
