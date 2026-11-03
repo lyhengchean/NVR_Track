@@ -232,7 +232,10 @@ docker compose run --rm -T --entrypoint python nvr-report -m scripts.verify_reco
 ```
 
 This stores timestamped `reports/track-verification-*.json` with mapping
-status for each camera and no credentials. Review any `TRACK_NOT_FOUND` or
+status for each camera and no credentials. It ends by listing the fully
+verified NVRs, the ones to keep disabled (and why), and the exact
+`NVR_PER_CAMERA_RECORDING_IDS=` line that would add the fully verified ones
+to what is enabled now. It never edits `.env`. Review any `TRACK_NOT_FOUND` or
 `TRACK_MAPPING_UNVERIFIED` entries, and add an NVR ID to the enabled list
 only when its main-stream track mapping is verified. A successful GET track
 listing does not prove that the recording-search endpoint supports that track;
@@ -264,7 +267,8 @@ configuration is authoritative) on port `8080`. It re-reads the newest saved
 JSON per NVR, based on `check_completed_at` and falls back to file modified
 time. It never contacts NVRs. It preserves HTTP Basic Authentication,
 whitelists API fields, uses `textContent` for device-supplied text, and
-handles old/incomplete/bad reports. Report age over 26 hours shows as stale.
+handles old/incomplete/bad reports. A report older than the last scheduled
+scan it should have been replaced by shows as stale (see *Stale reports*).
 
 The dashboard supports NVR and camera search, NVR/storage/live/recording status
 filters, offline cameras **with recordings**, missing recording evidence,
@@ -312,7 +316,8 @@ Each camera gets one **Condition**, built from results already in the report
 | Condition | Meaning |
 |---|---|
 | No footage 30+ days | No video now and none on any day of the 30-day calendar. Camera is dead, disconnected or removed. |
-| Stopped recording | No video in the search window, but older video exists (calendar or 7-day history). |
+| Stopped recording | No video in the search window, but older video exists (calendar or the `NVR_HISTORICAL_LOOKBACK_DAYS` history). |
+| No recent events | An **online** camera marked `event` in `recording_expectations` had no segment in the search window. Normal for a quiet area, so it is not counted as stopped. An offline event camera, or one with no footage on any of the 30 calendar days, still shows as a problem. |
 | Check failed | The recording check could not be completed (network, track or permission). Never counted as recording. |
 | Gaps (N days) | Recording now, but N days since its oldest footage have no video. |
 | Offline, still recording | NVR reports the camera offline, yet it recorded in the search window. |
@@ -341,6 +346,12 @@ Layout, top to bottom:
   last video, recorded days with the 30-day strip, reason), *Storage* (disk
   state, capacity, free space, used %) and *Findings* (critical, warning and
   unverified checks, track list state, NVR clock offset, report file).
+
+**Stale reports.** With automatic scans, an NVR's report is marked stale once
+a later scheduled scan should have replaced it (two hours are allowed for a
+fleet scan to reach each NVR). With scans every two hours, a stopped scanner is
+flagged within about four hours instead of the next day. Without a known scan
+schedule the old 26-hour rule applies.
 
 "Last video" shows the end of the newest verified segment. When the NVR listed
 only part of the footage and the newest segment could not be confirmed within
@@ -409,7 +420,12 @@ NVR_SCAN_COOLDOWN_SECONDS=60
 ```
 
 A scan time missed because the service was restarting runs within 30 minutes;
-older missed times are skipped, and a time never runs twice. Without
+older missed times are skipped, and a time never runs twice. A scan time that
+falls due while another scan is still running (for example a manual "Scan all"
+started at 07:45) runs as soon as that scan ends, however late. If that later
+scan replaces an email time that was passed over, it still sends the email
+once (likewise, an email time that is not also a scan time goes out with the
+next scan). Without
 `NVR_SCAN_TIMES` the service scans once at 08:00. After editing these lines:
 `docker compose up -d --force-recreate nvr-scanner`.
 
@@ -570,7 +586,7 @@ If the fleet run failed and no newer successful report exists, the NVR is marked
 **Report failed**, the previous camera/storage details remain accessible with an
 explicit **last successful report** warning, and old values are **excluded** from
 fresh fleet totals. The stale/failed counter includes those devices, even if their
-last snapshot is less than 26 hours old. Individual single-NVR reports created
+last snapshot is otherwise recent. Individual single-NVR reports created
 afterward can clear a previous run failure for that NVR.
 
 The consolidated email states how many NVRs produced reports and how many failed.

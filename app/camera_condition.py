@@ -5,6 +5,8 @@ Nothing here contacts an NVR.
 """
 from __future__ import annotations
 
+from datetime import datetime
+
 EVIDENCE = {"RECORDING", "RECORDING_EVIDENCE_WITH_ANOMALY"}
 FAILED = {"TRACK_NOT_FOUND", "TRACK_MAPPING_UNVERIFIED", "CHECK_INCONCLUSIVE",
           "CHECK_ERROR", "NOT_CHECKED"}
@@ -18,9 +20,12 @@ CONDITIONS = {
     "GAPS": ("Gaps", "warning", 3),
     "OFFLINE_RECORDING": ("Offline, still recording", "warning", 4),
     "SHORT_HISTORY": ("Short history", "info", 5),
+    # Online camera marked "event" in recording_expectations: a quiet window
+    # is expected, so it is not "Stopped recording" (README, reporting.py).
+    "NO_RECENT_EVENTS": ("No recent events", "info", 6),
     # Checks are switched off for this NVR: unknown, never counted as OK.
-    "NOT_MONITORED": ("Not monitored", "info", 6),
-    "OK": ("OK", "ok", 7),
+    "NOT_MONITORED": ("Not monitored", "info", 7),
+    "OK": ("OK", "ok", 8),
 }
 
 
@@ -37,6 +42,24 @@ def window_text(recording: dict) -> str:
 
 def _dict(value) -> dict:
     return value if isinstance(value, dict) else {}
+
+
+def history_text(history: dict, recording: dict) -> str:
+    """'the last 7 days' from the historical search's own window
+    (NVR_HISTORICAL_LOOKBACK_DAYS), not a fixed number."""
+    window = _dict(history.get("requested_window_utc"))
+    try:
+        span = (datetime.fromisoformat(window["end"])
+                - datetime.fromisoformat(window["start"])).total_seconds()
+    except (KeyError, TypeError, ValueError):
+        return "the last few days"
+    minutes = recording.get("window_minutes")
+    if type(minutes) is int and minutes > 0:
+        span += minutes * 60  # The history window ends where the recent one starts.
+    days = round(span / 86400)
+    if days < 1:
+        return "the last few days"
+    return "the last day" if days == 1 else f"the last {days} days"
 
 
 def calendar_facts(retention: dict) -> dict:
@@ -86,8 +109,19 @@ def classify(channel: dict) -> dict:
         code, detail = "NOT_MONITORED", "Per-camera recording checks are not enabled for this NVR."
     elif status in FAILED or status is None:
         code, detail = "CHECK_FAILED", "The recording check could not be completed."
+    elif (channel.get("recording_expectation") == "event" and live == "ONLINE"
+          and not (cal["known"] and cal["with_footage"] == 0)):
+        # Event/motion recording: no segment in a quiet window is normal.
+        # Offline event cameras and 30 empty calendar days stay problems.
+        code = "NO_RECENT_EVENTS"
+        detail = f"Event recording: no events in {window}."
+        if history.get("status") == "HISTORICAL_RECORDING_FOUND":
+            detail += f" Older video found in {history_text(history, recording)}."
+        elif cal["last_day"]:
+            detail += f" Last recorded day {cal['last_day']}."
     elif history.get("status") == "HISTORICAL_RECORDING_FOUND":
-        code, detail = "NOT_RECORDING", f"No video in {window}; older video found in the last 7 days."
+        code = "NOT_RECORDING"
+        detail = f"No video in {window}; older video found in {history_text(history, recording)}."
     elif cal["known"] and cal["with_footage"] == 0:
         code = "NO_FOOTAGE_30"
         detail = f"No video on any of the last {cal['window']} days."

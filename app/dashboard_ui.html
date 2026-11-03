@@ -10,7 +10,7 @@
 :root{
   --bg:#eef2f6;--panel:#fff;--panel-2:#f6f8fb;--ink:#0e1a2b;--ink-2:#2c3b50;--muted:#5d6d82;--line:#d9e1ea;--line-2:#e8edf3;
   --accent:#3b82f6;--accent-ink:#1d4ed8;--accent-soft:#e3edff;--focus:#93c5fd;
-  --ok:#1f9d55;--short:#7cc49a;--offrec:#0ea5e9;--gaps:#e5a000;--failed:#8b5cf6;--stopped:#e5484d;--nofootage:#8f1d22;--unmon:#b4c0ce;
+  --ok:#1f9d55;--short:#7cc49a;--offrec:#0ea5e9;--gaps:#e5a000;--failed:#8b5cf6;--stopped:#e5484d;--nofootage:#8f1d22;--unmon:#b4c0ce;--quiet:#7b9cc4;
   --ok-soft:#e3f6eb;--warn-soft:#fff4d6;--crit-soft:#fde7e8;--info-soft:#e4f4fc;--violet-soft:#efe9ff;--gray-soft:#edf1f5;
   --ok-text:#116b38;--warn-text:#8a5a00;--crit-text:#a3191f;--info-text:#075f86;--violet-text:#5b30c4;--gray-text:#4c5b6e;
   --shadow:0 1px 2px rgba(14,26,43,.06),0 8px 24px -12px rgba(14,26,43,.18);
@@ -21,7 +21,7 @@
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0a111d;--panel:#101a2a;--panel-2:#0d1624;--ink:#e6edf6;--ink-2:#c3cfdd;--muted:#8fa0b6;--line:#22314a;--line-2:#1a2639;
   --accent:#3b82f6;--accent-ink:#8ab4ff;--accent-soft:#16284a;--focus:#3b82f6;
-  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;
+  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;--quiet:#4f6f96;
   --ok-soft:#0f2d1e;--warn-soft:#33270a;--crit-soft:#3a1418;--info-soft:#0b2a3a;--violet-soft:#241a45;--gray-soft:#1a2537;
   --ok-text:#7ee2a6;--warn-text:#f6cf6b;--crit-text:#ff9da1;--info-text:#8fdcff;--violet-text:#c9b8ff;--gray-text:#a9b6c7;
   --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);color-scheme:dark;
@@ -29,7 +29,7 @@
 :root[data-theme="dark"]{
   --bg:#0a111d;--panel:#101a2a;--panel-2:#0d1624;--ink:#e6edf6;--ink-2:#c3cfdd;--muted:#8fa0b6;--line:#22314a;--line-2:#1a2639;
   --accent:#3b82f6;--accent-ink:#8ab4ff;--accent-soft:#16284a;--focus:#3b82f6;
-  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;
+  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;--quiet:#4f6f96;
   --ok-soft:#0f2d1e;--warn-soft:#33270a;--crit-soft:#3a1418;--info-soft:#0b2a3a;--violet-soft:#241a45;--gray-soft:#1a2537;
   --ok-text:#7ee2a6;--warn-text:#f6cf6b;--crit-text:#ff9da1;--info-text:#8fdcff;--violet-text:#c9b8ff;--gray-text:#a9b6c7;
   --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);color-scheme:dark;
@@ -112,7 +112,7 @@ button{cursor:pointer}
 
 /* Condition palette, used by bar, legend, wall cells and badges */
 .k-OK{--k:var(--ok)}.k-SHORT_HISTORY{--k:var(--short)}.k-OFFLINE_RECORDING{--k:var(--offrec)}.k-GAPS{--k:var(--gaps)}
-.k-CHECK_FAILED{--k:var(--failed)}.k-NOT_RECORDING{--k:var(--stopped)}.k-NO_FOOTAGE_30{--k:var(--nofootage)}.k-NOT_MONITORED{--k:var(--unmon)}.k-NONE{--k:transparent}
+.k-CHECK_FAILED{--k:var(--failed)}.k-NOT_RECORDING{--k:var(--stopped)}.k-NO_FOOTAGE_30{--k:var(--nofootage)}.k-NOT_MONITORED{--k:var(--unmon)}.k-NO_RECENT_EVENTS{--k:var(--quiet)}.k-NONE{--k:transparent}
 .swatch,.condbar span{background:var(--k)}
 
 /* Facts */
@@ -359,7 +359,7 @@ footer{margin:30px 0 40px;font-size:12.5px;color:var(--muted);max-width:110ch}
         <option value="">All live statuses</option><option value="ONLINE">Online</option><option value="OFFLINE">Offline</option><option value="UNKNOWN">Unknown</option><option value="NOT_RETURNED">Not returned</option>
       </select>
       <select id="condition-filter" class="control" aria-label="Camera condition">
-        <option value="">All conditions</option><option value="NO_FOOTAGE_30">No footage 30+ days</option><option value="NOT_RECORDING">Stopped recording</option><option value="CHECK_FAILED">Check failed</option><option value="GAPS">Gaps</option><option value="OFFLINE_RECORDING">Offline, still recording</option><option value="SHORT_HISTORY">Short history</option><option value="NOT_MONITORED">Not monitored</option><option value="OK">OK</option>
+        <option value="">All conditions</option><option value="NO_FOOTAGE_30">No footage 30+ days</option><option value="NOT_RECORDING">Stopped recording</option><option value="CHECK_FAILED">Check failed</option><option value="GAPS">Gaps</option><option value="OFFLINE_RECORDING">Offline, still recording</option><option value="SHORT_HISTORY">Short history</option><option value="NO_RECENT_EVENTS">No recent events</option><option value="NOT_MONITORED">Not monitored</option><option value="OK">OK</option>
       </select>
       <select id="recording-filter" class="control" aria-label="Recording check result">
         <option value="">All recording results</option><option value="EVIDENCE">Recorded in window</option><option value="NO_RECENT_RECORDING_EVIDENCE">No recent evidence</option><option value="OFFLINE_EVIDENCE">Offline, footage found</option><option value="FAILED">Failed or unverified</option><option value="NOT_CHECKED">Not checked or not enabled</option>
@@ -403,7 +403,8 @@ const PROBLEMS = new Set(["NO_FOOTAGE_30", "NOT_RECORDING", "CHECK_FAILED", "GAP
 const CONDITIONS = [
   ["NO_FOOTAGE_30", "No footage 30+ days"], ["NOT_RECORDING", "Stopped recording"],
   ["CHECK_FAILED", "Check failed"], ["GAPS", "Gaps"], ["OFFLINE_RECORDING", "Offline, still recording"],
-  ["SHORT_HISTORY", "Short history"], ["NOT_MONITORED", "Not monitored"], ["OK", "OK"]
+  ["SHORT_HISTORY", "Short history"], ["NO_RECENT_EVENTS", "No recent events"],
+  ["NOT_MONITORED", "Not monitored"], ["OK", "OK"]
 ];
 const CONDITION_LABEL = Object.fromEntries(CONDITIONS);
 const HEALTH_RANK = {ERROR: 0, CRITICAL: 1, WARNING: 2, UNKNOWN: 3, HEALTHY: 4};
@@ -414,7 +415,7 @@ const LABELS = {
   NO_RECENT_RECORDING_EVIDENCE: "No recent evidence", CHECK_ERROR: "Search error",
   CHECK_INCONCLUSIVE: "Inconclusive", TRACK_NOT_FOUND: "Track not found",
   TRACK_MAPPING_UNVERIFIED: "Track unverified", NOT_CHECKED: "Not checked", NOT_CONFIGURED: "Not enabled",
-  HISTORICAL_RECORDING_FOUND: "Older footage found", NO_HISTORICAL_EVIDENCE_IN_WINDOW: "No footage in 7 days",
+  HISTORICAL_RECORDING_FOUND: "Older footage found", NO_HISTORICAL_EVIDENCE_IN_WINDOW: "No older footage found",
   HISTORICAL_CHECK_INCONCLUSIVE: "Inconclusive", HISTORICAL_CHECK_ERROR: "Search error",
   HISTORICAL_NOT_CHECKED: "Not checked", HISTORICAL_NOT_NEEDED: "Not needed (recording now)",
   HISTORICAL_NOT_CONFIGURED: "Not enabled",
@@ -464,6 +465,7 @@ function stamped(value, cls) {
 }
 function isStale(nvr) {
   if (nvr.last_run_failed) return true;
+  if (typeof nvr.stale === "boolean") return nvr.stale;  // Server rule: follows the scan schedule.
   const d = parse(nvr.last_check);
   return !d || Date.now() - d.getTime() > 26 * 3600 * 1000;
 }
@@ -566,7 +568,12 @@ function renderBanners() {
     add("crit", "Latest fleet run failed for " + plural(num(s.latest_run_failed), "NVR") + ".",
       "Their cameras are left out of the fleet totals; each card shows the last successful report for reference.");
   const staleOnly = num(s.stale_reports) - num(s.latest_run_failed);
-  if (staleOnly > 0) add("warn", plural(staleOnly, "NVR report") + " older than 26 hours.", "Check that the 08:00 schedule still runs.");
+  if (staleOnly > 0) {
+    const slot = parse(s.stale_slot);
+    if (slot) add("warn", plural(staleOnly, "NVR report") + " older than the " + timeFmt.format(slot).slice(0, 5) + " scheduled scan.",
+      "Automatic scans may have stopped. On the server run: docker compose logs --tail 50 nvr-scanner");
+    else add("warn", plural(staleOnly, "NVR report") + " older than 26 hours.", "No automatic scan schedule is known; check that scans still run.");
+  }
   if (num(state.data?.report_errors) > 0)
     add("warn", plural(num(state.data.report_errors), "report file") + " could not be read.", "Other reports are shown normally.");
 }
@@ -575,19 +582,20 @@ function renderHero() {
   const c = s.condition_counts || {};
   const total = CONDITIONS.reduce((sum, [code]) => sum + num(c[code]), 0);
   const stopped = num(c.NOT_RECORDING) + num(c.NO_FOOTAGE_30);
-  const failed = num(c.CHECK_FAILED), unmonitored = num(c.NOT_MONITORED);
+  const failed = num(c.CHECK_FAILED), unmonitored = num(c.NOT_MONITORED), quiet = num(c.NO_RECENT_EVENTS);
   const headline = $("headline");
   let text, good = false;
   if (!state.nvrs.length) text = "No saved reports yet";
   else if (stopped) text = plural(stopped, "camera is", "cameras are") + " not recording";
   else if (failed) text = plural(failed, "camera", "cameras") + " could not be checked";
-  else if (total > unmonitored) { text = "Every monitored camera is recording"; good = true; }
+  else if (total > unmonitored) { text = quiet ? "No monitored camera has stopped recording" : "Every monitored camera is recording"; good = true; }
   else text = "No cameras are monitored yet";
   headline.textContent = text;
   headline.className = "headline " + (good ? "good" : "bad");
   const parts = [];
   if (total) parts.push(num(s.recording_evidence) + " of " + total + " cameras recorded video in " + windowText(s.window_minutes) + ".");
   if (num(c.GAPS)) parts.push(plural(num(c.GAPS), "camera has", "cameras have") + " missing days in the 30-day calendar.");
+  if (quiet) parts.push(plural(quiet, "event-recording camera", "event-recording cameras") + " had no events in " + windowText(s.window_minutes) + ", which is normal for a quiet area.");
   if (stopped && failed) parts.push(plural(failed, "check") + " could not be completed.");
   if (unmonitored) parts.push(plural(unmonitored, "camera is", "cameras are") + " on NVRs without per-camera checks.");
   if (num(s.cameras_without_result)) parts.push(plural(num(s.cameras_without_result), "expected camera has", "expected cameras have") + " no result because the NVR was unreachable.");
@@ -909,7 +917,7 @@ function cameraPanel(row) {
       ["matches", "Segments", ch => r(ch).num_matches == null ? "—" : r(ch).num_matches + (r(ch).more_available ? "+" : ""), null],
       ["track", "Track", ch => r(ch).track_id ?? "—", null],
       ["checked", "Checked", ch => r(ch).checked_at ? stamped(r(ch).checked_at) : "—", null],
-      ["hist", "History (7 days)", ch => pill(notNeeded(ch) ? "HISTORICAL_NOT_NEEDED" : h(ch).status), null],
+      ["hist", "History", ch => pill(notNeeded(ch) ? "HISTORICAL_NOT_NEEDED" : h(ch).status), null],
       ["histwhen", "History checked", ch => h(ch).checked_at ? stamp(h(ch).checked_at) + (h(ch).from_cache ? " (cached)" : "") : "—", null],
       ["cal", "Calendar", ch => pill(ch.retention_result.status), null],
       ["expect", "Expectation", ch => ch.recording_expectation, null]

@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
+from zoneinfo import ZoneInfo
 
 from app.camera_condition import CONDITIONS, classify
 
@@ -333,11 +334,43 @@ def _public_report(report: dict, path: Path) -> dict:
     }
 
 
-def _is_fresh(timestamp: str) -> bool:
+LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
+STALE_FALLBACK = timedelta(hours=26)     # No automatic scan schedule known.
+SCAN_RUN_ALLOWANCE = timedelta(hours=2)  # Time a fleet scan may take to reach an NVR.
+STALE_TOLERANCE = timedelta(minutes=10)
+
+
+def _stale_cutoff(now: datetime, scan_times: list[str]) -> tuple[datetime, datetime | None]:
+    """Oldest report time still counted as current, and the scan slot behind it.
+
+    With automatic scans (NVR_SCAN_TIMES, e.g. every 2 hours), a report is
+    stale once a later scheduled scan should have replaced it, allowing
+    SCAN_RUN_ALLOWANCE for a fleet scan to reach the NVR. A fixed 26 hours
+    would hide a stopped scanner for a whole day. Without a known schedule
+    the old 26-hour rule applies.
+    """
+    times = []
+    for text in scan_times:
+        if isinstance(text, str) and re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", text):
+            times.append((int(text[:2]), int(text[3:])))
+    if not times:
+        return now - STALE_FALLBACK, None
+    reference = (now - SCAN_RUN_ALLOWANCE).astimezone(LOCAL_TZ)
+    slots = [datetime(day.year, day.month, day.day, h, m, tzinfo=LOCAL_TZ)
+             for day in (reference.date(), reference.date() - timedelta(days=1))
+             for h, m in times]
+    slot = max(s for s in slots if s <= reference)  # Yesterday's slots always qualify.
+    return slot - STALE_TOLERANCE, slot
+
+
+def _is_fresh(timestamp: str, cutoff: datetime | None = None) -> bool:
     try:
         checked = datetime.fromisoformat(timestamp)
-        age = datetime.now(timezone.utc) - checked.astimezone(timezone.utc)
-        return checked.tzinfo is not None and 0 <= age.total_seconds() < 26 * 3600
+        now = datetime.now(timezone.utc)
+        age = now - checked.astimezone(timezone.utc)
+        if cutoff is None:
+            cutoff = now - STALE_FALLBACK
+        return checked.tzinfo is not None and age.total_seconds() >= 0 and checked >= cutoff
     except (ValueError, TypeError):
         return False
 
@@ -409,11 +442,15 @@ def _report_candidates() -> tuple[list[list[Path]], list[Path]]:
     other: list[Path] = []
     if not REPORTS_DIR.is_dir():
         return [], other
-    for path in REPORTS_DIR.glob("nvr-*_*.json"):
+    # Any inventory ID is valid (app.config), not only "nvr-…". Other JSON in
+    # the folder (fleet_latest_run.json, track-verification-*.json) is not a
+    # device report and must not be counted as an unreadable one.
+    for path in REPORTS_DIR.glob("*_*.json"):
         match = REPORT_NAME.match(path.name)
         stamp = _name_timestamp(match["stamp"]) if match else None
-        if stamp is None:
-            other.append(path)
+        if stamp is None or not DEVICE_ID.fullmatch(match["id"]):
+            if path.name.startswith("nvr-"):
+                other.append(path)  # Manual copies, as before.
             continue
         grouped.setdefault(match["id"], []).append((stamp, path.name, path))
     ordered = [
@@ -493,6 +530,8 @@ def read_dashboard_data() -> dict:
     ]
     failed, run_started, manifest_errors = _read_fleet_run_state()
     report_errors += manifest_errors
+    scan = read_scan_status()
+    stale_cutoff, stale_slot = _stale_cutoff(datetime.now(timezone.utc), scan["scan_times"])
     for nvr in nvrs:
         nvr["last_run_failed"] = False
         nvr["last_run_failure_code"] = None
@@ -515,6 +554,9 @@ def read_dashboard_data() -> dict:
                                last_known_overall_status=None)
             nvrs.append(placeholder)
     nvrs.sort(key=lambda item: item["id"])
+    for nvr in nvrs:
+        nvr["stale"] = bool(nvr["last_run_failed"] or not nvr["last_check"]
+                            or not _is_fresh(nvr["last_check"], stale_cutoff))
 
     # Preserve last-known camera data in the device card, but never count it
     # as a fresh observation after a failed fleet run.
@@ -578,9 +620,11 @@ def read_dashboard_data() -> dict:
             and ch["historical_recording_result"]["status"] == "HISTORICAL_NOT_CHECKED"
             for ch in all_channels
         ),
-        "stale_reports": sum(
-            nvr["last_run_failed"] or not nvr["last_check"] or not _is_fresh(nvr["last_check"]) for nvr in nvrs
-        ),
+        "stale_reports": sum(nvr["stale"] for nvr in nvrs),
+        # Reports older than this are stale; stale_slot is the scheduled scan
+        # that should have replaced them (None: 26-hour rule, no schedule).
+        "stale_cutoff": stale_cutoff.isoformat(),
+        "stale_slot": stale_slot.isoformat() if stale_slot else None,
         "last_successful_report": _latest_check([
             nvr["last_check"] for nvr in current_nvrs
             if nvr["overall_status"] in {"HEALTHY", "WARNING", "CRITICAL"}
@@ -604,7 +648,7 @@ def read_dashboard_data() -> dict:
         "summary": summary,
         "nvrs": nvrs,
         "report_errors": report_errors,
-        "scan": read_scan_status(),
+        "scan": scan,
     }
 
 
@@ -774,8 +818,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if not separator:
             return False
 
-        username_ok = hmac.compare_digest(username, DASHBOARD_USERNAME)
-        password_ok = hmac.compare_digest(password, DASHBOARD_PASSWORD)
+        # Compare bytes: compare_digest() raises TypeError for str values with
+        # non-ASCII characters (e.g. typed with a Khmer keyboard layout), which
+        # dropped the connection instead of answering 401.
+        username_ok = hmac.compare_digest(username.encode("utf-8"),
+                                          DASHBOARD_USERNAME.encode("utf-8"))
+        password_ok = hmac.compare_digest(password.encode("utf-8"),
+                                          DASHBOARD_PASSWORD.encode("utf-8"))
         return username_ok and password_ok
 
     def do_GET(self) -> None:

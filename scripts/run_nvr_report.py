@@ -83,23 +83,49 @@ def now_local() -> datetime:
     return datetime.now(TIMEZONE)
 
 
+# Saved reports searched for each camera's newest cached calendar/history.
+PREVIOUS_REPORTS_SEARCHED = 24
+
+
+def _has_attempt(value: object) -> bool:
+    """A result from an actual (or deferred-but-timed) check, not a blank one.
+
+    A run where the NVR was unreachable or its track list failed saves no
+    camera rows, or rows with blank calendar/history results (no timestamps).
+    """
+    return isinstance(value, dict) and any(
+        isinstance(value.get(key), str) and value.get(key)
+        for key in ("checked_at", "last_attempted_at"))
+
+
 def read_previous_camera_field(report_dir: Path, nvr_id: str, field: str) -> dict:
-    """Reuse results from the newest saved report without touching old snapshots."""
+    """Each camera's newest timed result from recent saved reports.
+
+    Old snapshots are only read. Looking past the newest report means one
+    scan during a network drop no longer throws away every 30-day calendar
+    and history cache (which then had to be queried again from scratch).
+    """
     candidates = sorted(report_dir.glob(f"{nvr_id}_*.json"), reverse=True)
+    found: dict = {}
+    searched = 0
     for path in candidates:
+        if searched >= PREVIOUS_REPORTS_SEARCHED:
+            break
         try:
             with path.open("r", encoding="utf-8") as handle:
                 report = json.load(handle)
             if report.get("nvr", {}).get("id") != nvr_id:
                 continue
-            return {
-                str(ch.get("channel_id")): ch.get(field)
-                for ch in report.get("channel_inventory", {}).get("channels", [])
-                if isinstance(ch, dict)
-            }
+            searched += 1
+            for ch in report.get("channel_inventory", {}).get("channels", []):
+                if not isinstance(ch, dict):
+                    continue
+                key = str(ch.get("channel_id"))
+                if key not in found and _has_attempt(ch.get(field)):
+                    found[key] = ch.get(field)
         except (OSError, ValueError, AttributeError, TypeError):
             continue
-    return {}
+    return found
 
 
 def read_previous_history(report_dir: Path, nvr_id: str) -> dict:

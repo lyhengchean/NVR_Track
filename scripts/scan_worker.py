@@ -100,14 +100,44 @@ def next_slot(now: datetime, times: list[tuple[int, int]]) -> datetime | None:
     return min(future) if future else None
 
 
-def due_slot(now: datetime, times: list[tuple[int, int]], last_run: datetime | None) -> datetime | None:
-    """The slot to run now, if any. Slots older than CATCH_UP_MINUTES are skipped."""
+def due_slot(now: datetime, times: list[tuple[int, int]], last_run: datetime | None,
+             busy_since: datetime | None = None) -> datetime | None:
+    """The slot to run now, if any. Slots older than CATCH_UP_MINUTES are skipped.
+
+    ``busy_since`` is the start of the scan that just finished. A slot that
+    fell due while that scan was running was not missed by a restart, so it
+    runs now however late (otherwise a manual "Scan all" at 07:45 that ends
+    after 08:30 silently drops the 08:00 scan and its daily email).
+    """
     slot = latest_slot(now, times)
     if slot is None or (last_run is not None and slot <= last_run):
         return None
     if now.astimezone(TZ) - slot > timedelta(minutes=CATCH_UP_MINUTES):
-        return None
+        if busy_since is None or slot < busy_since:
+            return None
     return slot
+
+
+def email_due(slot: datetime, last_run: datetime | None, email_times: list[tuple[int, int]]) -> bool:
+    """True if an email time falls in (last_run, slot].
+
+    Normally that is just ``slot`` itself. When a later slot is run instead
+    of a passed-over email slot (a scan overran both), the email still goes
+    out once, late, rather than not at all that day.
+    """
+    local = slot.astimezone(TZ)
+    if last_run is None:
+        return (local.hour, local.minute) in email_times
+    previous = last_run.astimezone(TZ)
+    first_day = max(previous.date(), local.date() - timedelta(days=2))
+    day = first_day
+    while day <= local.date():
+        for h, m in email_times:
+            moment = datetime(day.year, day.month, day.day, h, m, tzinfo=TZ)
+            if previous < moment <= local:
+                return True
+        day += timedelta(days=1)
+    return False
 
 
 # ---------- files ----------
@@ -276,6 +306,7 @@ class Service:
         print("Scanner ready. Scan times: " + ", ".join(self.status["scan_times"])
               + "; email at: " + ", ".join(self.status["email_times"]), flush=True)
 
+        busy_since = None  # Start of the scan that just finished, if any.
         while True:
             now = datetime.now(timezone.utc)
             config = settings()
@@ -285,14 +316,15 @@ class Service:
                 print(f"Cannot load inventory: {exc}", flush=True)
                 time.sleep(30)
                 continue
-            slot = due_slot(now, config["scan_times"], last_slot)
+            slot = due_slot(now, config["scan_times"], last_slot, busy_since)
+            busy_since = None
             if slot is not None:
+                email = email_due(slot, last_slot, config["email_times"])
                 last_slot = slot
                 write_json(STATE_DIR / "schedule.json", {"last_slot": iso(slot)})
-                local = slot.astimezone(TZ)
                 job = {"id": uuid.uuid4().hex, "target": "all", "trigger": "schedule",
-                       "email": (local.hour, local.minute) in config["email_times"],
-                       "requested_at": iso(slot)}
+                       "email": email, "requested_at": iso(slot)}
+                busy_since = now
                 self.run(job, nvrs)
                 continue
             if config["on_demand"]:
@@ -301,6 +333,7 @@ class Service:
                     self.publish(rejected={"reason": rejected, "at": iso(now)})
                     print(f"Scan request rejected: {rejected}", flush=True)
                 if job:
+                    busy_since = now
                     self.run(job, nvrs)
                     continue
             else:
