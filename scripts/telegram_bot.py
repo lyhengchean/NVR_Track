@@ -35,6 +35,11 @@ OLD_MESSAGE_SECONDS = 15 * 60        # Commands sent while the bot was down are 
 UNKNOWN_REPLY_SECONDS = 10 * 60      # At most one "not authorized" reply per user.
 DIGEST_LATEST_HOURS = 3              # A missed digest is sent at most this late.
 PENDING_SCAN_HOURS = 3
+ACCESS_MODES = {"allowlist", "group", "open"}
+MEMBER_CACHE_SECONDS = 600           # Group membership is re-checked every 10 minutes.
+RATE_LIMIT = (20, 60)                # Non-admins: at most 20 commands per 60 s.
+DATA_CACHE_SECONDS = 15              # Reports are re-read at most this often.
+MAX_SUBSCRIBERS = 300                # /alerts on, per bot (open mode guard).
 
 COMMANDS = [
     ("status", "Fleet summary"),
@@ -82,9 +87,18 @@ def load_settings(env: dict | None = None) -> dict:
         check = 60
     admins = _ids(env.get("TELEGRAM_ADMIN_USER_IDS", ""))
     alert_chats = _ids(env.get("TELEGRAM_ALERT_CHAT_IDS", ""))
+    access = env.get("TELEGRAM_ACCESS", "allowlist").strip().lower()
+    if access not in ACCESS_MODES:
+        print(f"telegram: unknown TELEGRAM_ACCESS {access[:20]!r}; using allowlist", flush=True)
+        access = "allowlist"
     return {
         "token": token if TOKEN_PATTERN.match(token) else "",
         "token_set": bool(token),
+        # allowlist: listed IDs only. group: anyone in an allowed/alert group
+        # (checked with Telegram, no IDs to collect). open: anyone on Telegram.
+        # In every mode only TELEGRAM_ADMIN_USER_IDS can start scans.
+        "access": access,
+        "blocked": _ids(env.get("TELEGRAM_BLOCKED_USER_IDS", "")),
         "admins": admins,
         "users": _ids(env.get("TELEGRAM_ALLOWED_USER_IDS", "")) | admins,
         # Members of these groups may read status; alert groups count too.
@@ -98,11 +112,22 @@ def load_settings(env: dict | None = None) -> dict:
     }
 
 
-def role(settings: dict, user_id: int | None, chat_id: int | None) -> str | None:
-    """'admin', 'viewer' or None. Admin rights always follow the person."""
+def role(settings: dict, user_id: int | None, chat_id: int | None,
+         is_member=None) -> str | None:
+    """'admin', 'viewer' or None. Admin rights always follow the person.
+
+    ``is_member(user_id)`` answers whether the person belongs to one of the
+    allowed groups (TELEGRAM_ACCESS=group).
+    """
+    if user_id in settings["blocked"]:
+        return None
     if user_id in settings["admins"]:
         return "admin"
     if user_id in settings["users"] or chat_id in settings["chats"]:
+        return "viewer"
+    if settings["access"] == "open":
+        return "viewer"
+    if settings["access"] == "group" and is_member is not None and is_member(user_id):
         return "viewer"
     return None
 
@@ -216,6 +241,59 @@ class Bot:
         self.username = ""
         self.unknown_replies: dict[int, float] = {}
         self.state_dir = settings["state_dir"]
+        self.member_cache: dict[int, tuple[bool, float]] = {}
+        self.recent_commands: dict[int, list[float]] = {}
+        self.cached_data: tuple[float, dict] | None = None
+
+    # ----- access -----
+
+    def data(self) -> dict:
+        """Saved reports, re-read at most every DATA_CACHE_SECONDS."""
+        now = time.monotonic()
+        if self.cached_data is None or now - self.cached_data[0] > DATA_CACHE_SECONDS:
+            self.cached_data = (now, self.data_source())
+        return self.cached_data[1]
+
+    def fresh_data(self) -> dict:
+        """Reports read now (alerts must never compare against a cached copy)."""
+        self.cached_data = (time.monotonic(), self.data_source())
+        return self.cached_data[1]
+
+    def is_member(self, user_id: int) -> bool:
+        """Is this person in one of the allowed/alert groups? Asked from Telegram, cached."""
+        cached = self.member_cache.get(user_id)
+        if cached and cached[1] > time.monotonic():
+            return cached[0]
+        member = False
+        for chat_id in sorted(c for c in self.settings["chats"] if c < 0):
+            try:
+                info = self.api.call("getChatMember", chat_id=chat_id, user_id=user_id) or {}
+            except TelegramError:
+                continue
+            status = info.get("status")
+            if status in {"creator", "administrator", "member"} or (
+                    status == "restricted" and info.get("is_member") is True):
+                member = True
+                break
+        self.member_cache[user_id] = (member, time.monotonic() + (MEMBER_CACHE_SECONDS if member else 120))
+        return member
+
+    def who(self, user_id: int, chat_id: int) -> str | None:
+        return role(self.settings, user_id, chat_id, is_member=self.is_member)
+
+    def within_rate(self, user_id: int, who: str) -> bool:
+        """Non-admins: at most RATE_LIMIT[0] requests per RATE_LIMIT[1] seconds."""
+        if who == "admin":
+            return True
+        now = time.monotonic()
+        recent = [t for t in self.recent_commands.get(user_id, []) if now - t < RATE_LIMIT[1]]
+        recent.append(now)
+        self.recent_commands[user_id] = recent[-(RATE_LIMIT[0] + 1):]
+        return len(recent) <= RATE_LIMIT[0]
+
+    def show_ips(self, who: str) -> bool:
+        """IPs only when enabled, and never to viewers of an open or group bot."""
+        return self.settings["show_ips"] and (who == "admin" or self.settings["access"] == "allowlist")
 
     # ----- sending -----
 
@@ -276,15 +354,17 @@ class Bot:
             command = command.lower()
         elif not private:
             return  # Groups: only commands.
-        who = role(self.settings, user_id, chat_id)
+        who = self.who(user_id, chat_id)
         if who is None:
             self.refuse(chat_id, user_id, private, command)
             return
+        if not self.within_rate(user_id, who):
+            return  # Flooding: ignored quietly.
         print(f"telegram: user {user_id} ({who}) {('/' + command) if command else 'search'}", flush=True)
         if not command:
             self.reply_view(chat_id, None, "camera", text, who)
         elif command in {"start", "menu"}:
-            self.send(chat_id, views.fleet_status(self.data_source()), menu_keyboard(who == "admin"))
+            self.send(chat_id, views.fleet_status(self.data()), menu_keyboard(who == "admin"))
         elif command == "help":
             self.send(chat_id, HELP, menu_keyboard(who == "admin"))
         elif command == "myid":
@@ -293,7 +373,7 @@ class Bot:
             if who != "admin":
                 self.send(chat_id, "Only administrators can start scans.")
                 return
-            data = self.data_source()
+            data = self.data()
             rows = [[button("🔄 All NVRs", "scan:all")]]
             ids = [nvr["id"] for nvr in data.get("nvrs") or []]
             rows += [[button(i, f"scan:{i}") for i in ids[n:n + 3]] for n in range(0, len(ids), 3)]
@@ -316,10 +396,13 @@ class Bot:
         self.unknown_replies[user_id] = self.clock()
         print(f"telegram: refused user {user_id} in chat {chat_id}", flush=True)
         chat_note = "" if private else f"\nThis group's chat ID: <code>{chat_id}</code>"
+        if self.settings["access"] == "group":
+            how = "Ask to be added to the NVR Track staff group on Telegram, then send /start again."
+        else:
+            how = ("Ask the NVR Track administrator to add it to TELEGRAM_ALLOWED_USER_IDS"
+                   + ("" if private else " (or the group to TELEGRAM_ALLOWED_CHAT_IDS)") + ".")
         self.send(chat_id, "🔒 This bot is private.\n"
-                  f"Your Telegram user ID: <code>{user_id}</code>{chat_note}\n"
-                  "Ask the NVR Track administrator to add it to TELEGRAM_ALLOWED_USER_IDS"
-                  + ("" if private else " (or the group to TELEGRAM_ALLOWED_CHAT_IDS)") + ".")
+                  f"Your Telegram user ID: <code>{user_id}</code>{chat_note}\n" + how)
 
     def handle_callback(self, query: dict) -> None:
         user_id = (query.get("from") or {}).get("id")
@@ -332,13 +415,13 @@ class Bot:
             pass
         if not isinstance(chat_id, int) or not isinstance(user_id, int):
             return
-        who = role(self.settings, user_id, chat_id)
-        if who is None:
+        who = self.who(user_id, chat_id)
+        if who is None or not self.within_rate(user_id, who):
             return
         kind, _, value = data.partition(":")
         message_id = message.get("message_id")
         if kind == "cmd" and value == "menu":
-            self.show(chat_id, message_id, views.fleet_status(self.data_source()), menu_keyboard(who == "admin"))
+            self.show(chat_id, message_id, views.fleet_status(self.data()), menu_keyboard(who == "admin"))
         elif kind == "cmd":
             self.reply_view(chat_id, message_id, value, "", who)
         elif kind == "nvr":
@@ -372,8 +455,8 @@ class Bot:
         if view == "scanner":
             self.show(chat_id, message_id, views.scan_text(self.scan_status()), menu_keyboard(who == "admin"))
             return
-        data = self.data_source()
-        show_ips = self.settings["show_ips"]
+        data = self.data()
+        show_ips = self.show_ips(who)
         markup = None
         if view == "status":
             text, markup = views.fleet_status(data), menu_keyboard(who == "admin")
@@ -412,7 +495,7 @@ class Bot:
             self.send(chat_id, "Only administrators can start scans. Ask one to add your ID to TELEGRAM_ADMIN_USER_IDS.")
             return
         if target != "all":
-            nvr = views.find_nvr(self.data_source(), target)
+            nvr = views.find_nvr(self.data(), target)
             target = nvr["id"] if nvr else target
         code, body = self.scan_request(target)
         print(f"telegram: user {user_id} requested scan of {target[:64]}: HTTP-like {code}", flush=True)
@@ -457,6 +540,9 @@ class Bot:
 
     def set_alerts(self, chat_id: int, choice: str) -> None:
         subs = self.subscriptions()
+        if choice == "on" and chat_id not in subs["on"] and len(subs["on"]) >= MAX_SUBSCRIBERS:
+            self.send(chat_id, "Too many chats already receive alerts; ask an administrator.")
+            return
         if choice in {"on", "off"}:
             other = "off" if choice == "on" else "on"
             subs[choice].add(chat_id)
@@ -469,7 +555,7 @@ class Bot:
                   "plus one daily summary.")
 
     def check_alerts(self) -> None:
-        data = self.data_source()
+        data = self.fresh_data()
         current, unknown = views.alert_state(data, clock_drift_seconds=self.settings["drift"])
         path = self.state_dir / "alerts.json"
         saved = read_state(path, None)
@@ -503,7 +589,7 @@ class Bot:
         if read_state(path, {}).get("date") == now.date().isoformat():
             return
         write_state(path, {"date": now.date().isoformat()})
-        data = self.data_source()
+        data = self.fresh_data()
         for chat_id in self.recipients():
             self.send(chat_id, "☀️ <b>Daily summary</b> (if this stops arriving, the monitor itself is down)\n\n"
                       + views.fleet_status(data), menu_keyboard(False))
@@ -530,7 +616,13 @@ def main() -> int:
     if not settings["token"]:
         return idle("TELEGRAM_BOT_TOKEN is missing or not in the expected format."
                     if not settings["token_set"] else "TELEGRAM_BOT_TOKEN has an unexpected format.")
-    if not settings["users"] and not settings["chats"]:
+    if settings["access"] == "open":
+        print("telegram: TELEGRAM_ACCESS=open - anyone on Telegram can read status; "
+              "only TELEGRAM_ADMIN_USER_IDS can start scans", flush=True)
+    elif settings["access"] == "group" and not any(c < 0 for c in settings["chats"]):
+        print("telegram: TELEGRAM_ACCESS=group but no group ID in TELEGRAM_ALLOWED_CHAT_IDS "
+              "or TELEGRAM_ALERT_CHAT_IDS; nobody can join yet", flush=True)
+    elif not settings["users"] and not settings["chats"]:
         # Still run, so people can send /myid and learn the ID to configure.
         print("telegram: no user or chat IDs allowed yet; everyone only gets their own ID", flush=True)
     api = TelegramAPI(settings["token"])
@@ -544,7 +636,7 @@ def main() -> int:
         except TelegramError as exc:
             print(f"telegram: cannot reach Telegram yet ({exc}); retrying in 60 s", flush=True)
             time.sleep(60)
-    print(f"telegram: running as @{bot.username}; {len(settings['users'])} users, "
+    print(f"telegram: running as @{bot.username}; access {settings['access']}; {len(settings['users'])} users, "
           f"{len(settings['admins'])} admins, {len(settings['chats'])} group/alert chats", flush=True)
     offset_path = settings["state_dir"] / "offset.json"
     offset = read_state(offset_path, {}).get("offset")
