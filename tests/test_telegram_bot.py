@@ -291,6 +291,64 @@ class AlertTests(Fixture):
         self.assertIn("Daily summary", digests[0]["text"])
 
 
+class AccessModeTests(Fixture):
+    """No IDs to collect: TELEGRAM_ACCESS=open or group. Scans stay admin-only."""
+
+    def use(self, **env):
+        base = {"TELEGRAM_BOT_TOKEN": TOKEN, "TELEGRAM_ADMIN_USER_IDS": "111",
+                "TELEGRAM_SHOW_IPS": "true", "TELEGRAM_STATE_DIR": str(self.root / "tg")}
+        self.settings = tb.load_settings({**base, **env})
+        self.bot = tb.Bot(self.settings, self.api)
+
+    def setUp(self):
+        super().setUp()
+        self.report(channels=[channel(1), channel(2, "NO_RECENT_RECORDING_EVIDENCE")])
+
+    def test_open_mode_gives_everyone_viewer_rights_only(self):
+        self.use(TELEGRAM_ACCESS="open", TELEGRAM_BLOCKED_USER_IDS="666")
+        self.assertIn("not recording", self.message(4242, "/status")[0]["text"])
+        self.assertIn("Only administrators", self.message(4242, "/scan all")[0]["text"])
+        self.assertFalse((self.root / "scan" / "request.json").exists())
+        self.assertNotIn("192.0.2.2", self.message(4242, "/camera 2")[0]["text"])  # No IPs for viewers.
+        self.assertIn("192.0.2.2", self.message(111, "/camera 2")[0]["text"])      # Admin sees them.
+        self.assertIn("This bot is private", self.message(666, "/status")[0]["text"])  # Blocked.
+
+    def test_group_mode_checks_membership_with_telegram_and_caches_it(self):
+        self.use(TELEGRAM_ACCESS="group", TELEGRAM_ALLOWED_CHAT_IDS="-100777")
+        members = {5001: "member", 5002: "left", 5003: "kicked"}
+        asked = []
+        test = self
+
+        class API:
+            def call(self, method, http_timeout=15, **params):
+                test.calls.append((method, params))
+                if method == "getChatMember":
+                    asked.append(params["user_id"])
+                    return {"status": members[params["user_id"]]}
+                return {"message_id": 7}
+        self.bot.api = API()
+        self.assertIn("not recording", self.message(5001, "/status")[0]["text"])
+        self.message(5001, "/problems")
+        self.assertEqual(asked, [5001])                                   # Cached.
+        refused = self.message(5002, "/status")[0]["text"]
+        self.assertIn("staff group", refused)
+        self.assertIn("This bot is private", self.message(5003, "/status")[0]["text"])  # Removed member.
+        self.assertEqual(self.message(5003, "/status"), [])               # Throttled refusal.
+        self.assertIn("Only administrators", self.message(5001, "/scan all")[0]["text"])
+
+    def test_allowlist_is_still_the_default(self):
+        self.use()
+        self.assertEqual(self.settings["access"], "allowlist")
+        self.assertIn("This bot is private", self.message(4242, "/status")[0]["text"])
+        self.assertEqual(tb.load_settings({"TELEGRAM_ACCESS": "everyone"})["access"], "allowlist")
+
+    def test_flooding_is_rate_limited_for_viewers_not_admins(self):
+        self.use(TELEGRAM_ACCESS="open")
+        replies = sum(len(self.message(4242, "/status")) for _ in range(30))
+        self.assertEqual(replies, tb.RATE_LIMIT[0])
+        self.assertEqual(sum(len(self.message(111, "/status")) for _ in range(30)), 30)
+
+
 class TokenSafetyTests(unittest.TestCase):
     def test_network_errors_never_contain_the_token(self):
         import requests

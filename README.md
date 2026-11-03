@@ -484,37 +484,59 @@ the dashboard, and asks for scans through `nvr-scanner` like the dashboard's
 Scan button. Camera and NVR IP addresses are left out of messages unless
 `TELEGRAM_SHOW_IPS=true`.
 
-**Who can use it.** Anyone can find a bot by name, so it answers only the IDs
-in `.env`. Everyone else gets "This bot is private" with their own ID (once
-per 10 minutes) and nothing else; unknown groups are ignored.
+**Who can use it** is set by `TELEGRAM_ACCESS`. In every mode only
+`TELEGRAM_ADMIN_USER_IDS` can start scans; everyone else gets the normal
+read-only user features (status, problems, NVRs, cameras, offline, storage,
+firmware, scanner, alerts on/off).
+
+| `TELEGRAM_ACCESS` | Who gets user rights | IDs to collect |
+|---|---|---|
+| `allowlist` (default) | Only `TELEGRAM_ALLOWED_USER_IDS` and members of listed groups, inside those groups | One per person |
+| `group` | Anyone who is a member of a group in `TELEGRAM_ALLOWED_CHAT_IDS` or `TELEGRAM_ALERT_CHAT_IDS`, also in a private chat with the bot. Checked with Telegram and re-checked every 10 minutes, so leaving the group removes access | None (only the group's ID) |
+| `open` | Anyone on Telegram who finds the bot | None |
+
+`open` also lets strangers who find the bot see which cameras are offline or
+not recording; `group` gives the same "no IDs" convenience while you decide
+who joins. In `open` and `group` mode IP addresses are shown to admins only
+(and only with `TELEGRAM_SHOW_IPS=true`), non-admins are limited to 20
+requests a minute, and `TELEGRAM_BLOCKED_USER_IDS` shuts out anyone. Refused
+people get "This bot is private" with their own ID (once per 10 minutes);
+unknown groups are ignored.
 
 | Setting | Meaning |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | Token from @BotFather. Secret: keep it only in `.env` |
+| `TELEGRAM_ACCESS` | `allowlist`, `group` or `open` (above) |
 | `TELEGRAM_ADMIN_USER_IDS` | People who may also start scans |
-| `TELEGRAM_ALLOWED_USER_IDS` | People who may read status, problems, cameras, storage |
-| `TELEGRAM_ALLOWED_CHAT_IDS` | Groups whose members may read status |
-| `TELEGRAM_ALERT_CHAT_IDS` | People or groups that get alerts and the daily summary (members may read status) |
+| `TELEGRAM_ALLOWED_USER_IDS` | Extra people with user rights (any mode) |
+| `TELEGRAM_ALLOWED_CHAT_IDS` | Groups whose members have user rights |
+| `TELEGRAM_ALERT_CHAT_IDS` | People or groups that get alerts and the daily summary (members have user rights) |
+| `TELEGRAM_BLOCKED_USER_IDS` | People refused in every mode |
 | `TELEGRAM_DIGEST_TIME` | Daily summary time, default `08:30`; empty turns it off |
 | `TELEGRAM_SHOW_IPS` | `true` to include IP addresses; default `false` |
 | `NVR_CLOCK_DRIFT_WARN_SECONDS` | Alert when an NVR clock is off by more than this (default 120) |
 | `TELEGRAM_HTTPS_PROXY` | Only if the server reaches the internet through a proxy |
 
-**Set up (once).**
+**Set up (once).** Only your own ID is needed.
 1. In Telegram, open **@BotFather**, send `/newbot`, choose a name and a
-   username ending in `bot`, and copy the token.
+   username ending in `bot`, and copy the token. Optional: `/setdescription`,
+   `/setuserpic`; `/setjoingroups` → Disable after step 4 if nobody should add
+   the bot to other groups.
 2. On the server: `cd /opt/NVR_Track && nano .env`, add
    `TELEGRAM_BOT_TOKEN=<token>` (`.env` keeps its 600 permissions).
 3. `docker compose build nvr-telegram && docker compose up -d nvr-telegram`;
    `docker compose logs --tail 20 nvr-telegram` shows `running as @yourbot`.
-4. Send `/myid` to the bot: with no IDs configured it only tells people their
-   own ID. Put yours in `TELEGRAM_ADMIN_USER_IDS=`, then
-   `docker compose up -d --force-recreate nvr-telegram` and send `/start`.
-5. For team alerts: create a Telegram group, add the bot, send `/myid@yourbot`
-   in the group, put the group ID (negative number) in
-   `TELEGRAM_ALERT_CHAT_IDS`, add colleagues' IDs to
-   `TELEGRAM_ALLOWED_USER_IDS`, then
-   `docker compose up -d --force-recreate nvr-telegram`.
+4. Send `/myid` to the bot and put your number in `TELEGRAM_ADMIN_USER_IDS=`.
+5. Choose who else may use it:
+   - **Everyone, no IDs** — `TELEGRAM_ACCESS=open`. Share `https://t.me/yourbot`.
+   - **Staff, no IDs** — create a Telegram group (e.g. "NVR Track"), add the
+     bot and make it a group administrator (no extra permissions needed; this
+     lets it check membership), send `/myid@yourbot` there, then set
+     `TELEGRAM_ACCESS=group` and `TELEGRAM_ALERT_CHAT_IDS=<group id>` (the
+     negative number). From then on, adding a person to the group gives them
+     access and the group receives the alerts.
+6. `docker compose up -d --force-recreate nvr-telegram`, then each person
+   opens `https://t.me/yourbot` and taps **Start**.
 
 **Commands** (also as a `/` menu and buttons): `/status`, `/problems`,
 `/nvrs`, `/nvr nvr-01` (or `/nvr 1`, or its name), `/camera gate` (name,
