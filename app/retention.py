@@ -173,8 +173,14 @@ def previous_attempt_at(previous: object) -> str | None:
 
 
 def cached_result(previous: object, track_id: int, now: datetime,
-                  days: int, ttl_hours: int) -> dict | None:
+                  days: int, ttl_hours: int, today: date | None = None) -> dict | None:
+    """Reuse a recent calendar. With ``today`` (the NVR's local date), a
+    calendar is reused only if it was taken today, so the first scan after
+    midnight refreshes it and every strip ends yesterday."""
     if not isinstance(previous, dict) or previous.get("track_id") != track_id:
+        return None
+    if (today is not None and previous.get("status") in {VERIFIED, PARTIAL}
+            and previous.get("as_of_date") != today.isoformat()):
         return None
     if previous.get("status") not in {VERIFIED, PARTIAL, UNSUPPORTED}:
         return None

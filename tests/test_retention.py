@@ -163,6 +163,11 @@ class CalendarScanningTests(TestCase):
         self.assertTrue(cached_result(old, 101, now, 30, 168)['from_cache'])
         self.assertIsNone(cached_result(old, 201, now, 30, 168))
         self.assertIsNone(cached_result(old, 101, now+timedelta(days=10), 30, 168))
+        # A calendar from an earlier day is never reused; one from today is.
+        self.assertTrue(cached_result(old, 101, now, 30, 168, today=date(2026, 10, 28))['from_cache'])
+        self.assertIsNone(cached_result(old, 101, now, 30, 168, today=date(2026, 10, 29)))
+        unsupported = dict(old, status=UNSUPPORTED)
+        self.assertTrue(cached_result(unsupported, 101, now, 30, 168, today=date(2026, 10, 29))['from_cache'])
         stale = deferred_result(old, 101, 'budget exhausted')
         self.assertEqual(stale['status'], STALE)
         self.assertEqual(stale['days_with_footage'], 10)
@@ -221,6 +226,15 @@ class RetentionIntegrationTests(TestCase):
                           retention_enabled=True,retention_max_cameras=2,
                           previous_retention=cached, retention_scan=retention_scan)
         self.assertEqual(called, [301])
+        # Next day: every calendar from yesterday is scanned again.
+        clock.return_value = (NOW + timedelta(days=1)).astimezone(timezone.utc), TZ
+        cached = {str(c['channel_id']): c['retention_result'] for c in channels2}
+        called.clear()
+        check_all_cameras(ip='192.0.2.10',port=80,username='x',password='y',
+                          channels=[{'channel_id':str(i),'reported_status':'ONLINE'} for i in (1,2,3)],
+                          enabled=True,search=recent, retention_enabled=True,retention_max_cameras=3,
+                          previous_retention=cached, retention_scan=retention_scan)
+        self.assertEqual(called, [101, 201, 301])
 
     def test_dashboard_sanitizes_dates_and_unknown_values(self):
         out = _public_retention({'status':VERIFIED, 'days_with_footage':3,
