@@ -494,8 +494,10 @@ def check_all_cameras(*, ip: str, port: int, username: str, password: str,
             retention = empty_retention(RET_UNVERIFIED, "Verified track and device clock required.", track_id)
         else:
             old = previous_retention.get(str(ch.get("channel_id")))
+            device_today = (clock[0] + timedelta(seconds=time.monotonic() - clock_read_at)
+                            ).astimezone(clock[1]).date()
             retention = retention_cache(old, track_id, datetime.now(timezone.utc),
-                                        retention_days, retention_ttl_hours)
+                                        retention_days, retention_ttl_hours, today=device_today)
             if retention is None:
                 pending_retention.append((ch, track_id, old))
                 continue
