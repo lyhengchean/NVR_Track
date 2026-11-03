@@ -159,13 +159,16 @@ class CalendarScanningTests(TestCase):
         now = datetime.now(timezone.utc)
         old = {'track_id':101, 'status':VERIFIED, 'checked_at':now.isoformat(),
                'last_attempted_at':now.isoformat(), 'as_of_date':'2026-10-28',
-               'window_days':30, 'days_with_footage':10, 'calendar':[]}
+               'window_days':30, 'days_with_footage':10, 'calendar':[],
+               'today':{'date':'2026-10-28','has_recording':True}}
         self.assertTrue(cached_result(old, 101, now, 30, 168)['from_cache'])
         self.assertIsNone(cached_result(old, 201, now, 30, 168))
         self.assertIsNone(cached_result(old, 101, now+timedelta(days=10), 30, 168))
         # A calendar from an earlier day is never reused; one from today is.
         self.assertTrue(cached_result(old, 101, now, 30, 168, today=date(2026, 10, 28))['from_cache'])
         self.assertIsNone(cached_result(old, 101, now, 30, 168, today=date(2026, 10, 29)))
+        before_today_field = {k: v for k, v in old.items() if k != 'today'}
+        self.assertIsNone(cached_result(before_today_field, 101, now, 30, 168, today=date(2026, 10, 28)))
         unsupported = dict(old, status=UNSUPPORTED)
         self.assertTrue(cached_result(unsupported, 101, now, 30, 168, today=date(2026, 10, 29))['from_cache'])
         stale = deferred_result(old, 101, 'budget exhausted')
@@ -208,7 +211,8 @@ class RetentionIntegrationTests(TestCase):
                     'checked_at':datetime.now(timezone.utc).isoformat(),
                     'as_of_date':'2026-10-28', 'window_days':30,
                     'last_attempted_at':datetime.now(timezone.utc).isoformat(),
-                    'calendar':[], 'days_with_footage':25}
+                    'calendar':[], 'days_with_footage':25,
+                    'today':{'date':'2026-10-28','has_recording':True}}
         summary = check_all_cameras(ip='192.0.2.10',port=80,username='x',password='y',
                                     channels=channels,enabled=True,search=recent,
                                     retention_enabled=True,retention_max_cameras=2,
@@ -246,3 +250,49 @@ class RetentionIntegrationTests(TestCase):
         self.assertEqual(out['days_with_footage'], 3)
         self.assertEqual(len(out['calendar']), 2)
         self.assertIsNone(out['calendar'][1]['has_recording'])
+
+
+class TodaySquareTests(TestCase):
+    """Today so far is shown separately; the 30 complete days are unchanged."""
+
+    def scan(self, now, months):
+        calls = []
+        def query(**kw):
+            calls.append((kw['year'], kw['month']))
+            reply = months.get((kw['year'], kw['month']))
+            return reply if reply is not None else {'status': ERROR, 'message': 'down'}
+        result = scan_calendar(ip='192.0.2.10', port=80, username='x', password='y', track_id=101,
+                               clock_snapshot=(now.astimezone(timezone.utc), TZ), days=30, query=query)
+        return result, calls
+
+    def test_today_comes_from_the_month_already_queried(self):
+        november = {d: True for d in range(1, 31)}
+        november[3] = False
+        months = {(2026, 10): {'status': VERIFIED, 'days': {d: True for d in range(1, 32)}},
+                  (2026, 11): {'status': VERIFIED, 'days': november}}
+        result, calls = self.scan(datetime(2026, 11, 3, 8, 16, tzinfo=TZ), months)
+        self.assertEqual(calls, [(2026, 10), (2026, 11)])
+        self.assertEqual(result['today'], {'date': '2026-11-03', 'has_recording': False})
+        self.assertEqual(result['calendar'][-1]['date'], '2026-11-02')
+        self.assertEqual(len(result['calendar']), 30)
+        self.assertEqual(result['days_with_footage'], 30)   # today never counts
+
+    def test_first_of_month_asks_for_the_new_month_once(self):
+        months = {(2026, 10): {'status': VERIFIED, 'days': {d: True for d in range(1, 32)}},
+                  (2026, 11): {'status': VERIFIED, 'days': {1: True}}}
+        result, calls = self.scan(datetime(2026, 11, 1, 6, 0, tzinfo=TZ), months)
+        self.assertEqual(calls, [(2026, 10), (2026, 11)])
+        self.assertEqual(result['today'], {'date': '2026-11-01', 'has_recording': True})
+
+    def test_failed_today_query_keeps_the_calendar(self):
+        months = {(2026, 10): {'status': VERIFIED, 'days': {d: True for d in range(1, 32)}}}
+        result, _ = self.scan(datetime(2026, 11, 1, 6, 0, tzinfo=TZ), months)
+        self.assertEqual(result['status'], VERIFIED)
+        self.assertEqual(result['today'], {'date': '2026-11-01', 'has_recording': None})
+
+    def test_dashboard_passes_only_a_valid_today(self):
+        self.assertEqual(_public_retention({'status': VERIFIED, 'today': {'date': '2026-11-03', 'has_recording': True}})['today'],
+                         {'date': '2026-11-03', 'has_recording': True})
+        self.assertIsNone(_public_retention({'status': VERIFIED, 'today': {'date': 'x'}})['today'])
+        self.assertIsNone(_public_retention({'status': VERIFIED})['today'])
+
