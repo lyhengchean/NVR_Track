@@ -196,8 +196,15 @@ def _public_retention(value: object) -> dict:
                 present = item.get("has_recording")
                 rows.append({"date": date_text,
                              "has_recording": present if type(present) is bool else None})
+    today = _as_dict(raw.get("today"))
+    today_row = None
+    if day(today.get("date")):
+        present = today.get("has_recording")
+        today_row = {"date": day(today.get("date")),
+                     "has_recording": present if type(present) is bool else None}
     return {
         "status": status, "message": str(raw.get("message") or "Calendar not yet collected.")[:250],
+        "today": today_row,
         "checked_at": str(raw.get("checked_at") or "")[:40],
         "as_of_date": day(raw.get("as_of_date")),
         "window_days": number(raw.get("window_days")),

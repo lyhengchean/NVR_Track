@@ -642,7 +642,10 @@ results remain visible as **Previous scan**, never as current verified data.
 The dashboard never queries devices directly.
 
 The default report examines the last **30 completed device-local calendar days**;
-the current partial day is excluded. Supported range: 1–90 days. Each camera
+the current partial day is excluded from them. Today is shown separately as an
+extra outlined square at the end of the strip ("footage recorded today so far",
+from the day's first calendar check); it never counts toward the 30 days or a
+camera's condition. Supported range: 1–90 days. Each camera
 requires at most four month queries for a 90-day range. These checks do not
 increase the budget of the separate historical search. Results stored per
 camera in the JSON report: `retention_result`, including `status`, `as_of_date`,

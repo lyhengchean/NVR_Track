@@ -35,6 +35,8 @@ def empty_result(status: str, message: str, track_id: int | None = None) -> dict
         "oldest_verified_date": None, "oldest_verified_age_days": None,
         "days_with_footage": None, "days_examined": None,
         "calendar": [], "from_cache": False, "last_attempted_at": None,
+        # Today so far (not part of the window, counts or conditions).
+        "today": None,
     }
 
 
@@ -138,6 +140,20 @@ def scan_calendar(*, ip: str, port: int, username: str, password: str,
             return dict(result, status=response.get("status", INCONCLUSIVE),
                         message=str(response.get("message") or "Calendar query failed.")[:160])
         outcomes[(year, month)] = response["days"]
+    # Today so far. Its month is normally already queried; on the 1st of a
+    # month one extra query is made, and its failure never fails the calendar.
+    today = local_now.date()
+    today_key = (today.year, today.month)
+    if today_key not in outcomes and (deadline is None or time.monotonic() < deadline):
+        try:
+            response = query(ip=ip, port=port, username=username, password=password,
+                             track_id=track_id, year=today.year, month=today.month)
+            if response.get("status") == VERIFIED:
+                outcomes[today_key] = response["days"]
+        except Exception:
+            pass
+    result["today"] = {"date": today.isoformat(),
+                       "has_recording": outcomes.get(today_key, {}).get(today.day)}
     calendar_days = [{"date": day.isoformat(), "has_recording":
                       outcomes[(day.year, day.month)].get(day.day)} for day in dates]
     found = [date.fromisoformat(row["date"]) for row in calendar_days
@@ -180,8 +196,9 @@ def cached_result(previous: object, track_id: int, now: datetime,
     if not isinstance(previous, dict) or previous.get("track_id") != track_id:
         return None
     if (today is not None and previous.get("status") in {VERIFIED, PARTIAL}
-            and previous.get("as_of_date") != today.isoformat()):
-        return None
+            and (previous.get("as_of_date") != today.isoformat()
+                 or not isinstance(previous.get("today"), dict))):
+        return None  # From an earlier day, or saved before "today" existed.
     if previous.get("status") not in {VERIFIED, PARTIAL, UNSUPPORTED}:
         return None
     timestamp = previous_attempt_at(previous)

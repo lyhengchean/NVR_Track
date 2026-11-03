@@ -232,6 +232,7 @@ tbody tr:hover td{background:color-mix(in srgb,var(--accent) 5%,var(--panel))}
 .cal i{display:block;height:14px;border-radius:1px;background:var(--line)}
 .cal i.y{background:var(--ok)}.cal i.n{background:var(--gaps);height:6px}
 .cal i.hover{outline:2px solid var(--ink);outline-offset:1px;position:relative;z-index:1}
+.cal i.today{margin-left:3px;box-shadow:0 0 0 1px var(--panel),0 0 0 2px var(--accent)}
 .empty{padding:28px;text-align:center;color:var(--muted)}
 .bar{display:inline-block;width:90px;height:7px;border-radius:4px;background:var(--line-2);vertical-align:middle;margin-left:8px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--accent)}
@@ -850,6 +851,17 @@ function recordedDays(t) {
       square.dataset.pos = (i + 1) + " of " + t.calendar.length;
       strip.append(square);
     });
+    // Today so far: shown after a small gap, never counted in the 30 days.
+    const todayIso = dayFmt.format(new Date());
+    if (t.today && t.today.date === todayIso) {
+      const kind = t.today.has_recording === true ? "y" : t.today.has_recording === false ? "n" : "";
+      const square = el("i", (kind ? kind + " " : "") + "today");
+      square.dataset.date = t.today.date;
+      square.dataset.state = kind || "u";
+      square.dataset.pos = "today";
+      strip.dataset.checked = t.checked_at || "";
+      strip.append(square);
+    }
     wrap.append(strip);
     // The strip ends the day before its scan. Say so when that is not yesterday.
     const last = t.calendar[t.calendar.length - 1]?.date;
@@ -1316,6 +1328,7 @@ function placeTip(r) {
 const shortDay = new Intl.DateTimeFormat("en-GB", {timeZone: "UTC", day: "2-digit", month: "short"});
 const longDay = new Intl.DateTimeFormat("en-GB", {timeZone: "UTC", weekday: "short", day: "2-digit", month: "short", year: "numeric"});
 const DAY_STATE = {y: "Footage recorded this day", n: "No footage this day", u: "Not reported by the NVR (unknown)"};
+const TODAY_STATE = {y: "Footage recorded today so far", n: "No footage yet today", u: "Today not reported by the NVR yet"};
 let hoveredDay = null;
 function clearDay() {
   hoveredDay?.classList.remove("hover");
@@ -1336,12 +1349,22 @@ function showDay(e) {
   hoveredDay = best;
   best.classList.add("hover");
   const date = new Date(best.dataset.date + "T00:00:00Z");
-  tip.replaceChildren(
-    el("b", "", Number.isNaN(date.valueOf()) ? best.dataset.date : longDay.format(date)),
-    DAY_STATE[best.dataset.state] || DAY_STATE.u, el("br"),
-    "Day " + best.dataset.pos + (strip.dataset.asOf ? ", calendar as of " + strip.dataset.asOf : "") +
-      (strip.dataset.stale ? " (previous scan)" : "")
-  );
+  const title = Number.isNaN(date.valueOf()) ? best.dataset.date : longDay.format(date);
+  if (best.dataset.pos === "today") {
+    const checked = parse(strip.dataset.checked);
+    tip.replaceChildren(
+      el("b", "", title + " (today)"),
+      TODAY_STATE[best.dataset.state] || TODAY_STATE.u, el("br"),
+      "So far, from the calendar check at " + (checked ? timeFmt.format(checked).slice(0, 5) : "the last scan") + ". Not counted in the 30 days."
+    );
+  } else {
+    tip.replaceChildren(
+      el("b", "", title),
+      DAY_STATE[best.dataset.state] || DAY_STATE.u, el("br"),
+      "Day " + best.dataset.pos + (strip.dataset.asOf ? ", calendar as of " + strip.dataset.asOf : "") +
+        (strip.dataset.stale ? " (previous scan)" : "")
+    );
+  }
   placeTip(best.getBoundingClientRect());
 }
 document.addEventListener("pointermove", showDay);
