@@ -5,6 +5,7 @@ Nothing here contacts an NVR.
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 EVIDENCE = {"RECORDING", "RECORDING_EVIDENCE_WITH_ANOMALY"}
@@ -18,15 +19,26 @@ CONDITIONS = {
     "NOT_RECORDING": ("Stopped recording", "critical", 1),
     "CHECK_FAILED": ("Check failed", "warning", 2),
     "GAPS": ("Gaps", "warning", 3),
-    "OFFLINE_RECORDING": ("Offline, still recording", "warning", 4),
-    "SHORT_HISTORY": ("Short history", "info", 5),
+    # Keeps fewer days of footage than NVR_REQUIRED_RETENTION_DAYS.
+    "BELOW_RETENTION": ("Below required days", "warning", 4),
+    "OFFLINE_RECORDING": ("Offline, still recording", "warning", 5),
+    "SHORT_HISTORY": ("Short history", "info", 6),
     # Online camera marked "event" in recording_expectations: a quiet window
     # is expected, so it is not "Stopped recording" (README, reporting.py).
-    "NO_RECENT_EVENTS": ("No recent events", "info", 6),
+    "NO_RECENT_EVENTS": ("No recent events", "info", 7),
     # Checks are switched off for this NVR: unknown, never counted as OK.
-    "NOT_MONITORED": ("Not monitored", "info", 7),
-    "OK": ("OK", "ok", 8),
+    "NOT_MONITORED": ("Not monitored", "info", 8),
+    "OK": ("OK", "ok", 9),
 }
+
+
+def required_retention_days() -> int:
+    """NVR_REQUIRED_RETENTION_DAYS (1-90); 0 or invalid turns the rule off."""
+    try:
+        days = int(os.environ.get("NVR_REQUIRED_RETENTION_DAYS", "0"))
+    except ValueError:
+        return 0
+    return days if 1 <= days <= 90 else 0
 
 
 def window_text(recording: dict) -> str:
@@ -100,9 +112,15 @@ def classify(channel: dict) -> dict:
             code = "GAPS"
             detail = f"{cal['missing_days']} of the last {cal['history_days']} days have no video."
         elif cal["known"] and cal["history_days"] < cal["window"]:
-            code = "SHORT_HISTORY"
-            detail = (f"Footage kept for only {cal['history_days']} of {cal['window']} days "
-                      "(overwritten, or camera added recently).")
+            required = required_retention_days()
+            if required and cal["history_days"] < required:
+                code = "BELOW_RETENTION"
+                detail = (f"Footage kept for only {cal['history_days']} days; {required} days "
+                          "are required (disk too small, or camera added recently).")
+            else:
+                code = "SHORT_HISTORY"
+                detail = (f"Footage kept for only {cal['history_days']} of {cal['window']} days "
+                          "(overwritten, or camera added recently).")
         else:
             code, detail = "OK", "Recording now."
     elif status == "NOT_CONFIGURED":

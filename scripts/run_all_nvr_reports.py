@@ -130,14 +130,14 @@ def save_fleet_run_status(started_at: str, rows: list[dict]) -> None:
 def camera_conditions(report: dict) -> dict:
     """Condition counts and the cameras that need action, from one saved report."""
     channels = report.get("channel_inventory", {}).get("channels", [])
-    counts = {"no_footage_30": 0, "stopped_recording": 0, "gaps": 0}
+    counts = {"no_footage_30": 0, "stopped_recording": 0, "gaps": 0, "below_retention": 0}
     attention = []
     for channel in channels if isinstance(channels, list) else []:
         if not isinstance(channel, dict):
             continue
         condition = classify(channel)
         key = {"NO_FOOTAGE_30": "no_footage_30", "NOT_RECORDING": "stopped_recording",
-               "GAPS": "gaps"}.get(condition["code"])
+               "GAPS": "gaps", "BELOW_RETENTION": "below_retention"}.get(condition["code"])
         if key:
             counts[key] += 1
             attention.append({"condition": condition["label"],
@@ -200,6 +200,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     no_footage_30 = sum(int(row.get("no_footage_30", 0) or 0) for row in summary)
     stopped_recording = sum(int(row.get("stopped_recording", 0) or 0) for row in summary)
     gaps = sum(int(row.get("gaps", 0) or 0) for row in summary)
+    below_retention = sum(int(row.get("below_retention", 0) or 0) for row in summary)
 
     failures = counts["ERROR"]
     successful = len(summary) - failures
@@ -291,7 +292,8 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         <td>No footage 30+ days</td><td>{no_footage_30}</td></tr>
     <tr><td>Cameras with gaps</td><td>{gaps}</td>
         <td>Online but not recording</td><td>{online_missing_expected}</td></tr>
-    <tr><td>Recording search errors</td><td>{recording_errors}</td></tr>
+    <tr><td>Recording search errors</td><td>{recording_errors}</td>
+        <td>Below required days</td><td>{below_retention}</td></tr>
   </table>
   <h3>Per-NVR results</h3>
   <table border="1" cellpadding="7" cellspacing="0"
@@ -317,7 +319,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         f"Recording evidence: {evidence}; no recent evidence: {missing_evidence}; "
         f"online missing expected: {online_missing_expected}; search errors: {recording_errors}",
         f"Stopped recording: {stopped_recording}; no footage 30+ days: {no_footage_30}; "
-        f"cameras with gaps: {gaps}",
+        f"cameras with gaps: {gaps}; below required days: {below_retention}",
         "",
     ]
 

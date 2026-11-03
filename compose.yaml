@@ -47,6 +47,7 @@ services:
       DASHBOARD_USERNAME: "${DASHBOARD_USERNAME:?Set DASHBOARD_USERNAME in .env}"
       DASHBOARD_PASSWORD: "${DASHBOARD_PASSWORD:?Set DASHBOARD_PASSWORD in .env}"
       SCAN_STATE_DIR: /app/state/scan
+      NVR_REQUIRED_RETENTION_DAYS: "${NVR_REQUIRED_RETENTION_DAYS:-0}"
 
     ports:
       - "${DASHBOARD_BIND_IP:-127.0.0.1}:8080:8080"
@@ -78,5 +79,40 @@ services:
       - ./config/nvrs.local.json:/app/config/nvrs.local.json:ro
       - ./reports:/app/reports
       - ./state/scan:/app/state/scan
+
+    restart: unless-stopped
+
+  # Telegram bot: status commands, alerts and scan requests from any phone.
+  # Connects out to api.telegram.org only (no port, no firewall change).
+  # Gets only TELEGRAM_* and display settings, never NVR or SMTP credentials,
+  # and reads saved reports like the dashboard; scans go through nvr-scanner.
+  nvr-telegram:
+    build:
+      context: .
+    image: nvr-track:local
+    entrypoint: ["python", "-m", "scripts.telegram_bot"]
+
+    environment:
+      TZ: Asia/Phnom_Penh
+      PYTHONUNBUFFERED: "1"
+      REPORTS_DIR: /app/reports
+      SCAN_STATE_DIR: /app/state/scan
+      TELEGRAM_STATE_DIR: /app/state/telegram
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      TELEGRAM_ADMIN_USER_IDS: "${TELEGRAM_ADMIN_USER_IDS:-}"
+      TELEGRAM_ALLOWED_USER_IDS: "${TELEGRAM_ALLOWED_USER_IDS:-}"
+      TELEGRAM_ALLOWED_CHAT_IDS: "${TELEGRAM_ALLOWED_CHAT_IDS:-}"
+      TELEGRAM_ALERT_CHAT_IDS: "${TELEGRAM_ALERT_CHAT_IDS:-}"
+      TELEGRAM_DIGEST_TIME: "${TELEGRAM_DIGEST_TIME:-08:30}"
+      TELEGRAM_SHOW_IPS: "${TELEGRAM_SHOW_IPS:-false}"
+      NVR_CLOCK_DRIFT_WARN_SECONDS: "${NVR_CLOCK_DRIFT_WARN_SECONDS:-120}"
+      NVR_REQUIRED_RETENTION_DAYS: "${NVR_REQUIRED_RETENTION_DAYS:-0}"
+      # Only if the server reaches the internet through a proxy:
+      HTTPS_PROXY: "${TELEGRAM_HTTPS_PROXY:-}"
+
+    volumes:
+      - ./reports:/app/reports:ro
+      - ./state/scan:/app/state/scan
+      - ./state/telegram:/app/state/telegram
 
     restart: unless-stopped

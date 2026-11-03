@@ -320,6 +320,7 @@ Each camera gets one **Condition**, built from results already in the report
 | No recent events | An **online** camera marked `event` in `recording_expectations` had no segment in the search window. Normal for a quiet area, so it is not counted as stopped. An offline event camera, or one with no footage on any of the 30 calendar days, still shows as a problem. |
 | Check failed | The recording check could not be completed (network, track or permission). Never counted as recording. |
 | Gaps (N days) | Recording now, but N days since its oldest footage have no video. |
+| Below required days (N days) | Recording now, but footage reaches back only N days, fewer than `NVR_REQUIRED_RETENTION_DAYS`. |
 | Offline, still recording | NVR reports the camera offline, yet it recorded in the search window. |
 | Short history (N days) | Recording now, but the NVR holds only N days (overwritten early, or camera added recently). |
 | Not monitored | The NVR is not in `NVR_PER_CAMERA_RECORDING_IDS`, so no check ran. Never counted as recording or as a failure. |
@@ -470,6 +471,98 @@ is attempted only when the expected `SMTP_*` keys are present. A failed SMTP
 connection reports an exception **type**, not the server's potentially
 sensitive text. `deploy_check.sh` shows the last scheduled email result. No
 emails are sent by the unit tests.
+
+## Telegram bot
+
+The `nvr-telegram` service lets allowed people check the system and receive
+alerts in Telegram, on any phone or network. It connects **out** to
+`api.telegram.org` (long polling), so no port, firewall rule or tunnel is
+needed; the server only needs outbound HTTPS. It gets no NVR or SMTP
+credentials (Compose passes it only `TELEGRAM_*` settings), never contacts an
+NVR, reads the saved reports read-only through the same whitelisted view as
+the dashboard, and asks for scans through `nvr-scanner` like the dashboard's
+Scan button. Camera and NVR IP addresses are left out of messages unless
+`TELEGRAM_SHOW_IPS=true`.
+
+**Who can use it.** Anyone can find a bot by name, so it answers only the IDs
+in `.env`. Everyone else gets "This bot is private" with their own ID (once
+per 10 minutes) and nothing else; unknown groups are ignored.
+
+| Setting | Meaning |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | Token from @BotFather. Secret: keep it only in `.env` |
+| `TELEGRAM_ADMIN_USER_IDS` | People who may also start scans |
+| `TELEGRAM_ALLOWED_USER_IDS` | People who may read status, problems, cameras, storage |
+| `TELEGRAM_ALLOWED_CHAT_IDS` | Groups whose members may read status |
+| `TELEGRAM_ALERT_CHAT_IDS` | People or groups that get alerts and the daily summary (members may read status) |
+| `TELEGRAM_DIGEST_TIME` | Daily summary time, default `08:30`; empty turns it off |
+| `TELEGRAM_SHOW_IPS` | `true` to include IP addresses; default `false` |
+| `NVR_CLOCK_DRIFT_WARN_SECONDS` | Alert when an NVR clock is off by more than this (default 120) |
+| `TELEGRAM_HTTPS_PROXY` | Only if the server reaches the internet through a proxy |
+
+**Set up (once).**
+1. In Telegram, open **@BotFather**, send `/newbot`, choose a name and a
+   username ending in `bot`, and copy the token.
+2. On the server: `cd /opt/NVR_Track && nano .env`, add
+   `TELEGRAM_BOT_TOKEN=<token>` (`.env` keeps its 600 permissions).
+3. `docker compose build nvr-telegram && docker compose up -d nvr-telegram`;
+   `docker compose logs --tail 20 nvr-telegram` shows `running as @yourbot`.
+4. Send `/myid` to the bot: with no IDs configured it only tells people their
+   own ID. Put yours in `TELEGRAM_ADMIN_USER_IDS=`, then
+   `docker compose up -d --force-recreate nvr-telegram` and send `/start`.
+5. For team alerts: create a Telegram group, add the bot, send `/myid@yourbot`
+   in the group, put the group ID (negative number) in
+   `TELEGRAM_ALERT_CHAT_IDS`, add colleagues' IDs to
+   `TELEGRAM_ALLOWED_USER_IDS`, then
+   `docker compose up -d --force-recreate nvr-telegram`.
+
+**Commands** (also as a `/` menu and buttons): `/status`, `/problems`,
+`/nvrs`, `/nvr nvr-01` (or `/nvr 1`, or its name), `/camera gate` (name,
+`ch5`, camera IP, or `nvr-01 5`; in a private chat just type the name),
+`/offline`, `/storage`, `/firmware`, `/scanner`, `/scan` (admins: buttons for
+all or one NVR, confirmed before it starts; the bot reports back when the
+scan ends), `/alerts on|off` (alerts in this chat), `/myid`, `/help`.
+
+**Alerts** are sent only when something **changes**, once per change, with a
+matching "✅ resolved" message later: a camera stops recording or has no
+footage for 30 days, a camera goes offline, an NVR cannot be scanned or turns
+critical, storage becomes warning/critical, an NVR clock drifts, cameras fall
+below the required days of footage, camera checks fail, reports go out of
+date, or the scanner stops. A failed scan or failed check never produces a
+false "recording again". On first start the bot posts one hello with the
+current status instead of a flood of old problems. If Telegram cannot be
+reached, the alert is retried. The daily summary doubles as a heartbeat: if it
+stops arriving, the monitor itself is down.
+
+## Required days of footage
+
+`NVR_REQUIRED_RETENTION_DAYS=14` (for example) marks a recording camera whose
+30-day calendar shows fewer days of footage as **Below required days**
+(warning) on the dashboard, in the email and in Telegram, instead of the
+informational *Short history*. It needs the recording calendar
+(`NVR_RETENTION_ENABLED`) and a value no larger than
+`NVR_RETENTION_WINDOW_DAYS`. `0` turns it off. After changing it:
+`docker compose up -d --force-recreate nvr-dashboard nvr-scanner nvr-telegram`.
+
+## Archiving old reports
+
+About 100 reports are saved per day and none were ever removed. To move old
+ones into compressed monthly archives in `reports/archive/`:
+
+```bash
+cd /opt/NVR_Track
+# Dry run: lists what would be archived, changes nothing
+docker compose run --rm -T --entrypoint python nvr-report -m scripts.archive_reports --older-than-days 60
+# Archive them
+docker compose run --rm -T --entrypoint python nvr-report -m scripts.archive_reports --older-than-days 60 --apply
+```
+
+Each archive is re-read and checked before the originals are removed. The
+newest 200 reports of every NVR (at least 30) are always kept, so calendar and
+history caches and the dashboard are unaffected. To run it automatically once a
+day after a scheduled scan, set `NVR_REPORT_ARCHIVE_DAYS=60` and recreate
+`nvr-scanner`. To look inside an archive:
+`tar -tzf reports/archive/reports-2026-08-<run>.tar.gz | head`.
 
 ## Troubleshooting
 
