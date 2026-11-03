@@ -283,6 +283,28 @@ class Service:
         print(f"{finished.astimezone(TZ):%Y-%m-%d %H:%M} {job['trigger']} scan of {label} finished: "
               + ", ".join(f"{k}={v}" for k, v in outcome.items()), flush=True)
 
+    def maybe_archive(self) -> None:
+        """Once a day, after a scheduled scan, if NVR_REPORT_ARCHIVE_DAYS is set."""
+        try:
+            days = int(os.environ.get("NVR_REPORT_ARCHIVE_DAYS", "0") or 0)
+        except ValueError:
+            days = 0
+        if not 7 <= days <= 3650:
+            return
+        today = datetime.now(TZ).date().isoformat()
+        marker = STATE_DIR / "archive.json"
+        if (read_json(marker) or {}).get("date") == today:
+            return
+        write_json(marker, {"date": today})
+        try:
+            result = subprocess.run([sys.executable, "-m", "scripts.archive_reports", "--apply",
+                                     "--older-than-days", str(days)],
+                                    cwd=ROOT, capture_output=True, text=True, timeout=1800, check=False)
+            summary = (result.stdout.strip().splitlines() or ["no output"])[0]
+            print(f"Report archive: exit {result.returncode}; {summary}", flush=True)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f"Report archive failed: {type(exc).__name__}", flush=True)
+
     def loop(self) -> None:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         previous = read_json(STATE_DIR / "status.json") or {}
@@ -326,6 +348,7 @@ class Service:
                        "email": email, "requested_at": iso(slot)}
                 busy_since = now
                 self.run(job, nvrs)
+                self.maybe_archive()
                 continue
             if config["on_demand"]:
                 job, rejected = take_request({n.id for n in nvrs}, now)

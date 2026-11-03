@@ -5,7 +5,7 @@
 #
 # Read-only towards the NVRs. Never prints .env values or credentials.
 # Sends no email (runs one report per NVR instead of the fleet runner).
-# Recreates only the nvr-dashboard and nvr-scanner containers; nothing else.
+# Recreates only the nvr-dashboard, nvr-scanner and (if configured) nvr-telegram containers.
 set -u
 
 APP_DIR=${APP_DIR:-/opt/NVR_Track}
@@ -71,7 +71,7 @@ else
 fi
 
 section "4. Build and restart dashboard and scanner"
-if docker compose build -q nvr-report nvr-report-all nvr-dashboard nvr-scanner; then
+if docker compose build -q nvr-report nvr-report-all nvr-dashboard nvr-scanner nvr-telegram; then
     pass "Runtime images built"
 else
     fail "Runtime image build failed"; exit 1
@@ -81,11 +81,31 @@ if docker compose up -d --force-recreate nvr-dashboard nvr-scanner >/dev/null 2>
 else
     fail "Dashboard or scanner container did not start"
 fi
+SERVICES="nvr-dashboard nvr-scanner"
+# The Telegram bot runs only once a token is set (the value is never printed).
+if grep -qE '^TELEGRAM_BOT_TOKEN=.+' .env 2>/dev/null; then
+    if docker compose up -d --force-recreate nvr-telegram >/dev/null 2>&1; then
+        pass "Telegram bot container recreated"
+    else
+        fail "Telegram bot container did not start"
+    fi
+    SERVICES="$SERVICES nvr-telegram"
+else
+    echo "  Telegram bot not configured (no TELEGRAM_BOT_TOKEN in .env); skipped"
+fi
 sleep 5
-for svc in nvr-dashboard nvr-scanner; do
+for svc in $SERVICES; do
     STATE=$(docker inspect -f '{{.State.Status}}' "$(docker compose ps -q $svc)" 2>/dev/null)
     [ "$STATE" = "running" ] && pass "$svc is running" || fail "$svc state: ${STATE:-missing}"
 done
+if [ "${SERVICES#*nvr-telegram}" != "$SERVICES" ]; then
+    sleep 10
+    if docker compose logs --tail 20 nvr-telegram 2>/dev/null | grep -q "telegram: running as"; then
+        pass "Telegram bot connected: $(docker compose logs --tail 20 nvr-telegram 2>/dev/null | sed -n 's/.*telegram: running as \(@[^;]*\).*/\1/p' | tail -1)"
+    else
+        warn "Telegram bot not connected yet; check: docker compose logs --tail 20 nvr-telegram"
+    fi
+fi
 ADDR=$(docker compose port nvr-dashboard 8080 2>/dev/null | head -1)
 if [ -n "$ADDR" ]; then
     CODE=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "http://$ADDR/")

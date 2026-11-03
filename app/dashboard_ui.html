@@ -10,7 +10,7 @@
 :root{
   --bg:#eef2f6;--panel:#fff;--panel-2:#f6f8fb;--ink:#0e1a2b;--ink-2:#2c3b50;--muted:#5d6d82;--line:#d9e1ea;--line-2:#e8edf3;
   --accent:#3b82f6;--accent-ink:#1d4ed8;--accent-soft:#e3edff;--focus:#93c5fd;
-  --ok:#1f9d55;--short:#7cc49a;--offrec:#0ea5e9;--gaps:#e5a000;--failed:#8b5cf6;--stopped:#e5484d;--nofootage:#8f1d22;--unmon:#b4c0ce;--quiet:#7b9cc4;
+  --ok:#1f9d55;--short:#7cc49a;--offrec:#0ea5e9;--gaps:#e5a000;--failed:#8b5cf6;--stopped:#e5484d;--nofootage:#8f1d22;--unmon:#b4c0ce;--quiet:#7b9cc4;--belowret:#c2410c;
   --ok-soft:#e3f6eb;--warn-soft:#fff4d6;--crit-soft:#fde7e8;--info-soft:#e4f4fc;--violet-soft:#efe9ff;--gray-soft:#edf1f5;
   --ok-text:#116b38;--warn-text:#8a5a00;--crit-text:#a3191f;--info-text:#075f86;--violet-text:#5b30c4;--gray-text:#4c5b6e;
   --shadow:0 1px 2px rgba(14,26,43,.06),0 8px 24px -12px rgba(14,26,43,.18);
@@ -21,7 +21,7 @@
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0a111d;--panel:#101a2a;--panel-2:#0d1624;--ink:#e6edf6;--ink-2:#c3cfdd;--muted:#8fa0b6;--line:#22314a;--line-2:#1a2639;
   --accent:#3b82f6;--accent-ink:#8ab4ff;--accent-soft:#16284a;--focus:#3b82f6;
-  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;--quiet:#4f6f96;
+  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;--quiet:#4f6f96;--belowret:#f08a4b;
   --ok-soft:#0f2d1e;--warn-soft:#33270a;--crit-soft:#3a1418;--info-soft:#0b2a3a;--violet-soft:#241a45;--gray-soft:#1a2537;
   --ok-text:#7ee2a6;--warn-text:#f6cf6b;--crit-text:#ff9da1;--info-text:#8fdcff;--violet-text:#c9b8ff;--gray-text:#a9b6c7;
   --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);color-scheme:dark;
@@ -29,7 +29,7 @@
 :root[data-theme="dark"]{
   --bg:#0a111d;--panel:#101a2a;--panel-2:#0d1624;--ink:#e6edf6;--ink-2:#c3cfdd;--muted:#8fa0b6;--line:#22314a;--line-2:#1a2639;
   --accent:#3b82f6;--accent-ink:#8ab4ff;--accent-soft:#16284a;--focus:#3b82f6;
-  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;--quiet:#4f6f96;
+  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;--quiet:#4f6f96;--belowret:#f08a4b;
   --ok-soft:#0f2d1e;--warn-soft:#33270a;--crit-soft:#3a1418;--info-soft:#0b2a3a;--violet-soft:#241a45;--gray-soft:#1a2537;
   --ok-text:#7ee2a6;--warn-text:#f6cf6b;--crit-text:#ff9da1;--info-text:#8fdcff;--violet-text:#c9b8ff;--gray-text:#a9b6c7;
   --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);color-scheme:dark;
@@ -112,7 +112,7 @@ button{cursor:pointer}
 
 /* Condition palette, used by bar, legend, wall cells and badges */
 .k-OK{--k:var(--ok)}.k-SHORT_HISTORY{--k:var(--short)}.k-OFFLINE_RECORDING{--k:var(--offrec)}.k-GAPS{--k:var(--gaps)}
-.k-CHECK_FAILED{--k:var(--failed)}.k-NOT_RECORDING{--k:var(--stopped)}.k-NO_FOOTAGE_30{--k:var(--nofootage)}.k-NOT_MONITORED{--k:var(--unmon)}.k-NO_RECENT_EVENTS{--k:var(--quiet)}.k-NONE{--k:transparent}
+.k-CHECK_FAILED{--k:var(--failed)}.k-NOT_RECORDING{--k:var(--stopped)}.k-NO_FOOTAGE_30{--k:var(--nofootage)}.k-NOT_MONITORED{--k:var(--unmon)}.k-NO_RECENT_EVENTS{--k:var(--quiet)}.k-BELOW_RETENTION{--k:var(--belowret)}.k-NONE{--k:transparent}
 .swatch,.condbar span{background:var(--k)}
 
 /* Facts */
@@ -359,7 +359,7 @@ footer{margin:30px 0 40px;font-size:12.5px;color:var(--muted);max-width:110ch}
         <option value="">All live statuses</option><option value="ONLINE">Online</option><option value="OFFLINE">Offline</option><option value="UNKNOWN">Unknown</option><option value="NOT_RETURNED">Not returned</option>
       </select>
       <select id="condition-filter" class="control" aria-label="Camera condition">
-        <option value="">All conditions</option><option value="NO_FOOTAGE_30">No footage 30+ days</option><option value="NOT_RECORDING">Stopped recording</option><option value="CHECK_FAILED">Check failed</option><option value="GAPS">Gaps</option><option value="OFFLINE_RECORDING">Offline, still recording</option><option value="SHORT_HISTORY">Short history</option><option value="NO_RECENT_EVENTS">No recent events</option><option value="NOT_MONITORED">Not monitored</option><option value="OK">OK</option>
+        <option value="">All conditions</option><option value="NO_FOOTAGE_30">No footage 30+ days</option><option value="NOT_RECORDING">Stopped recording</option><option value="CHECK_FAILED">Check failed</option><option value="GAPS">Gaps</option><option value="BELOW_RETENTION">Below required days</option><option value="OFFLINE_RECORDING">Offline, still recording</option><option value="SHORT_HISTORY">Short history</option><option value="NO_RECENT_EVENTS">No recent events</option><option value="NOT_MONITORED">Not monitored</option><option value="OK">OK</option>
       </select>
       <select id="recording-filter" class="control" aria-label="Recording check result">
         <option value="">All recording results</option><option value="EVIDENCE">Recorded in window</option><option value="NO_RECENT_RECORDING_EVIDENCE">No recent evidence</option><option value="OFFLINE_EVIDENCE">Offline, footage found</option><option value="FAILED">Failed or unverified</option><option value="NOT_CHECKED">Not checked or not enabled</option>
@@ -398,11 +398,12 @@ const TZ = "Asia/Phnom_Penh";
 const EVIDENCE = new Set(["RECORDING", "RECORDING_EVIDENCE_WITH_ANOMALY"]);
 const FAILED_CHECKS = new Set(["TRACK_NOT_FOUND", "TRACK_MAPPING_UNVERIFIED", "CHECK_INCONCLUSIVE", "CHECK_ERROR"]);
 const NOT_RUN = new Set(["NOT_CHECKED", "NOT_CONFIGURED"]);
-const PROBLEMS = new Set(["NO_FOOTAGE_30", "NOT_RECORDING", "CHECK_FAILED", "GAPS", "OFFLINE_RECORDING"]);
+const PROBLEMS = new Set(["NO_FOOTAGE_30", "NOT_RECORDING", "CHECK_FAILED", "GAPS", "BELOW_RETENTION", "OFFLINE_RECORDING"]);
 // Display order: urgent first, so a thin red slice is never hidden at the end.
 const CONDITIONS = [
   ["NO_FOOTAGE_30", "No footage 30+ days"], ["NOT_RECORDING", "Stopped recording"],
-  ["CHECK_FAILED", "Check failed"], ["GAPS", "Gaps"], ["OFFLINE_RECORDING", "Offline, still recording"],
+  ["CHECK_FAILED", "Check failed"], ["GAPS", "Gaps"], ["BELOW_RETENTION", "Below required days"],
+  ["OFFLINE_RECORDING", "Offline, still recording"],
   ["SHORT_HISTORY", "Short history"], ["NO_RECENT_EVENTS", "No recent events"],
   ["NOT_MONITORED", "Not monitored"], ["OK", "OK"]
 ];
@@ -883,7 +884,7 @@ function recordedDays(t) {
 }
 function conditionCell(c) {
   const node = el("span", "cond");
-  node.append(el("span", "swatch k-" + c.code), c.label + (c.code === "GAPS" ? " (" + c.missing_days + " days)" : c.code === "SHORT_HISTORY" ? " (" + c.history_days + " days)" : ""));
+  node.append(el("span", "swatch k-" + c.code), c.label + (c.code === "GAPS" ? " (" + c.missing_days + " days)" : c.code === "SHORT_HISTORY" || c.code === "BELOW_RETENTION" ? " (" + c.history_days + " days)" : ""));
   node.title = c.detail || "";
   return node;
 }
