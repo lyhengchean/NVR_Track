@@ -17,7 +17,8 @@ from html import escape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from app.camera_condition import classify
+from app import notes as notes_store
+from app.camera_condition import classify, known_condition
 from app.config import InventoryError, load_inventory
 
 
@@ -127,24 +128,50 @@ def save_fleet_run_status(started_at: str, rows: list[dict]) -> None:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
 
-def camera_conditions(report: dict) -> dict:
-    """Condition counts and the cameras that need action, from one saved report."""
+def camera_conditions(report: dict, notes: dict | None = None) -> dict:
+    """Condition counts, cameras that need action and add-on findings, from one saved report.
+
+    Cameras with an active known issue (app.notes) are listed separately and
+    not counted as needing action.
+    """
     channels = report.get("channel_inventory", {}).get("channels", [])
-    counts = {"no_footage_30": 0, "stopped_recording": 0, "gaps": 0, "below_retention": 0}
-    attention = []
+    counts = {"no_footage_30": 0, "stopped_recording": 0, "gaps": 0, "below_retention": 0,
+              "bad_picture": 0, "known_issues": 0}
+    attention, known = [], []
+    rows = []
     for channel in channels if isinstance(channels, list) else []:
-        if not isinstance(channel, dict):
+        if isinstance(channel, dict):
+            rows.append({**channel, "condition": classify(channel)})
+    nvr_id = str((report.get("nvr") or {}).get("id") or "")
+    if notes is not None and nvr_id:
+        notes_store.overlay(nvr_id, rows, notes, known_condition())
+    for channel in rows:
+        condition = channel["condition"]
+        entry = {"condition": condition["label"], "channel": str(channel.get("channel_id", "")),
+                 "camera": str(channel.get("name") or "")[:80], "detail": condition["detail"]}
+        if condition["code"] == "KNOWN_ISSUE":
+            counts["known_issues"] += 1
+            known.append(entry)
             continue
-        condition = classify(channel)
         key = {"NO_FOOTAGE_30": "no_footage_30", "NOT_RECORDING": "stopped_recording",
-               "GAPS": "gaps", "BELOW_RETENTION": "below_retention"}.get(condition["code"])
+               "GAPS": "gaps", "BELOW_RETENTION": "below_retention",
+               "BAD_PICTURE": "bad_picture"}.get(condition["code"])
         if key:
             counts[key] += 1
-            attention.append({"condition": condition["label"],
-                              "channel": str(channel.get("channel_id", "")),
-                              "camera": str(channel.get("name") or "")[:80],
-                              "detail": condition["detail"]})
-    return {**counts, "attention": attention}
+            attention.append(entry)
+    findings = []
+    smart = (report.get("storage") or {}).get("smart") or {}
+    if smart.get("status") in {"WARNING", "CRITICAL"}:
+        findings.append(f"Disk SMART {smart['status'].lower()}: {smart.get('message', '')}")
+    if (report.get("restart") or {}).get("detected"):
+        findings.append(f"NVR restarted (boot time {report['restart'].get('boot_time')}).")
+    for change in ((report.get("inventory_changes") or {}).get("changes") or [])[:20]:
+        kind = {"added": "Camera added", "removed": "Camera removed", "renamed": "Camera renamed",
+                "ip_changed": "Camera IP changed"}.get(change.get("type"), "Camera changed")
+        names = " → ".join(str(v) for v in (change.get("old"), change.get("new"))
+                           if v and change.get("type") != "ip_changed")
+        findings.append(f"{kind}: ch{change.get('channel_id')}" + (f" {names}" if names else ""))
+    return {**counts, "attention": attention, "known": known, "findings": findings}
 
 
 def send_email_report(summary: list[dict]) -> tuple[bool, str]:
@@ -201,6 +228,8 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     stopped_recording = sum(int(row.get("stopped_recording", 0) or 0) for row in summary)
     gaps = sum(int(row.get("gaps", 0) or 0) for row in summary)
     below_retention = sum(int(row.get("below_retention", 0) or 0) for row in summary)
+    bad_picture = sum(int(row.get("bad_picture", 0) or 0) for row in summary)
+    known_issues = sum(int(row.get("known_issues", 0) or 0) for row in summary)
 
     failures = counts["ERROR"]
     successful = len(summary) - failures
@@ -260,6 +289,26 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
                     camera["condition"], label, camera["channel"], camera["camera"], camera["detail"])) + "</tr>")
             attention_text.append(f"{camera['condition']}: {label} ch{camera['channel']} "
                                   f"{camera['camera']} - {camera['detail']}")
+    known_rows, findings_rows, known_text, findings_text = [], [], [], []
+    for item in summary:
+        label = " - ".join(str(v) for v in (item.get("id"), item.get("name")) if v)
+        for camera in item.get("known", [])[:100]:
+            known_rows.append("<tr>" + "".join(f"<td>{escape(str(v))}</td>" for v in (
+                label, camera["channel"], camera["camera"], camera["detail"])) + "</tr>")
+            known_text.append(f"{label} ch{camera['channel']} {camera['camera']} - {camera['detail']}")
+        for finding in item.get("findings", [])[:30]:
+            findings_rows.append(f"<li>{escape(label)}: {escape(finding)}</li>")
+            findings_text.append(f"{label}: {finding}")
+    extra_html = ""
+    if findings_rows:
+        extra_html += "<h3>NVR findings</h3><ul>" + "".join(findings_rows) + "</ul>"
+    if known_rows:
+        extra_html += ("<h3>Known issues (alerts paused)</h3>"
+                       '<table border="1" cellpadding="6" cellspacing="0" '
+                       'style="border-collapse:collapse;border-color:#cbd5e1;font-size:13px">'
+                       "<tr><th>NVR</th><th>Ch.</th><th>Camera</th><th>Note</th></tr>"
+                       + "".join(known_rows) + "</table>")
+
     attention_html = (
         "<h3>Cameras that need action</h3>"
         '<table border="1" cellpadding="6" cellspacing="0" '
@@ -294,6 +343,8 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         <td>Online but not recording</td><td>{online_missing_expected}</td></tr>
     <tr><td>Recording search errors</td><td>{recording_errors}</td>
         <td>Below required days</td><td>{below_retention}</td></tr>
+    <tr><td>Picture problems</td><td>{bad_picture}</td>
+        <td>Known issues (paused)</td><td>{known_issues}</td></tr>
   </table>
   <h3>Per-NVR results</h3>
   <table border="1" cellpadding="7" cellspacing="0"
@@ -302,6 +353,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     {''.join(rows)}
   </table>
   {attention_html}
+  {extra_html}
   <p style="color:#64748b;font-size:12px">
     Generated by NVR Tracking. See the local dashboard for detailed
     findings and individual JSON reports.
@@ -319,7 +371,8 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         f"Recording evidence: {evidence}; no recent evidence: {missing_evidence}; "
         f"online missing expected: {online_missing_expected}; search errors: {recording_errors}",
         f"Stopped recording: {stopped_recording}; no footage 30+ days: {no_footage_30}; "
-        f"cameras with gaps: {gaps}; below required days: {below_retention}",
+        f"cameras with gaps: {gaps}; below required days: {below_retention}; "
+        f"picture problems: {bad_picture}; known issues (paused): {known_issues}",
         "",
     ]
 
@@ -335,6 +388,10 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         )
     if attention_text:
         plain_lines += ["", "Cameras that need action:", *attention_text]
+    if findings_text:
+        plain_lines += ["", "NVR findings:", *findings_text]
+    if known_text:
+        plain_lines += ["", "Known issues (alerts paused):", *known_text]
 
     message = EmailMessage()
     message["Subject"] = subject
@@ -492,7 +549,7 @@ def main(argv: list[str] | None = None) -> int:
             "recording_missing": report.get("per_camera_recording", {}).get("no_recent_evidence", 0),
             "recording_errors": report.get("per_camera_recording", {}).get("search_errors", 0),
             "online_missing_expected": report.get("per_camera_recording", {}).get("online_missing_expected", 0),
-            **camera_conditions(report),
+            **camera_conditions(report, notes_store.load()),
         })
 
     # Always publish an attempt record, even if one NVR saved no JSON report.

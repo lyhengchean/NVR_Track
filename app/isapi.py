@@ -550,3 +550,55 @@ def get_channel_statuses(
         channels,
         f"Retrieved status for {len(channels)} channels.",
     )
+
+# ---------- Read-only device status (uptime) ----------
+
+@dataclass(frozen=True)
+class DeviceStatusResult:
+    status: str
+    uptime_seconds: int | None = None
+    cpu_percent: float | None = None
+    memory_used_mb: float | None = None
+    memory_available_mb: float | None = None
+    message: str = ""
+
+
+def _number_or_none(text: str | None) -> float | None:
+    try:
+        value = float(text) if text is not None else None
+    except ValueError:
+        return None
+    return value if value is not None and 0 <= value < 10**12 else None
+
+
+def parse_device_status(content: bytes) -> DeviceStatusResult:
+    """deviceUpTime (seconds), CPU and memory from a DeviceStatus document."""
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError as exc:
+        raise ValueError("Device status was not valid XML.") from exc
+    if _local_xml_name(root.tag) != "devicestatus":
+        raise ValueError("Unexpected device status XML root.")
+    uptime = _number_or_none(_first_xml_text(root, "deviceUpTime"))
+    return DeviceStatusResult(
+        status="DEVICE_STATUS_RETRIEVED" if uptime is not None else "UPTIME_NOT_REPORTED",
+        uptime_seconds=int(uptime) if uptime is not None else None,
+        cpu_percent=_number_or_none(_first_xml_text(root, "cpuUtilization")),
+        memory_used_mb=_number_or_none(_first_xml_text(root, "memoryUsage")),
+        memory_available_mb=_number_or_none(_first_xml_text(root, "memoryAvailable")),
+        message="Device status retrieved." if uptime is not None else "The NVR did not report its uptime.",
+    )
+
+
+def get_device_status(ip: str, username: str, password: str, port: int = 80) -> DeviceStatusResult:
+    """GET /ISAPI/System/status (read-only). Failures are reported, never raised."""
+    status, _code, body, message = _fetch_channel_xml(
+        ip=ip, username=username, password=password, port=port,
+        path="/ISAPI/System/status", expected_root="DeviceStatus",
+    )
+    if status != "XML_OK" or body is None:
+        return DeviceStatusResult(status, message=message)
+    try:
+        return parse_device_status(body)
+    except ValueError:
+        return DeviceStatusResult("UNEXPECTED_RESPONSE", message="Device status could not be parsed.")

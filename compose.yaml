@@ -14,6 +14,8 @@ services:
     volumes:
       - ./config/nvrs.local.json:/app/config/nvrs.local.json:ro
       - ./reports:/app/reports
+      - ./state/notes:/app/state/notes:ro
+      - ./state/snapshots:/app/state/snapshots
 
     stdin_open: true
     tty: true
@@ -33,6 +35,8 @@ services:
     volumes:
       - ./config/nvrs.local.json:/app/config/nvrs.local.json:ro
       - ./reports:/app/reports
+      - ./state/notes:/app/state/notes:ro
+      - ./state/snapshots:/app/state/snapshots
   nvr-dashboard:
     build:
       context: .
@@ -48,6 +52,9 @@ services:
       DASHBOARD_PASSWORD: "${DASHBOARD_PASSWORD:?Set DASHBOARD_PASSWORD in .env}"
       SCAN_STATE_DIR: /app/state/scan
       NVR_REQUIRED_RETENTION_DAYS: "${NVR_REQUIRED_RETENTION_DAYS:-0}"
+      NOTES_DIR: /app/state/notes
+      EVENTS_DIR: /app/state/events
+      SNAPSHOT_DIR: /app/state/snapshots
 
     ports:
       - "${DASHBOARD_BIND_IP:-127.0.0.1}:8080:8080"
@@ -56,6 +63,10 @@ services:
       - ./reports:/app/reports:ro
       # Scan requests only; this container never gets NVR credentials.
       - ./state/scan:/app/state/scan
+      # Known issues and repair notes (written here and by the Telegram bot).
+      - ./state/notes:/app/state/notes
+      - ./state/events:/app/state/events:ro
+      - ./state/snapshots:/app/state/snapshots:ro
 
     restart: unless-stopped
 
@@ -79,6 +90,8 @@ services:
       - ./config/nvrs.local.json:/app/config/nvrs.local.json:ro
       - ./reports:/app/reports
       - ./state/scan:/app/state/scan
+      - ./state/notes:/app/state/notes:ro
+      - ./state/snapshots:/app/state/snapshots
 
     restart: unless-stopped
 
@@ -98,6 +111,11 @@ services:
       REPORTS_DIR: /app/reports
       SCAN_STATE_DIR: /app/state/scan
       TELEGRAM_STATE_DIR: /app/state/telegram
+      NOTES_DIR: /app/state/notes
+      EVENTS_DIR: /app/state/events
+      SNAPSHOT_DIR: /app/state/snapshots
+      TELEGRAM_NOTES_BY: "${TELEGRAM_NOTES_BY:-admins}"
+      TELEGRAM_SNAPSHOTS: "${TELEGRAM_SNAPSHOTS:-admins}"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
       TELEGRAM_ACCESS: "${TELEGRAM_ACCESS:-allowlist}"
       TELEGRAM_BLOCKED_USER_IDS: "${TELEGRAM_BLOCKED_USER_IDS:-}"
@@ -116,5 +134,31 @@ services:
       - ./reports:/app/reports:ro
       - ./state/scan:/app/state/scan
       - ./state/telegram:/app/state/telegram
+      - ./state/notes:/app/state/notes
+      - ./state/events:/app/state/events:ro
+      - ./state/snapshots:/app/state/snapshots:ro
+
+    restart: unless-stopped
+
+  # Real-time NVR events (video loss, tampering, disk/network faults, illegal
+  # logins). One read-only alertStream GET per NVR in NVR_EVENT_NVR_IDS;
+  # writes state/events only. Idle when NVR_EVENT_NVR_IDS is empty.
+  nvr-events:
+    build:
+      context: .
+    image: nvr-track:local
+    entrypoint: ["python", "-m", "scripts.event_listener"]
+
+    env_file:
+      - .env
+
+    environment:
+      TZ: Asia/Phnom_Penh
+      PYTHONUNBUFFERED: "1"
+      EVENTS_DIR: /app/state/events
+
+    volumes:
+      - ./config/nvrs.local.json:/app/config/nvrs.local.json:ro
+      - ./state/events:/app/state/events
 
     restart: unless-stopped

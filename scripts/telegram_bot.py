@@ -24,7 +24,11 @@ from pathlib import Path
 import requests
 from requests.exceptions import RequestException
 
+from app import dashboard as dashboard_data
+from app import events as event_store
+from app import notes as notes_store
 from app import telegram_views as views
+from app import uptime as uptime_calc
 from app.dashboard import read_dashboard_data, read_scan_status, request_scan
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -52,6 +56,13 @@ COMMANDS = [
     ("firmware", "NVR models and firmware"),
     ("scan", "Scan now: /scan all or /scan nvr-01 (admins)"),
     ("scanner", "Scanner status and schedule"),
+    ("known", "Known issues; admins: /known nvr-01 5 7d reason"),
+    ("fixed", "Resume alerts: /fixed nvr-01 5 (admins)"),
+    ("note", "Repair note: /note nvr-01 5 text"),
+    ("notes", "Repair log: /notes nvr-01 [5]"),
+    ("events", "Real-time NVR events, last 24 h"),
+    ("uptime", "Uptime: /uptime [days|YYYY-MM]"),
+    ("snapshot", "Latest picture: /snapshot nvr-01 5 (admins)"),
     ("alerts", "Alerts in this chat: /alerts on|off"),
     ("myid", "Show your Telegram ID"),
     ("help", "Commands"),
@@ -108,6 +119,10 @@ def load_settings(env: dict | None = None) -> dict:
         "show_ips": env.get("TELEGRAM_SHOW_IPS", "false").strip().lower() == "true",
         "drift": drift,
         "check_seconds": check,
+        # Who may add repair notes: admins, or every user.
+        "notes_by": "users" if env.get("TELEGRAM_NOTES_BY", "admins").strip().lower() == "users" else "admins",
+        # Latest camera pictures for admins (/snapshot), or off.
+        "snapshots": "off" if env.get("TELEGRAM_SNAPSHOTS", "admins").strip().lower() == "off" else "admins",
         "state_dir": Path(env.get("TELEGRAM_STATE_DIR", str(ROOT / "state" / "telegram"))),
     }
 
@@ -153,6 +168,21 @@ class TelegramAPI:
             response = self._session.post(self._base + method, json=params, timeout=(5, http_timeout))
         except RequestException as exc:
             raise TelegramError(f"{method}: {type(exc).__name__}") from None
+        return self._result(method, response)
+
+    def upload(self, method: str, field: str, filename: str, data: bytes, mime: str, **params):
+        """sendDocument / sendPhoto with a file (multipart)."""
+        fields = {key: json.dumps(value) if isinstance(value, (dict, list)) else str(value)
+                  for key, value in params.items() if value is not None}
+        try:
+            response = self._session.post(self._base + method, data=fields,
+                                          files={field: (filename, data, mime)}, timeout=(5, 60))
+        except RequestException as exc:
+            raise TelegramError(f"{method}: {type(exc).__name__}") from None
+        return self._result(method, response)
+
+    @staticmethod
+    def _result(method: str, response):
         try:
             body = response.json()
         except ValueError:
@@ -220,6 +250,12 @@ def nvr_keyboard(nvr_id: str, is_admin: bool) -> dict:
         [button("🚨 Problems", f"nvrp:{nvr_id}"), button("📴 Offline", f"nvro:{nvr_id}")],
         [button("🔄 Scan this NVR", f"scan:{nvr_id}") if is_admin else None, button("« All NVRs", "cmd:nvrs")],
     ])
+
+
+def by_name(user: dict) -> str:
+    """'Heng (Telegram)' for notes; never the user ID."""
+    name = " ".join(str(user.get(k) or "") for k in ("first_name", "last_name")).strip()
+    return (notes_store.clean_text(name)[:40] or "Telegram user") + " (Telegram)"
 
 
 HELP = ("<b>NVR Track bot</b> (read-only)\n"
@@ -382,6 +418,8 @@ class Bot:
             self.start_scan(chat_id, user_id, who, args.strip())
         elif command == "alerts":
             self.set_alerts(chat_id, args.strip().lower())
+        elif command in {"known", "fixed", "note", "notes", "events", "uptime", "snapshot"}:
+            self.addon_command(chat_id, command, args.strip(), who, by_name(user))
         elif command in {"status", "problems", "nvrs", "nvr", "camera", "offline", "storage", "firmware", "scanner"}:
             self.reply_view(chat_id, None, command, args, who)
         else:
@@ -439,6 +477,11 @@ class Bot:
                       keyboard([[button("✅ Yes, scan", f"scanok:{value}"), button("Cancel", "cmd:menu")]]))
         elif kind == "scanok":
             self.start_scan(chat_id, user_id, who, value)
+        elif kind in {"ki", "fx", "pic", "nt"}:
+            nvr_id, _, channel = value.partition(":")
+            command = {"ki": "known", "fx": "fixed", "pic": "snapshot", "nt": "notes"}[kind]
+            args = f"{nvr_id} {channel}" + (" 7d Marked from Telegram" if kind == "ki" else "")
+            self.addon_command(chat_id, command, args, who, by_name(query.get("from") or {}))
 
     # ----- views -----
 
@@ -480,6 +523,17 @@ class Bot:
             text = views.offline_text(data)
         elif view == "camera":
             text = views.camera_search(data, args, show_ips)
+            hits = views.camera_hits(data, args)
+            if len(hits) == 1:
+                nvr, ch = hits[0]
+                ref = f"{nvr['id']}:{ch['channel_id']}"
+                markup = keyboard([
+                    [button("🔕 Known issue 7 days", f"ki:{ref}") if who == "admin" else None,
+                     button("✅ Fixed", f"fx:{ref}") if who == "admin" else None],
+                    [button("🖼 Picture", f"pic:{ref}") if who == "admin" and self.settings["snapshots"] != "off"
+                     and (ch.get("snapshot_result") or {}).get("has_image") else None,
+                     button("📝 Notes", f"nt:{ref}")],
+                ])
         elif view == "storage":
             text = views.storage_text(data)
         elif view == "firmware":
@@ -556,7 +610,7 @@ class Bot:
 
     def check_alerts(self) -> None:
         data = self.fresh_data()
-        current, unknown = views.alert_state(data, clock_drift_seconds=self.settings["drift"])
+        current, unknown, muted = views.alert_state(data, clock_drift_seconds=self.settings["drift"])
         path = self.state_dir / "alerts.json"
         saved = read_state(path, None)
         if not isinstance(saved, dict) or not isinstance(saved.get("state"), dict):
@@ -568,7 +622,7 @@ class Bot:
                           "scans stop.\n\n" + views.fleet_status(data))
             return
         known = {nvr["id"] for nvr in data.get("nvrs") or []}
-        merged, opened, resolved = views.compare(saved["state"], current, unknown, known)
+        merged, opened, resolved = views.compare(saved["state"], current, unknown, known, muted)
         if opened or resolved:
             targets = self.recipients()
             sent = [self.send(chat_id, views.alert_message(opened, resolved)) for chat_id in targets]
@@ -594,8 +648,184 @@ class Bot:
             self.send(chat_id, "☀️ <b>Daily summary</b> (if this stops arriving, the monitor itself is down)\n\n"
                       + views.fleet_status(data), menu_keyboard(False))
 
+    # ----- add-ons: known issues, notes, events, uptime, snapshots -----
+
+    def addon_command(self, chat_id: int, command: str, args: str, who: str, by: str) -> None:
+        data = self.data()
+        tokens = args.split()
+        if command == "events":
+            nvr = views.find_nvr(data, tokens[0]) if tokens else None
+            self.send(chat_id, views.events_text(data, nvr["id"] if nvr else None))
+            return
+        if command == "uptime":
+            self.send_uptime(chat_id, args)
+            return
+        if command == "known" and not tokens:
+            self.send(chat_id, views.known_list(data))
+            return
+        needs_admin = command in {"known", "fixed", "snapshot"} or (
+            command == "note" and self.settings["notes_by"] == "admins")
+        if needs_admin and who != "admin":
+            self.send(chat_id, "Only administrators can do that.")
+            return
+        usage = {"known": "/known nvr-01 5 7d Cable cut (or all instead of 5; until: 3d, 2w, 2026-11-20 or -)",
+                 "fixed": "/fixed nvr-01 5 [what was done]", "note": "/note nvr-01 5 Replaced the cable",
+                 "notes": "/notes nvr-01 [5]", "snapshot": "/snapshot nvr-01 5"}[command]
+        nvr = views.find_nvr(data, tokens[0]) if tokens else None
+        if nvr is None:
+            self.send(chat_id, "Which NVR? Usage: " + views.esc(usage))
+            return
+        channel = None
+        rest = tokens[1:]
+        if rest and (rest[0].lower() == "all" or rest[0].lower().lstrip("ch").isdigit()):
+            channel = None if rest[0].lower() == "all" else str(int(rest[0].lower().lstrip("ch")))
+            rest = rest[1:]
+        elif command in {"known", "fixed", "note", "snapshot"}:
+            self.send(chat_id, "Which camera (channel number, or all)? Usage: " + views.esc(usage))
+            return
+        if channel is not None and not any(str(ch["channel_id"]) == channel for ch in nvr["channels"]):
+            self.send(chat_id, f"{views.nvr_title(nvr)} has no channel {views.esc(channel)} in its latest report.")
+            return
+        where = views.nvr_title(nvr) + (f" · ch{channel}" if channel else " (whole NVR)")
+        if command == "notes":
+            self.send(chat_id, views.notes_text(data, nvr, channel))
+        elif command == "snapshot":
+            self.send_snapshot(chat_id, nvr, channel)
+        elif command == "known":
+            until = notes_store.parse_until(rest[0]) if rest else notes_store.parse_until("7d")
+            if rest and until != "invalid":
+                rest = rest[1:]
+            elif rest:
+                until = notes_store.parse_until("7d")
+            notes_store.add_known_issue(nvr["id"], channel, " ".join(rest), until, by)
+            self.cached_data = None
+            self.send(chat_id, f"🔕 Known issue saved for {where}. Alerts are paused "
+                      + (f"until {until.isoformat()}." if until else "until /fixed.") + " It shows as Known issue "
+                      "on the dashboard and in the email.")
+        elif command == "fixed":
+            removed = notes_store.clear_known_issue(nvr["id"], channel, by, " ".join(rest))
+            self.cached_data = None
+            self.send(chat_id, (f"✅ {where} marked fixed. Alerts are active again"
+                                if removed else f"📝 Noted as fixed for {where} (there was no known issue)")
+                      + "; its current picture becomes the reference view.")
+        elif command == "note":
+            if not rest:
+                self.send(chat_id, "Write the note after the camera. Usage: " + views.esc(usage))
+                return
+            notes_store.add_note(nvr["id"], channel, " ".join(rest), by)
+            self.cached_data = None
+            self.send(chat_id, f"📝 Note saved for {where}.")
+
+    def send_snapshot(self, chat_id: int, nvr: dict, channel: str | None) -> None:
+        if self.settings["snapshots"] == "off":
+            self.send(chat_id, "Pictures in Telegram are turned off (TELEGRAM_SNAPSHOTS=off).")
+            return
+        ch = next((c for c in nvr["channels"] if str(c["channel_id"]) == channel), None)
+        path = dashboard_data.SNAPSHOT_DIR / nvr["id"] / f"{channel}.jpg"
+        try:
+            image = path.read_bytes() if ch and path.is_file() and not path.is_symlink() else b""
+        except OSError:
+            image = b""
+        if not image.startswith(b"\xff\xd8"):
+            self.send(chat_id, "No stored picture for this camera. Snapshot checks run only on NVRs in "
+                      "NVR_SNAPSHOT_NVR_IDS, for online cameras.")
+            return
+        result = ch.get("snapshot_result") or {}
+        caption = (f"{views.nvr_title(nvr)} · {views.camera_title(ch)}\n"
+                   f"{views.PICTURE_LABEL.get(result.get('status'), 'picture')} · {views.when(result.get('checked_at'))}")
+        try:
+            self.api.upload("sendPhoto", "photo", f"{nvr['id']}-ch{channel}.jpg", image, "image/jpeg",
+                            chat_id=chat_id, caption=caption[:1000], parse_mode="HTML")
+        except TelegramError as exc:
+            print(f"telegram: photo to {chat_id} failed: {exc}", flush=True)
+            self.send(chat_id, "The picture could not be sent.")
+
+    def uptime_result(self, start: datetime, end: datetime) -> dict:
+        key = (start.isoformat(), end.isoformat()[:13])
+        cached = getattr(self, "_uptime_cache", None)
+        if cached and cached[0] == key and time.monotonic() - cached[1] < 1800:
+            return cached[2]
+        result = uptime_calc.compute(dashboard_data.REPORTS_DIR, start, end)
+        self._uptime_cache = (key, time.monotonic(), result)
+        return result
+
+    def send_uptime(self, chat_id: int, args: str, title: str | None = None,
+                    result: dict | None = None, period: str | None = None) -> None:
+        now = datetime.now(views.LOCAL_TZ)
+        if result is None:
+            text = args.strip()
+            if re.fullmatch(r"\d{4}-\d{2}", text):
+                start = datetime(int(text[:4]), int(text[5:]), 1, tzinfo=views.LOCAL_TZ)
+                end = (start + timedelta(days=32)).replace(day=1)
+                period = text
+            else:
+                days = int(text) if text.isdigit() and 1 <= int(text) <= 366 else 30
+                start, end = now - timedelta(days=days), now
+                period = f"last {days} days"
+            self.send(chat_id, f"⏳ Calculating uptime for {views.esc(period)} from saved reports…")
+            result = self.uptime_result(start, end)
+            title = f"Uptime {period}"
+        if not result["cameras"]:
+            self.send(chat_id, f"No saved reports for {views.esc(period)}.")
+            return
+        self.send(chat_id, views.uptime_text(result, title or f"Uptime {period}"))
+        try:
+            self.api.upload("sendDocument", "document", f"uptime-{period.replace(' ', '-')}.csv",
+                            uptime_calc.to_csv(result).encode("utf-8-sig"), "text/csv", chat_id=chat_id)
+        except TelegramError as exc:
+            print(f"telegram: CSV to {chat_id} failed: {exc}", flush=True)
+
+    def check_events(self) -> None:
+        """Post new real-time events (nvr-events service), except muted cameras/NVRs."""
+        path = self.state_dir / "events_position.json"
+        position = read_state(path, None)
+        if not isinstance(position, dict):
+            _, position = event_store.read_new({})  # First start: skip old events.
+            write_state(path, position)
+            return
+        lines, new_position = event_store.read_new(position)
+        if not lines:
+            if new_position != position:
+                write_state(path, new_position)
+            return
+        data = self.fresh_data()
+        nvrs = {nvr["id"]: nvr for nvr in data.get("nvrs") or []}
+
+        def muted(line: dict) -> bool:
+            nvr = nvrs.get(line["nvr"])
+            if nvr is None:
+                return False
+            if nvr.get("nvr_known_issue"):
+                return True
+            ch = next((c for c in nvr["channels"] if str(c["channel_id"]) == line["channel"]), None)
+            return bool(line["channel"] and ch and ch.get("known_issue"))
+        wanted = [line for line in lines if not muted(line)]
+        if wanted:
+            targets = self.recipients()
+            sent = [self.send(chat_id, views.event_alert_text(wanted, data)) for chat_id in targets]
+            if targets and not any(sent):
+                return  # Retry these events next time.
+        write_state(path, new_position)
+
+    def check_monthly_uptime(self) -> None:
+        """On the 1st (after the digest time), post last month's uptime once."""
+        now = datetime.now(views.LOCAL_TZ)
+        hour, minute = (int(x) for x in (self.settings["digest"] or ("09", "00")))
+        if now.day != 1 or now < now.replace(hour=hour, minute=minute, second=0, microsecond=0):
+            return
+        path = self.state_dir / "uptime_post.json"
+        if read_state(path, {}).get("month") == now.strftime("%Y-%m"):
+            return
+        write_state(path, {"month": now.strftime("%Y-%m")})
+        month = (now.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
+        start = datetime(int(month[:4]), int(month[5:]), 1, tzinfo=views.LOCAL_TZ)
+        result = self.uptime_result(start, now.replace(day=1, hour=0, minute=0, second=0, microsecond=0))
+        for chat_id in self.recipients():
+            self.send_uptime(chat_id, "", title=f"Monthly uptime {month}", result=result, period=month)
+
     def periodic(self) -> None:
-        for task in (self.check_alerts, self.check_pending_scans, self.check_digest):
+        for task in (self.check_alerts, self.check_events, self.check_pending_scans, self.check_digest,
+                     self.check_monthly_uptime):
             try:
                 task()
             except Exception as exc:  # One failing task must not stop the bot.

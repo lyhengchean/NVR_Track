@@ -19,12 +19,17 @@ HEALTH_LABEL = {"HEALTHY": "Healthy", "WARNING": "Warning", "CRITICAL": "Critica
                 "UNKNOWN": "Unknown", "ERROR": "Report failed"}
 CONDITION_ICON = {
     "NO_FOOTAGE_30": "⚫", "NOT_RECORDING": "🔴", "CHECK_FAILED": "🟣", "GAPS": "🟠",
-    "BELOW_RETENTION": "🟠", "OFFLINE_RECORDING": "🔵", "SHORT_HISTORY": "🟢",
-    "NO_RECENT_EVENTS": "💤", "NOT_MONITORED": "⚪", "OK": "🟢",
+    "BELOW_RETENTION": "🟠", "BAD_PICTURE": "🖼", "OFFLINE_RECORDING": "🔵", "SHORT_HISTORY": "🟢",
+    "KNOWN_ISSUE": "🔕", "NO_RECENT_EVENTS": "💤", "NOT_MONITORED": "⚪", "OK": "🟢",
 }
 # Conditions that need someone to act (same as the dashboard's "Problems only").
 PROBLEMS = ("NO_FOOTAGE_30", "NOT_RECORDING", "CHECK_FAILED", "GAPS",
-            "BELOW_RETENTION", "OFFLINE_RECORDING")
+            "BELOW_RETENTION", "BAD_PICTURE", "OFFLINE_RECORDING")
+BAD_PICTURES = {"PICTURE_BLACK", "PICTURE_UNIFORM", "PICTURE_FROZEN", "PICTURE_VIEW_CHANGED"}
+PICTURE_LABEL = {"PICTURE_OK": "OK", "PICTURE_BLACK": "black", "PICTURE_UNIFORM": "flat / covered",
+                 "PICTURE_FROZEN": "frozen", "PICTURE_VIEW_CHANGED": "view changed",
+                 "PICTURE_UNAVAILABLE": "not available", "PICTURE_NOT_CHECKED": "not checked",
+                 "PICTURE_NOT_CONFIGURED": "not enabled"}
 LIVE_LABEL = {"ONLINE": "Online", "OFFLINE": "Offline", "UNKNOWN": "Unknown",
               "NOT_RETURNED": "Not returned"}
 
@@ -164,7 +169,9 @@ def fleet_status(data: dict) -> str:
               for code, label in (("NOT_RECORDING", "Stopped"), ("NO_FOOTAGE_30", "No footage 30d"),
                                   ("CHECK_FAILED", "Check failed"), ("GAPS", "Gaps"),
                                   ("BELOW_RETENTION", "Below required days"),
+                                  ("BAD_PICTURE", "Picture problem"),
                                   ("OFFLINE_RECORDING", "Offline but recording"),
+                                  ("KNOWN_ISSUE", "Known issues"),
                                   ("NO_RECENT_EVENTS", "Quiet event cams"))
               if c.get(code)]
     if counts:
@@ -173,6 +180,14 @@ def fleet_status(data: dict) -> str:
     if stale > 0:
         lines.append(f"⚠️ {plural(stale, 'NVR report is', 'NVR reports are')} out of date"
                      + (f" (missed the {when(s.get('stale_slot'))[-5:]} scan)" if s.get("stale_slot") else ""))
+    extras = []
+    if s.get("smart_problems"):
+        extras.append(f"💽 {plural(s['smart_problems'], 'NVR')} with disk SMART problems")
+    if s.get("event_streams_down"):
+        extras.append(f"📡 {plural(s['event_streams_down'], 'event stream')} down")
+    if s.get("events_24h"):
+        extras.append(f"📟 {s['events_24h']} real-time events in 24 h (/events)")
+    lines += extras
     lines.append(scanner_line(data.get("scan") or {}))
     return "\n".join(lines)
 
@@ -198,10 +213,27 @@ def problems_text(data: dict, nvr_id: str | None = None) -> str:
                          + (f" · last video {last_video(ch)}" if cond["code"] in {"NOT_RECORDING", "NO_FOOTAGE_30"} else ""))
         total += len(rows)
         blocks.append("\n".join(capped(lines, hint=" (see the dashboard)")))
+    known = []
+    for nvr in data.get("nvrs") or []:
+        if nvr_id and nvr["id"] != nvr_id:
+            continue
+        if nvr.get("nvr_known_issue"):
+            known.append(f"🔕 {nvr_title(nvr)} (whole NVR) — {issue_text(nvr['nvr_known_issue'])}")
+        for ch in nvr["channels"]:
+            if ch["condition"]["code"] == "KNOWN_ISSUE" and not (ch.get("known_issue") or {}).get("whole_nvr"):
+                known.append(f"🔕 {nvr_title(nvr)} · {camera_title(ch)} — {issue_text(ch.get('known_issue'))}")
+    tail = ("\n\n<b>Known issues, alerts paused</b> (" + str(len(known)) + ")\n" + "\n".join(capped(known, 25))) if known else ""
     if not blocks:
-        return "✅ No camera needs action" + (f" on {esc(nvr_id)}." if nvr_id else ".")
+        return "✅ No camera needs action" + (f" on {esc(nvr_id)}." if nvr_id else ".") + tail
     title = f"<b>Cameras needing action</b> ({total})"
-    return title + "\n\n" + "\n\n".join(blocks)
+    return title + "\n\n" + "\n\n".join(blocks) + tail
+
+
+def issue_text(issue: dict | None) -> str:
+    if not issue:
+        return "known issue"
+    until = f"until {esc(issue['until'])}" if issue.get("until") else "until marked fixed"
+    return f"{esc(issue.get('reason'))} ({until}" + (f", {esc(issue['by'])}" if issue.get("by") else "") + ")"
 
 
 def _channel_number(channel: dict) -> int:
@@ -256,6 +288,24 @@ def nvr_detail(data: dict, nvr: dict, show_ips: bool) -> str:
                  + (f" — {esc(nvr['storage_message'])}" if nvr.get("storage_message") else ""))
     if not pc.get("enabled"):
         lines.append("Per-camera recording checks are not enabled for this NVR.")
+    smart = nvr.get("smart") or {}
+    if smart.get("status") not in {None, "NOT_CONFIGURED"}:
+        lines.append(f"Disk SMART: {esc(smart['status'].title())}"
+                     + (f" — {esc(smart.get('message'))}" if smart.get("status") != "HEALTHY" else ""))
+    if isinstance(nvr.get("uptime_seconds"), (int, float)):
+        up = int(nvr["uptime_seconds"])
+        lines.append(f"Uptime {up // 86400} d {up % 86400 // 3600} h"
+                     + (" · 🔁 restarted since the previous scan" if (nvr.get("restart") or {}).get("detected") else ""))
+    changes = (nvr.get("inventory_changes") or {}).get("changes") or []
+    if changes:
+        lines.append(f"🔀 {plural(len(changes), 'camera list change')} since the previous report")
+    stream = nvr.get("event_stream")
+    if stream:
+        lines.append("📡 Event stream " + ("connected" if stream.get("connected") else
+                                          f"<b>down</b> ({esc(stream.get('last_error') or '?')})")
+                     + (f" · {plural(len(nvr.get('events') or []), 'event')} in 24 h" if nvr.get("events") else ""))
+    if nvr.get("nvr_known_issue"):
+        lines.append(f"🔕 Whole-NVR known issue: {issue_text(nvr['nvr_known_issue'])}")
     offset = pc.get("nvr_clock_offset_seconds_approx")
     if isinstance(offset, int) and offset:
         lines.append(f"NVR clock offset: {offset:+d} s")
@@ -267,11 +317,11 @@ def nvr_detail(data: dict, nvr: dict, show_ips: bool) -> str:
     return "\n".join(lines)
 
 
-def camera_search(data: dict, query: str, show_ips: bool, limit: int = 12) -> str:
-    """Search camera names, 'ch5', channel numbers, camera IPs and 'nvr-01 5'."""
+def camera_hits(data: dict, query: str) -> list[tuple[dict, dict]]:
+    """Cameras matching a name, 'ch5', a channel number, a camera IP or 'nvr-01 5'."""
     text = query.strip().lower()
     if not text:
-        return "Send a camera name, channel (ch5), camera IP or 'nvr-01 5'."
+        return []
     nvr_part, _, channel_part = text.partition(" ")
     pinned = find_nvr(data, nvr_part) if channel_part.strip().lstrip("ch").isdigit() else None
     hits = []
@@ -285,6 +335,14 @@ def camera_search(data: dict, query: str, show_ips: bool, limit: int = 12) -> st
             if (text in (ch.get("name") or "").lower() or text in {cid, "ch" + cid}
                     or (ch.get("camera_ip") and text == ch["camera_ip"].lower())):
                 hits.append((nvr, ch))
+    return hits
+
+
+def camera_search(data: dict, query: str, show_ips: bool, limit: int = 12) -> str:
+    """Search camera names, 'ch5', channel numbers, camera IPs and 'nvr-01 5'."""
+    if not query.strip():
+        return "Send a camera name, channel (ch5), camera IP or 'nvr-01 5'."
+    hits = camera_hits(data, query)
     if not hits:
         return f"No camera matches <b>{esc(query.strip())}</b>."
     blocks = []
@@ -297,6 +355,14 @@ def camera_search(data: dict, query: str, show_ips: bool, limit: int = 12) -> st
                  f"Live: {esc(LIVE_LABEL.get(ch['reported_status'], ch['reported_status']))}"
                  f" · Last video: {last_video(ch)}"
                  + (f" · Recorded days: {days}/{window}" if isinstance(days, int) and window else "")]
+        picture = (ch.get("snapshot_result") or {}).get("status")
+        if picture and picture != "PICTURE_NOT_CONFIGURED":
+            block.append(f"Picture: {PICTURE_LABEL.get(picture, esc(picture))}")
+        if ch.get("known_issue"):
+            block.append(f"🔕 Known issue: {issue_text(ch['known_issue'])}")
+        for note in (ch.get("notes") or [])[:2]:
+            block.append(f"📝 {when(note.get('at'))} {esc(note.get('text'))}"
+                         + (f" ({esc(note['by'])})" if note.get("by") else ""))
         if show_ips and ch.get("camera_ip"):
             block.append(f"IP {esc(ch['camera_ip'])}")
         if nvr.get("last_run_failed"):
@@ -339,6 +405,12 @@ def storage_text(data: dict) -> str:
                      f"{esc(nvr['storage_status'].title())}")
         if nvr["storage_status"] != "HEALTHY" and nvr.get("storage_message"):
             lines.append(f"   {esc(nvr['storage_message'])}")
+        smart = nvr.get("smart") or {}
+        if smart.get("status") not in {None, "NOT_CONFIGURED"}:
+            temps = [d["temperature_c"] for d in smart.get("disks", []) if isinstance(d.get("temperature_c"), (int, float))]
+            lines.append(f"   SMART {esc(smart['status'].lower())}"
+                         + (f", max {max(temps):.0f} °C" if temps else "")
+                         + (f" — {esc(smart.get('message'))}" if smart["status"] in {"WARNING", "CRITICAL"} else ""))
         for disk in nvr.get("disks") or []:
             state = str(disk.get("reported_status", "")).lower()
             try:
@@ -403,19 +475,28 @@ def scan_finished_text(last: dict) -> str:
 
 # ---------- change-based alerts ----------
 
-def _entry(severity: str, text: str, resolved: str, value: str = "") -> dict:
-    return {"severity": severity, "text": text, "resolved": resolved, "value": value}
+def _entry(severity: str, text: str, resolved: str, value: str = "", event: bool = False) -> dict:
+    entry = {"severity": severity, "text": text, "resolved": resolved, "value": value}
+    if event:
+        entry["event"] = True  # One-off: announced once, never "resolved".
+    return entry
 
 
-def alert_state(data: dict, *, clock_drift_seconds: int = 120) -> tuple[dict, list[str]]:
-    """Current alert conditions, and key prefixes whose state is unknown now.
+NVR_PREFIXES = ("nvr:{0}:", "cam:{0}:", "storage:{0}", "clock:{0}", "checks:{0}", "smart:{0}",
+                "events:{0}:", "change:{0}:", "restart:{0}:")
+
+
+def alert_state(data: dict, *, clock_drift_seconds: int = 120) -> tuple[dict, list[str], list[str]]:
+    """Current alert conditions, prefixes whose state is unknown, and muted prefixes.
 
     Keys under an unknown prefix keep their previous state, so a failed scan
     or a camera whose check failed never produces a false "resolved" (or a
-    false new alert) message.
+    false new alert) message. Keys under a muted prefix (known issues,
+    features switched off) are dropped silently.
     """
     state: dict[str, dict] = {}
     unknown: list[str] = []
+    muted: list[str] = []
     scan = data.get("scan") or {}
     if not scan.get("available"):
         state["scanner:down"] = _entry(
@@ -425,19 +506,31 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120) -> tuple[dict, li
     for nvr in data.get("nvrs") or []:
         nid = nvr["id"]
         title = nvr_title(nvr)
+        if nvr.get("nvr_known_issue"):
+            muted += [p.format(nid) for p in NVR_PREFIXES]
+            continue
+        stream = nvr.get("event_stream")
+        if stream is None:
+            muted.append(f"events:{nid}:")
+        elif not stream.get("connected"):
+            state[f"events:{nid}:down"] = _entry(
+                "warning", f"📡 <b>{title}</b>: real-time event stream disconnected "
+                f"({esc(stream.get('last_error') or 'no reply')})",
+                f"✅ <b>{title}</b>: real-time events connected again")
         if nvr.get("last_run_failed") or nvr["overall_status"] == "ERROR":
             state[f"nvr:{nid}:failed"] = _entry(
                 "critical", f"⛔ <b>{title}</b> could not be scanned "
                 f"({esc(nvr.get('last_run_failure_code') or 'no report')}). Is the NVR reachable?",
                 f"✅ <b>{title}</b> is reporting again")
             unknown.append(f"nvr:{nid}:")  # Everything else about it is last-known data.
-            unknown += [f"cam:{nid}:", f"storage:{nid}", f"clock:{nid}", f"checks:{nid}"]
+            unknown += [f"cam:{nid}:", f"storage:{nid}", f"clock:{nid}", f"checks:{nid}", f"smart:{nid}"]
             continue
         if nvr.get("stale"):
             state[f"nvr:{nid}:stale"] = _entry(
                 "warning", f"⚠️ <b>{title}</b>: no new report since {when(nvr.get('last_check'))}",
                 f"✅ <b>{title}</b> has a fresh report")
-            unknown += [f"cam:{nid}:", f"storage:{nid}", f"clock:{nid}", f"checks:{nid}", f"nvr:{nid}:critical"]
+            unknown += [f"cam:{nid}:", f"storage:{nid}", f"clock:{nid}", f"checks:{nid}", f"nvr:{nid}:critical",
+                        f"smart:{nid}"]
             continue
         if nvr["overall_status"] == "CRITICAL":
             reason = (nvr.get("critical_reasons") or ["see /nvr " + nid])[0]
@@ -452,6 +545,16 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120) -> tuple[dict, li
                 f"✅ <b>{title}</b> storage healthy again", value=nvr["storage_status"])
         elif nvr["storage_status"] != "HEALTHY":
             unknown.append(f"storage:{nid}")
+        smart = (nvr.get("smart") or {}).get("status")
+        if smart in {"WARNING", "CRITICAL"}:
+            state[f"smart:{nid}"] = _entry(
+                "critical" if smart == "CRITICAL" else "warning",
+                f"💽 <b>{title}</b> disk SMART {smart.lower()}: {esc(nvr['smart'].get('message'))}",
+                f"✅ <b>{title}</b> disks report SMART OK again", value=smart)
+        elif smart in {None, "NOT_CONFIGURED"}:
+            muted.append(f"smart:{nid}")
+        elif smart != "HEALTHY":
+            unknown.append(f"smart:{nid}")
         offset = (nvr.get("per_camera_recording") or {}).get("nvr_clock_offset_seconds_approx")
         if isinstance(offset, int) and abs(offset) > clock_drift_seconds:
             state[f"clock:{nid}"] = _entry(
@@ -460,11 +563,26 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120) -> tuple[dict, li
                 f"✅ <b>{title}</b> clock is correct again")
         elif not isinstance(offset, int):
             unknown.append(f"clock:{nid}")
+        restart = nvr.get("restart") or {}
+        if restart.get("detected"):
+            state[f"restart:{nid}:{restart.get('boot_time')}"] = _entry(
+                "warning", f"🔁 <b>{title}</b> restarted at about {when(restart.get('boot_time'))}", "", event=True)
+        kinds = {"added": "➕ Camera added", "removed": "➖ Camera removed",
+                 "renamed": "✏️ Camera renamed", "ip_changed": "🔀 Camera IP changed"}
+        for index, change in enumerate((nvr.get("inventory_changes") or {}).get("changes") or []):
+            names = " → ".join(esc(v) for v in (change.get("old"), change.get("new"))
+                               if v and change["type"] != "ip_changed")
+            state[f"change:{nid}:{nvr.get('last_check')}:{index}"] = _entry(
+                "warning", f"{kinds.get(change['type'], 'Camera changed')}: <b>{title}</b> · "
+                f"ch{esc(change.get('channel_id'))}" + (f" {names}" if names else ""), "", event=True)
         if not nvr["channels"]:
             unknown.append(f"cam:{nid}:")
         failed_checks = 0
         for ch in nvr["channels"]:
             key = f"cam:{nid}:{ch['channel_id']}:"
+            if ch.get("known_issue"):
+                muted.append(key)  # Someone is on it: no alerts until fixed or expired.
+                continue
             code = ch["condition"]["code"]
             camera = f"<b>{title}</b> · {camera_title(ch)}"
             if code in {"CHECK_FAILED", "NOT_MONITORED"}:
@@ -479,6 +597,16 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120) -> tuple[dict, li
                 state[key + "ret"] = _entry(
                     "warning", f"🟠 Below required days: {camera}\n   {esc(ch['condition']['detail'])}",
                     f"✅ Keeps the required days again: {camera}")
+            picture = (ch.get("snapshot_result") or {}).get("status")
+            if picture in BAD_PICTURES:
+                state[key + "pic"] = _entry(
+                    "warning", f"🖼 Picture {PICTURE_LABEL[picture]}: {camera}\n"
+                    f"   {esc((ch.get('snapshot_result') or {}).get('message'))}",
+                    f"✅ Picture OK again: {camera}", value=picture)
+            elif picture in {None, "PICTURE_NOT_CONFIGURED"}:
+                muted.append(key + "pic")
+            elif picture != "PICTURE_OK":
+                unknown.append(key + "pic")
             if ch["reported_status"] == "OFFLINE":
                 state[key + "off"] = _entry("warning", f"📴 Went offline: {camera}", f"✅ Back online: {camera}")
             elif ch["reported_status"] != "ONLINE":
@@ -487,24 +615,26 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120) -> tuple[dict, li
             state[f"checks:{nid}"] = _entry(
                 "warning", f"🟣 <b>{title}</b>: {plural(failed_checks, 'camera check')} could not be completed",
                 f"✅ <b>{title}</b>: all camera checks completed again")
-    return state, unknown
+    return state, unknown, muted
 
 
-def compare(previous: dict, current: dict, unknown: list[str],
-            known_nvrs: set[str]) -> tuple[dict, list[dict], list[dict]]:
+def compare(previous: dict, current: dict, unknown: list[str], known_nvrs: set[str],
+            muted: list[str] = ()) -> tuple[dict, list[dict], list[dict]]:
     """Merge with the previous state; return (state to save, opened, resolved)."""
     merged = dict(current)
     for key, entry in previous.items():
-        if key in merged:
-            continue
+        if key in merged or any(key.startswith(prefix) for prefix in muted) or entry.get("event"):
+            continue  # Muted or one-off: dropped silently.
         parts = key.split(":")
-        nvr_gone = len(parts) > 1 and parts[0] in {"nvr", "cam", "storage", "clock", "checks"} \
+        nvr_gone = len(parts) > 1 and parts[0] in {"nvr", "cam", "storage", "clock", "checks", "smart", "events"} \
             and parts[1] not in known_nvrs
         if nvr_gone or any(key.startswith(prefix) for prefix in unknown):
             merged[key] = entry  # State unknown now: neither new nor resolved.
     opened = [entry for key, entry in merged.items()
               if key not in previous or previous[key].get("value") != entry.get("value")]
-    resolved = [entry for key, entry in previous.items() if key not in merged]
+    resolved = [entry for key, entry in previous.items()
+                if key not in merged and not entry.get("event")
+                and not any(key.startswith(prefix) for prefix in muted)]
     return merged, opened, resolved
 
 
@@ -517,3 +647,98 @@ def alert_message(opened: list[dict], resolved: list[dict]) -> str:
     if resolved:
         lines += [""] + capped([e["resolved"] for e in resolved], hint="")
     return "\n".join(lines)
+
+
+# ---------- add-on views ----------
+
+def events_text(data: dict, nvr_id: str | None = None, limit: int = 30) -> str:
+    rows, streams = [], []
+    for nvr in data.get("nvrs") or []:
+        if nvr_id and nvr["id"] != nvr_id:
+            continue
+        stream = nvr.get("event_stream")
+        if stream:
+            streams.append(f"{'📡' if stream.get('connected') else '⚠️'} {nvr_title(nvr)} "
+                           + ("connected" if stream.get("connected") else f"down ({esc(stream.get('last_error') or '?')})"))
+        for event in nvr.get("events") or []:
+            rows.append((event.get("at", ""), f"{'🔴' if event.get('severity') == 'critical' else '🟡'} "
+                         f"{when(event.get('at'))} {nvr_title(nvr)}"
+                         + (f" · ch{esc(event['channel'])}" if event.get("channel") else "")
+                         + f" — {esc(event.get('label'))}"))
+    if not streams and not rows:
+        return ("No real-time events. To enable them: run scripts.probe_nvr_features, "
+                "set NVR_EVENT_NVR_IDS in .env and start nvr-events.")
+    rows.sort(reverse=True)
+    lines = ["<b>Real-time events, last 24 h</b>", *streams, ""]
+    lines += capped([r[1] for r in rows], limit, " older") if rows else ["No events in the last 24 hours."]
+    return "\n".join(lines)
+
+
+def notes_text(data: dict, nvr: dict, channel: str | None) -> str:
+    rows = []
+    if channel is None:
+        rows = nvr.get("nvr_notes") or []
+        for ch in nvr["channels"]:
+            rows += [{**n, "channel": ch["channel_id"]} for n in ch.get("notes") or []]
+        rows.sort(key=lambda n: n.get("at") or "", reverse=True)
+        title = f"<b>Notes · {nvr_title(nvr)}</b>"
+    else:
+        ch = next((c for c in nvr["channels"] if str(c["channel_id"]) == channel), None)
+        if ch is None:
+            return f"No channel {esc(channel)} on {nvr_title(nvr)}."
+        rows = ch.get("notes") or []
+        title = f"<b>Notes · {nvr_title(nvr)} · {camera_title(ch)}</b>"
+        if ch.get("known_issue"):
+            title += f"\n🔕 {issue_text(ch['known_issue'])}"
+    if not rows:
+        return title + "\nNo notes yet. Admins add one with /note."
+    return title + "\n" + "\n".join(capped([
+        f"📝 {when(n.get('at'))}" + (f" ch{esc(n['channel'])}" if channel is None and n.get("channel") else "")
+        + f" {esc(n.get('text'))}" + (f" ({esc(n['by'])})" if n.get("by") else "") for n in rows], 20))
+
+
+def known_list(data: dict) -> str:
+    lines = []
+    for nvr in data.get("nvrs") or []:
+        if nvr.get("nvr_known_issue"):
+            lines.append(f"🔕 {nvr_title(nvr)} (whole NVR) — {issue_text(nvr['nvr_known_issue'])}")
+        for ch in nvr["channels"]:
+            if ch.get("known_issue") and not ch["known_issue"].get("whole_nvr"):
+                lines.append(f"🔕 {nvr_title(nvr)} · {camera_title(ch)} — {issue_text(ch['known_issue'])}")
+    if not lines:
+        return ("No known issues. Admins: /known nvr-01 5 7d Cable cut — pauses alerts for that camera; "
+                "/fixed nvr-01 5 resumes them.")
+    return f"<b>Known issues, alerts paused</b> ({len(lines)})\n" + "\n".join(capped(lines, 50))
+
+
+def uptime_text(result: dict, title: str) -> str:
+    def pct(v):
+        return "—" if v is None else f"{v:.1f}%"
+    fleet = result["fleet"]
+    lines = [f"<b>{esc(title)}</b>",
+             f"{fleet['cameras']} cameras on {fleet['nvrs']} NVRs · online {pct(fleet['online_pct'])} · "
+             f"recording {pct(fleet['recording_pct'])}", ""]
+    for n in result["nvrs"]:
+        lines.append(f"{esc(n['nvr'])}{' ' + esc(n['name']) if n['name'] else ''}: online {pct(n['online_pct'])}, "
+                     f"recording {pct(n['recording_pct'])}, reachable {pct(n['reachable_pct'])}")
+    low = sorted((c for c in result["cameras"] if c["recording_pct"] is not None and c["recording_pct"] < 100),
+                 key=lambda c: c["recording_pct"])[:10]
+    if low:
+        lines += ["", "<b>Lowest recording %</b>"]
+        lines += [f"{esc(c['nvr'])} ch{esc(c['channel'])} {esc(c['name'])}: {pct(c['recording_pct'])}" for c in low]
+    flaps = sorted((c for c in result["cameras"] if c["flaps"] >= 3), key=lambda c: -c["flaps"])[:10]
+    if flaps:
+        lines += ["", "<b>Most online/offline changes</b>"]
+        lines += [f"{esc(c['nvr'])} ch{esc(c['channel'])} {esc(c['name'])}: {c['flaps']}" for c in flaps]
+    return "\n".join(lines)
+
+
+def event_alert_text(lines: list[dict], data: dict) -> str:
+    titles = {nvr["id"]: nvr_title(nvr) for nvr in data.get("nvrs") or []}
+    names = {(nvr["id"], str(ch["channel_id"])): camera_title(ch)
+             for nvr in data.get("nvrs") or [] for ch in nvr["channels"]}
+    rows = [f"{'🔴' if e.get('severity') == 'critical' else '🟡'} <b>{esc(e.get('label'))}</b> — "
+            f"{titles.get(e['nvr'], esc(e['nvr']))}"
+            + (f" · {names.get((e['nvr'], e['channel']), 'ch' + esc(e['channel']))}" if e.get("channel") else "")
+            + f" ({when(e.get('at'))})" for e in lines]
+    return "<b>📟 NVR events</b>\n" + "\n".join(capped(rows, 30, " — see /events"))

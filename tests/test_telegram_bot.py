@@ -365,7 +365,7 @@ class TokenSafetyTests(unittest.TestCase):
 
     def test_compose_service_gets_no_nvr_or_smtp_secrets(self):
         text = (Path(__file__).resolve().parent.parent / "compose.yaml").read_text(encoding="utf-8")
-        block = text.split("  nvr-telegram:", 1)[1]
+        block = text.split("  nvr-telegram:", 1)[1].split("\n  nvr-", 1)[0]  # This service only.
         self.assertNotIn("env_file", block)
         self.assertNotIn("PASSWORD", block)
         self.assertNotIn("nvrs.local.json", block)

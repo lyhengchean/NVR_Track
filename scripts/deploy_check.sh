@@ -5,7 +5,7 @@
 #
 # Read-only towards the NVRs. Never prints .env values or credentials.
 # Sends no email (runs one report per NVR instead of the fleet runner).
-# Recreates only the nvr-dashboard, nvr-scanner and (if configured) nvr-telegram containers.
+# Recreates only nvr-dashboard, nvr-scanner and (if configured) nvr-telegram / nvr-events.
 set -u
 
 APP_DIR=${APP_DIR:-/opt/NVR_Track}
@@ -71,7 +71,7 @@ else
 fi
 
 section "4. Build and restart dashboard and scanner"
-if docker compose build -q nvr-report nvr-report-all nvr-dashboard nvr-scanner nvr-telegram; then
+if docker compose build -q nvr-report nvr-report-all nvr-dashboard nvr-scanner nvr-telegram nvr-events; then
     pass "Runtime images built"
 else
     fail "Runtime image build failed"; exit 1
@@ -92,6 +92,17 @@ if grep -qE '^TELEGRAM_BOT_TOKEN=.+' .env 2>/dev/null; then
     SERVICES="$SERVICES nvr-telegram"
 else
     echo "  Telegram bot not configured (no TELEGRAM_BOT_TOKEN in .env); skipped"
+fi
+# Real-time events run only for NVRs listed in NVR_EVENT_NVR_IDS.
+if grep -qE '^NVR_EVENT_NVR_IDS=.+' .env 2>/dev/null; then
+    if docker compose up -d --force-recreate nvr-events >/dev/null 2>&1; then
+        pass "Real-time event listener recreated"
+    else
+        fail "Real-time event listener did not start"
+    fi
+    SERVICES="$SERVICES nvr-events"
+else
+    echo "  Real-time events not enabled (NVR_EVENT_NVR_IDS empty); skipped"
 fi
 sleep 5
 for svc in $SERVICES; do

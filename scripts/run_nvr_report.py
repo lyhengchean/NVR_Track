@@ -16,7 +16,12 @@ from app.isapi import (
     get_channel_inventory,
     get_channel_statuses,
     get_device_info,
+    get_device_status,
 )
+from app import notes as notes_store
+from app import smart as smart_check
+from app import snapshots as snapshot_check
+from app.inventory_changes import inventory_changes, recent_reports, restart_info
 from app.recording import check_recording_evidence
 from app.camera_recording import check_all_cameras
 from app.reporting import determine_overall_status
@@ -77,6 +82,30 @@ def channel_sources(inventory, channel_status_result) -> tuple[list, str]:
         return [ChannelInfo(channel_id=item.channel_id) for item in channel_status_result.channels], \
             "CHANNEL_STATUS_FALLBACK"
     return [], "UNAVAILABLE"
+
+
+def id_setting(name: str) -> set[str]:
+    return {item.strip().lower() for item in os.environ.get(name, "").split(",") if item.strip()}
+
+
+def sata_disk_ids(storage) -> list[str]:
+    """Installed SATA disks (numeric IDs) for SMART queries."""
+    ids = []
+    for disk in storage.disks:
+        number = disk.id.split(" (", 1)[0]
+        if disk.disk_type.strip().lower() == "sata" and number.isdecimal() \
+                and disk.status in {"ok", "normal", "idle"}:
+            ids.append(number)
+    return ids
+
+
+def fixed_times(nvr_id: str) -> dict[str, str]:
+    """Newest 'fixed' note per channel: accepts a camera's current view."""
+    times: dict[str, str] = {}
+    for entry in notes_store.load().get("log", []):
+        if entry.get("nvr") == nvr_id and entry.get("kind") == "fixed" and entry.get("channel"):
+            times[entry["channel"]] = max(times.get(entry["channel"], ""), str(entry.get("at") or ""))
+    return times
 
 
 def now_local() -> datetime:
@@ -396,6 +425,40 @@ def main() -> int:
 
     storage = storage_after_recording(storage, configured_nvr, per_camera_summary, window_minutes)
 
+    # ---- Add-on checks (all read-only GETs; the opt-in ones per NVR ID) ----
+    previous_reports = list(recent_reports(report_dir, configured_nvr.id, limit=6))
+    changes = inventory_changes(previous_reports, channel_rows if inventory_ok else None)
+    device_status = None
+    if os.environ.get("NVR_DEVICE_STATUS", "true").strip().lower() == "true":
+        device_status = get_device_status(configured_nvr.ip, username, password, http_port)
+    restart = restart_info(device_status.uptime_seconds if device_status else None,
+                           datetime.now(timezone.utc),
+                           previous_reports[0].get("check_completed_at") if previous_reports else None)
+    if configured_nvr.id.lower() in id_setting("NVR_SMART_NVR_IDS"):
+        disk_ids = sata_disk_ids(storage)
+        previous_smart = ((previous_reports[0].get("storage") or {}).get("smart")
+                          if previous_reports else None)
+        smart = (smart_check.cached(previous_smart, disk_ids,
+                                    integer_setting("NVR_SMART_CACHE_HOURS", 24, 1, 168))
+                 or smart_check.check_smart(configured_nvr.ip, http_port, username, password,
+                                            disk_ids, deadline=time.monotonic() + 120))
+    else:
+        smart = smart_check.not_configured()
+    if configured_nvr.id.lower() in id_setting("NVR_SNAPSHOT_NVR_IDS"):
+        snapshots = snapshot_check.check_snapshots(
+            ip=configured_nvr.ip, port=http_port, username=username, password=password,
+            nvr_id=configured_nvr.id, channels=channel_rows,
+            state_dir=Path(os.environ.get("SNAPSHOT_DIR", str(ROOT / "state" / "snapshots"))),
+            deadline=time.monotonic() + integer_setting("NVR_SNAPSHOT_MAX_SECONDS", 180, 10, 1800),
+            resets=fixed_times(configured_nvr.id),
+            keep_images=os.environ.get("NVR_SNAPSHOT_KEEP", "true").strip().lower() == "true",
+        )
+    else:
+        snapshots = snapshot_check.not_configured(channel_rows)
+    picture_problems = sum((ch.get("snapshot_result") or {}).get("status") in {
+        snapshot_check.BLACK, snapshot_check.UNIFORM, snapshot_check.FROZEN, snapshot_check.MOVED}
+        for ch in channel_rows)
+
     overall = determine_overall_status(
         device_info_status=device.status,
         inventory_status=inventory.status,
@@ -406,6 +469,10 @@ def main() -> int:
         actual_count=actual_count,
         recording_status=recording["status"],
         per_camera_summary=per_camera_summary,
+        smart=smart,
+        picture_problems=picture_problems,
+        restart=restart,
+        inventory_changes=changes,
     )
 
     completed_at = now_local()
@@ -471,7 +538,18 @@ def main() -> int:
                 }
                 for disk in storage.disks
             ],
+            "smart": smart,
         },
+        "device_status": {
+            "status": device_status.status if device_status else "NOT_CHECKED",
+            "uptime_seconds": device_status.uptime_seconds if device_status else None,
+            "cpu_percent": device_status.cpu_percent if device_status else None,
+            "memory_used_mb": device_status.memory_used_mb if device_status else None,
+            "memory_available_mb": device_status.memory_available_mb if device_status else None,
+        },
+        "restart": restart,
+        "inventory_changes": changes,
+        "snapshots": snapshots,
         "recording": recording,
         "per_camera_recording": per_camera_summary,
         "overall": overall,
@@ -504,6 +582,12 @@ def main() -> int:
           f"{retention_info.get('partial', 0)} partial; "
           f"{retention_info.get('pending', 0)} pending; "
           f"{retention_info.get('unsupported', 0)} unsupported")
+    print(f"Disk SMART: {smart['status']}")
+    print(f"Snapshots: {'enabled' if snapshots.get('enabled') else 'not enabled'}; "
+          f"{picture_problems} picture problems")
+    print(f"Camera list changes: {len(changes['changes'])} ({changes['status']})")
+    if restart.get("detected"):
+        print(f"NVR restarted at about {restart['boot_time']}")
     print(f"Online channels: {online_count}")
     print(f"Offline channels: {offline_count}")
     print(f"Unknown channel statuses: {unknown_count}")
