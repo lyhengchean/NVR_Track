@@ -1,6 +1,17 @@
 """Conservative overall status classification for NVR monitoring."""
 
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
+
+LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
+
+
+def _local(value: object) -> str:
+    try:
+        return datetime.fromisoformat(str(value)).astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return "an unknown time"
 
 
 def determine_overall_status(
@@ -14,6 +25,10 @@ def determine_overall_status(
     actual_count: int | None,
     recording_status: str,
     per_camera_summary: dict | None = None,
+    smart: dict | None = None,
+    picture_problems: int = 0,
+    restart: dict | None = None,
+    inventory_changes: dict | None = None,
 ) -> dict[str, Any]:
     critical: list[str] = []
     warnings: list[str] = []
@@ -97,6 +112,23 @@ def determine_overall_status(
             unknown.append(f"{errors} per-camera recording searches failed.")
         if ambiguous:
             unknown.append(f"{ambiguous} per-camera recording checks were unverified or not run.")
+
+    smart = smart or {}
+    if smart.get("status") == "CRITICAL":
+        critical.append(f"Disk SMART failing: {smart.get('message', '')}")
+    elif smart.get("status") == "WARNING":
+        warnings.append(f"Disk SMART warning: {smart.get('message', '')}")
+    if picture_problems:
+        warnings.append(f"{picture_problems} cameras have a picture problem "
+                        "(black, covered, frozen or moved).")
+    if restart and restart.get("detected"):
+        warnings.append(f"NVR restarted at about {_local(restart.get('boot_time'))}.")
+    changes = (inventory_changes or {}).get("changes") or []
+    if changes:
+        kinds = {"added": "added", "removed": "removed", "renamed": "renamed", "ip_changed": "IP changed"}
+        parts = [f"{sum(c.get('type') == k for c in changes)} {label}" for k, label in kinds.items()
+                 if any(c.get("type") == k for c in changes)]
+        warnings.append("Camera list changed since the previous report: " + ", ".join(parts) + ".")
 
     if critical:
         overall = "CRITICAL"

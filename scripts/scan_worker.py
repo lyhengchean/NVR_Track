@@ -305,6 +305,26 @@ class Service:
         except (OSError, subprocess.TimeoutExpired) as exc:
             print(f"Report archive failed: {type(exc).__name__}", flush=True)
 
+    def maybe_uptime_report(self) -> None:
+        """On the 1st, after a scheduled scan: last month's uptime report and email."""
+        if os.environ.get("NVR_UPTIME_MONTHLY", "true").strip().lower() != "true":
+            return
+        today = datetime.now(TZ)
+        if today.day != 1:
+            return
+        marker = STATE_DIR / "uptime.json"
+        if (read_json(marker) or {}).get("month") == today.strftime("%Y-%m"):
+            return
+        write_json(marker, {"month": today.strftime("%Y-%m")})
+        try:
+            result = subprocess.run([sys.executable, "-m", "scripts.uptime_report", "--previous-month", "--email"],
+                                    cwd=ROOT, capture_output=True, text=True, timeout=1800, check=False)
+            email = re.search(r"^Email report: (\w+)", result.stdout, re.M)
+            print(f"Monthly uptime report: exit {result.returncode}; email {email[1] if email else 'unknown'}",
+                  flush=True)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            print(f"Monthly uptime report failed: {type(exc).__name__}", flush=True)
+
     def loop(self) -> None:
         STATE_DIR.mkdir(parents=True, exist_ok=True)
         previous = read_json(STATE_DIR / "status.json") or {}
@@ -349,6 +369,7 @@ class Service:
                 busy_since = now
                 self.run(job, nvrs)
                 self.maybe_archive()
+                self.maybe_uptime_report()
                 continue
             if config["on_demand"]:
                 job, rejected = take_request({n.id for n in nvrs}, now)

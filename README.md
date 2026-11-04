@@ -320,6 +320,8 @@ Each camera gets one **Condition**, built from results already in the report
 | No recent events | An **online** camera marked `event` in `recording_expectations` had no segment in the search window. Normal for a quiet area, so it is not counted as stopped. An offline event camera, or one with no footage on any of the 30 calendar days, still shows as a problem. |
 | Check failed | The recording check could not be completed (network, track or permission). Never counted as recording. |
 | Gaps (N days) | Recording now, but N days since its oldest footage have no video. |
+| Picture problem | Recording, but the latest snapshot is black, flat (covered), frozen or the view moved (needs snapshot checks). |
+| Known issue | Someone marked the problem as being handled; alerts are paused until the date or until marked fixed. |
 | Below required days (N days) | Recording now, but footage reaches back only N days, fewer than `NVR_REQUIRED_RETENTION_DAYS`. |
 | Offline, still recording | NVR reports the camera offline, yet it recorded in the search window. |
 | Short history (N days) | Recording now, but the NVR holds only N days (overwritten early, or camera added recently). |
@@ -545,6 +547,8 @@ unknown groups are ignored.
 all or one NVR, confirmed before it starts; the bot reports back when the
 scan ends), `/alerts on|off` (alerts in this chat), `/myid`, `/help`.
 
+Add-on commands: `/known`, `/fixed`, `/note`, `/notes`, `/events`, `/uptime`, `/snapshot` (see *Add-ons* below).
+
 **Alerts** are sent only when something **changes**, once per change, with a
 matching "✅ resolved" message later: a camera stops recording or has no
 footage for 30 days, a camera goes offline, an NVR cannot be scanned or turns
@@ -585,6 +589,62 @@ history caches and the dashboard are unaffected. To run it automatically once a
 day after a scheduled scan, set `NVR_REPORT_ARCHIVE_DAYS=60` and recreate
 `nvr-scanner`. To look inside an archive:
 `tar -tzf reports/archive/reports-2026-08-<run>.tar.gz | head`.
+
+## Add-ons: known issues, repair log, changes, uptime, SMART, pictures, events
+
+All add-ons stay read-only towards the NVRs (GET requests; the only POSTs
+remain the existing recording searches and calendars).
+
+**Known issues and repair log** (on by default). Mark a camera, or a whole
+NVR, as a known issue: its alerts pause, it shows as *Known issue* on the
+dashboard (instead of a problem), in the email under "Known issues (alerts
+paused)" and in Telegram `/problems`. Alerts resume on the end date, or when
+someone marks it fixed; if it is still broken then, the alert comes again.
+Marking fixed also accepts the camera's current view as its reference
+picture. Notes (who, when, what) are kept per camera.
+- Dashboard: **Notes…** on a camera row, or *NVR known issue / note…* in Findings.
+- Telegram: `/known` (list), `/known nvr-01 5 7d Cable cut` (admins; `all`
+  instead of 5 for the whole NVR; `3d`, `2w`, `2026-11-20` or `-` for until
+  fixed), `/fixed nvr-01 5 spliced`, `/note nvr-01 5 Replaced cable`
+  (admins, or everyone with `TELEGRAM_NOTES_BY=users`), `/notes nvr-01 [5]`.
+  A single camera result from `/camera` has buttons for these.
+- Stored in `state/notes/notes.json` (back it up with the project).
+
+**Camera list changes and NVR restarts** (on by default). Each report is
+compared with the previous one whose channel list was retrieved: cameras
+added, removed, renamed or with a new IP appear in Findings, the email,
+the NVR warnings and as a one-off Telegram alert. `GET /ISAPI/System/status`
+reads the NVR's uptime; a boot after the previous report is reported as a
+restart. Turn the status read off with `NVR_DEVICE_STATUS=false`.
+
+**Uptime report** (on by default). Online % and recording % per camera and
+NVR, plus cameras that keep dropping on and off, from saved reports only.
+Failed or disabled checks are left out, never counted either way.
+- Telegram `/uptime` (last 30 days), `/uptime 7`, `/uptime 2026-10`, with a CSV file.
+- On the 1st, after the first scheduled scan, last month's report is emailed
+  (CSV attached) and posted to the alert chats. `NVR_UPTIME_MONTHLY=false` turns it off.
+- By hand: `docker compose run --rm -T --entrypoint python nvr-report -m scripts.uptime_report --month 2026-10`
+  (saves `reports/uptime/uptime-2026-10.csv`).
+
+**Disk SMART, snapshot checks and real-time events** (off until enabled per
+NVR). First check what the NVR supports (GET only, saves nothing):
+
+```bash
+cd /opt/NVR_Track
+docker compose build nvr-report
+docker compose run --rm -T --entrypoint python nvr-report -m scripts.probe_nvr_features --nvr-id nvr-01
+```
+
+It ends with the `.env` lines for what worked. Then:
+
+| Add-on | Enable | What it does |
+|---|---|---|
+| Disk SMART | `NVR_SMART_NVR_IDS=nvr-01` | GET SMART status per installed SATA disk, once per `NVR_SMART_CACHE_HOURS` (24). Failing self-assessment, 100+ bad sectors or 60 °C+ is critical; any bad sectors or 55 °C+ is a warning. Shown in Storage (SMART, Temp.), NVR health, email, Telegram `/storage` and alerts. |
+| Snapshot checks | `NVR_SNAPSHOT_NVR_IDS=nvr-01` | One picture per online camera per scan (within `NVR_SNAPSHOT_MAX_SECONDS`, 180). Black, flat/covered, frozen (identical to the previous scan) or moved (differs from the day/night reference) gives *Picture problem* and an alert. The latest thumbnail per camera is kept in `state/snapshots` (`NVR_SNAPSHOT_KEEP=false` keeps none): dashboard **View**, Telegram `/snapshot nvr-01 5` for admins (`TELEGRAM_SNAPSHOTS=off` disables it). |
+| Real-time events | `NVR_EVENT_NVR_IDS=nvr-01`, then `docker compose up -d nvr-events` | One alert-stream connection per NVR. Video loss, camera covered/tampered, disk error/full/unformatted, network cable, IP conflict, illegal login and video signal faults reach Telegram within seconds (repeats collapsed for `NVR_EVENT_REPEAT_MINUTES`, 30; known issues muted). Motion detection is ignored. `/events` and Findings show the last 24 h; a dropped stream is alerted. |
+
+After changing these: `docker compose up -d --force-recreate nvr-scanner nvr-dashboard nvr-telegram`
+(and `nvr-events` for events). Enable one NVR first, check a scan, then add more.
 
 ## Troubleshooting
 

@@ -1,0 +1,145 @@
+"""nvr-events service: real-time Hikvision events, read-only.
+
+One GET /ISAPI/Event/notification/alertStream connection per NVR listed in
+NVR_EVENT_NVR_IDS (each in its own thread). Wanted events are appended to
+state/events/events.jsonl; connection state goes to state/events/status.json.
+Never sends POST/PUT/DELETE, never changes NVR settings, never prints
+credentials. The Telegram bot and dashboard read the files.
+"""
+from __future__ import annotations
+
+import os
+import sys
+import threading
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import requests
+from requests.auth import HTTPDigestAuth
+from requests.exceptions import RequestException
+
+from app import events
+from app.config import InventoryError, load_inventory
+
+ROOT = Path(__file__).resolve().parent.parent
+INVENTORY_PATH = ROOT / "config" / "nvrs.local.json"
+READ_TIMEOUT = 90          # Hikvision sends a heartbeat about every 10 s.
+BACKOFF = (10, 30, 60, 120, 300)
+
+
+def credentials(nvr) -> tuple[str, str]:
+    suffix = nvr.id.upper().removeprefix("NVR-").replace("-", "_")
+    username = os.environ.get(f"NVR_{suffix}_USERNAME", "").strip() or os.environ.get("NVR_USERNAME", "").strip()
+    password = os.environ.get(f"NVR_{suffix}_PASSWORD", "") or os.environ.get("NVR_PASSWORD", "")
+    return username, password
+
+
+class Listener:
+    def __init__(self, nvr, types: dict, dedupe: events.Deduplicator, lock: threading.Lock):
+        self.nvr = nvr
+        self.types = types
+        self.dedupe = dedupe
+        self.lock = lock
+        self.state = {"connected": False, "since": None, "last_seen": None, "last_error": None,
+                      "events": 0, "ignored_types": {}}
+
+    def run(self) -> None:
+        username, password = credentials(self.nvr)
+        if not username or not password:
+            self.state["last_error"] = "NO_CREDENTIALS"
+            return
+        url = f"http://{self.nvr.ip}:{self.nvr.http_port}/ISAPI/Event/notification/alertStream"
+        failures = 0
+        while True:
+            parser = events.StreamParser()
+            try:
+                with requests.Session() as session:
+                    session.trust_env = False
+                    with session.get(url, auth=HTTPDigestAuth(username, password), stream=True,
+                                     timeout=(5, READ_TIMEOUT), allow_redirects=False,
+                                     headers={"Accept": "*/*"}) as response:
+                        if response.status_code != 200:
+                            raise ConnectionError(f"HTTP_{response.status_code}")
+                        self.mark(connected=True, since=now(), last_error=None)
+                        failures = 0
+                        for chunk in response.iter_content(4096):
+                            self.state["last_seen"] = now()
+                            for event in parser.feed(chunk):
+                                self.handle(event)
+                raise ConnectionError("STREAM_CLOSED")
+            except (RequestException, ConnectionError) as exc:
+                code = str(exc) if isinstance(exc, ConnectionError) and str(exc).isupper() else type(exc).__name__
+                if self.state["connected"]:
+                    print(f"events: {self.nvr.id} disconnected ({code})", flush=True)
+                self.mark(connected=False, since=now(), last_error=code[:40])
+            wait = BACKOFF[min(failures, len(BACKOFF) - 1)]
+            failures += 1
+            time.sleep(wait)
+
+    def mark(self, **changes) -> None:
+        with self.lock:
+            self.state.update(changes)
+
+    def handle(self, event: dict) -> None:
+        if events.is_heartbeat(event):
+            return
+        if event["type"] not in self.types:
+            ignored = self.state["ignored_types"]
+            if len(ignored) < 30 or event["type"] in ignored:
+                ignored[event["type"]] = ignored.get(event["type"], 0) + 1
+            return
+        if not self.dedupe.accept(self.nvr.id, event):
+            return
+        with self.lock:
+            try:
+                line = events.record(self.nvr.id, event, self.types)
+            except OSError as exc:
+                print(f"events: cannot save event ({type(exc).__name__})", flush=True)
+                return
+            self.state["events"] += 1
+        print(f"events: {self.nvr.id} {line['label']}" + (f" ch{line['channel']}" if line["channel"] else ""),
+              flush=True)
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def main() -> int:
+    enabled = {i.strip().lower() for i in os.environ.get("NVR_EVENT_NVR_IDS", "").split(",") if i.strip()}
+    try:
+        nvrs = [n for n in load_inventory(INVENTORY_PATH) if n.id.lower() in enabled]
+    except InventoryError as exc:
+        print(f"events: cannot load inventory: {exc}", flush=True)
+        return 2
+    if not nvrs:
+        print("events: no NVR in NVR_EVENT_NVR_IDS; idle. Run scripts.probe_nvr_features first, "
+              "then set it in .env and recreate nvr-events.", flush=True)
+        events.write_status({})
+        while True:
+            time.sleep(3600)
+    try:
+        repeat = int(os.environ.get("NVR_EVENT_REPEAT_MINUTES", "30"))
+        repeat = repeat if 1 <= repeat <= 1440 else 30
+    except ValueError:
+        repeat = 30
+    lock = threading.Lock()
+    dedupe = events.Deduplicator(repeat)
+    types = events.wanted_types()
+    listeners = [Listener(nvr, types, dedupe, lock) for nvr in nvrs]
+    for listener in listeners:
+        threading.Thread(target=listener.run, daemon=True, name=listener.nvr.id).start()
+    print(f"events: listening to {', '.join(n.id for n in nvrs)}; types: {', '.join(sorted(types))}", flush=True)
+    while True:
+        time.sleep(15)
+        with lock:
+            snapshot = {listener.nvr.id: dict(listener.state) for listener in listeners}
+        try:
+            events.write_status(snapshot)
+        except OSError as exc:
+            print(f"events: cannot write status ({type(exc).__name__})", file=sys.stderr, flush=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

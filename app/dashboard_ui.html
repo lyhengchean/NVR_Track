@@ -10,7 +10,7 @@
 :root{
   --bg:#eef2f6;--panel:#fff;--panel-2:#f6f8fb;--ink:#0e1a2b;--ink-2:#2c3b50;--muted:#5d6d82;--line:#d9e1ea;--line-2:#e8edf3;
   --accent:#3b82f6;--accent-ink:#1d4ed8;--accent-soft:#e3edff;--focus:#93c5fd;
-  --ok:#1f9d55;--short:#7cc49a;--offrec:#0ea5e9;--gaps:#e5a000;--failed:#8b5cf6;--stopped:#e5484d;--nofootage:#8f1d22;--unmon:#b4c0ce;--quiet:#7b9cc4;--belowret:#c2410c;
+  --ok:#1f9d55;--short:#7cc49a;--offrec:#0ea5e9;--gaps:#e5a000;--failed:#8b5cf6;--stopped:#e5484d;--nofootage:#8f1d22;--unmon:#b4c0ce;--quiet:#7b9cc4;--belowret:#c2410c;--badpic:#db2777;--known:#64748b;
   --ok-soft:#e3f6eb;--warn-soft:#fff4d6;--crit-soft:#fde7e8;--info-soft:#e4f4fc;--violet-soft:#efe9ff;--gray-soft:#edf1f5;
   --ok-text:#116b38;--warn-text:#8a5a00;--crit-text:#a3191f;--info-text:#075f86;--violet-text:#5b30c4;--gray-text:#4c5b6e;
   --shadow:0 1px 2px rgba(14,26,43,.06),0 8px 24px -12px rgba(14,26,43,.18);
@@ -21,7 +21,7 @@
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0a111d;--panel:#101a2a;--panel-2:#0d1624;--ink:#e6edf6;--ink-2:#c3cfdd;--muted:#8fa0b6;--line:#22314a;--line-2:#1a2639;
   --accent:#3b82f6;--accent-ink:#8ab4ff;--accent-soft:#16284a;--focus:#3b82f6;
-  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;--quiet:#4f6f96;--belowret:#f08a4b;
+  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;--quiet:#4f6f96;--belowret:#f08a4b;--badpic:#f472b6;--known:#94a3b8;
   --ok-soft:#0f2d1e;--warn-soft:#33270a;--crit-soft:#3a1418;--info-soft:#0b2a3a;--violet-soft:#241a45;--gray-soft:#1a2537;
   --ok-text:#7ee2a6;--warn-text:#f6cf6b;--crit-text:#ff9da1;--info-text:#8fdcff;--violet-text:#c9b8ff;--gray-text:#a9b6c7;
   --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);color-scheme:dark;
@@ -29,7 +29,7 @@
 :root[data-theme="dark"]{
   --bg:#0a111d;--panel:#101a2a;--panel-2:#0d1624;--ink:#e6edf6;--ink-2:#c3cfdd;--muted:#8fa0b6;--line:#22314a;--line-2:#1a2639;
   --accent:#3b82f6;--accent-ink:#8ab4ff;--accent-soft:#16284a;--focus:#3b82f6;
-  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;--quiet:#4f6f96;--belowret:#f08a4b;
+  --ok:#2fb86a;--short:#5e9f79;--offrec:#38bdf8;--gaps:#f0b429;--failed:#a78bfa;--stopped:#f2555a;--nofootage:#c9363c;--unmon:#3d4c63;--quiet:#4f6f96;--belowret:#f08a4b;--badpic:#f472b6;--known:#94a3b8;
   --ok-soft:#0f2d1e;--warn-soft:#33270a;--crit-soft:#3a1418;--info-soft:#0b2a3a;--violet-soft:#241a45;--gray-soft:#1a2537;
   --ok-text:#7ee2a6;--warn-text:#f6cf6b;--crit-text:#ff9da1;--info-text:#8fdcff;--violet-text:#c9b8ff;--gray-text:#a9b6c7;
   --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);color-scheme:dark;
@@ -112,7 +112,7 @@ button{cursor:pointer}
 
 /* Condition palette, used by bar, legend, wall cells and badges */
 .k-OK{--k:var(--ok)}.k-SHORT_HISTORY{--k:var(--short)}.k-OFFLINE_RECORDING{--k:var(--offrec)}.k-GAPS{--k:var(--gaps)}
-.k-CHECK_FAILED{--k:var(--failed)}.k-NOT_RECORDING{--k:var(--stopped)}.k-NO_FOOTAGE_30{--k:var(--nofootage)}.k-NOT_MONITORED{--k:var(--unmon)}.k-NO_RECENT_EVENTS{--k:var(--quiet)}.k-BELOW_RETENTION{--k:var(--belowret)}.k-NONE{--k:transparent}
+.k-CHECK_FAILED{--k:var(--failed)}.k-NOT_RECORDING{--k:var(--stopped)}.k-NO_FOOTAGE_30{--k:var(--nofootage)}.k-NOT_MONITORED{--k:var(--unmon)}.k-NO_RECENT_EVENTS{--k:var(--quiet)}.k-BELOW_RETENTION{--k:var(--belowret)}.k-BAD_PICTURE{--k:var(--badpic)}.k-KNOWN_ISSUE{--k:var(--known)}.k-NONE{--k:transparent}
 .swatch,.condbar span{background:var(--k)}
 
 /* Facts */
@@ -287,6 +287,21 @@ footer{margin:30px 0 40px;font-size:12.5px;color:var(--muted);max-width:110ch}
   .btn.primary{width:36px;padding:0;justify-content:center}
 }
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+.pill.PICTURE_OK{background:var(--ok-soft);color:var(--ok-text)}
+.pill.PICTURE_BLACK,.pill.PICTURE_UNIFORM,.pill.PICTURE_FROZEN,.pill.PICTURE_VIEW_CHANGED{background:var(--crit-soft);color:var(--crit-text)}
+.note-line{display:block;margin-top:3px;font-size:12px;color:var(--muted)}
+.note-line.known{color:var(--ink-2);font-weight:600}
+.rowbtn{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:2px 9px;font-size:12px;color:var(--ink-2);cursor:pointer}
+.rowbtn:hover,.rowbtn:focus-visible{border-color:var(--accent);color:var(--accent-ink);outline:none}
+.modal-back{position:fixed;inset:0;background:rgba(10,17,29,.45);display:flex;align-items:center;justify-content:center;z-index:60;padding:16px}
+.modal{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);width:min(520px,100%);max-height:90vh;overflow:auto;padding:18px 20px}
+.modal h3{margin:0 0 4px;font-size:16px}.modal .sub{color:var(--muted);font-size:12.5px}
+.modal label{display:block;margin:12px 0 4px;font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.modal textarea{width:100%;min-height:64px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:8px;background:var(--panel-2);color:var(--ink);font:inherit}
+.modal .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+.modal img{display:block;max-width:100%;border-radius:8px;margin-top:10px;background:#000}
+.modal ul{margin:6px 0 0;padding-left:18px;font-size:13px}
+.modal .msg{margin-top:10px;font-size:13px;min-height:1em}.modal .msg.err{color:var(--crit-text)}
 @media print{.topbar,.toolbar,.expand{display:none}.nvr{box-shadow:none;break-inside:avoid}}
 </style>
 </head>
@@ -359,7 +374,7 @@ footer{margin:30px 0 40px;font-size:12.5px;color:var(--muted);max-width:110ch}
         <option value="">All live statuses</option><option value="ONLINE">Online</option><option value="OFFLINE">Offline</option><option value="UNKNOWN">Unknown</option><option value="NOT_RETURNED">Not returned</option>
       </select>
       <select id="condition-filter" class="control" aria-label="Camera condition">
-        <option value="">All conditions</option><option value="NO_FOOTAGE_30">No footage 30+ days</option><option value="NOT_RECORDING">Stopped recording</option><option value="CHECK_FAILED">Check failed</option><option value="GAPS">Gaps</option><option value="BELOW_RETENTION">Below required days</option><option value="OFFLINE_RECORDING">Offline, still recording</option><option value="SHORT_HISTORY">Short history</option><option value="NO_RECENT_EVENTS">No recent events</option><option value="NOT_MONITORED">Not monitored</option><option value="OK">OK</option>
+        <option value="">All conditions</option><option value="NO_FOOTAGE_30">No footage 30+ days</option><option value="NOT_RECORDING">Stopped recording</option><option value="CHECK_FAILED">Check failed</option><option value="GAPS">Gaps</option><option value="BELOW_RETENTION">Below required days</option><option value="BAD_PICTURE">Picture problem</option><option value="OFFLINE_RECORDING">Offline, still recording</option><option value="SHORT_HISTORY">Short history</option><option value="KNOWN_ISSUE">Known issue</option><option value="NO_RECENT_EVENTS">No recent events</option><option value="NOT_MONITORED">Not monitored</option><option value="OK">OK</option>
       </select>
       <select id="recording-filter" class="control" aria-label="Recording check result">
         <option value="">All recording results</option><option value="EVIDENCE">Recorded in window</option><option value="NO_RECENT_RECORDING_EVIDENCE">No recent evidence</option><option value="OFFLINE_EVIDENCE">Offline, footage found</option><option value="FAILED">Failed or unverified</option><option value="NOT_CHECKED">Not checked or not enabled</option>
@@ -398,13 +413,14 @@ const TZ = "Asia/Phnom_Penh";
 const EVIDENCE = new Set(["RECORDING", "RECORDING_EVIDENCE_WITH_ANOMALY"]);
 const FAILED_CHECKS = new Set(["TRACK_NOT_FOUND", "TRACK_MAPPING_UNVERIFIED", "CHECK_INCONCLUSIVE", "CHECK_ERROR"]);
 const NOT_RUN = new Set(["NOT_CHECKED", "NOT_CONFIGURED"]);
-const PROBLEMS = new Set(["NO_FOOTAGE_30", "NOT_RECORDING", "CHECK_FAILED", "GAPS", "BELOW_RETENTION", "OFFLINE_RECORDING"]);
+const PROBLEMS = new Set(["NO_FOOTAGE_30", "NOT_RECORDING", "CHECK_FAILED", "GAPS", "BELOW_RETENTION", "BAD_PICTURE", "OFFLINE_RECORDING"]);
 // Display order: urgent first, so a thin red slice is never hidden at the end.
 const CONDITIONS = [
   ["NO_FOOTAGE_30", "No footage 30+ days"], ["NOT_RECORDING", "Stopped recording"],
   ["CHECK_FAILED", "Check failed"], ["GAPS", "Gaps"], ["BELOW_RETENTION", "Below required days"],
+  ["BAD_PICTURE", "Picture problem"],
   ["OFFLINE_RECORDING", "Offline, still recording"],
-  ["SHORT_HISTORY", "Short history"], ["NO_RECENT_EVENTS", "No recent events"],
+  ["SHORT_HISTORY", "Short history"], ["KNOWN_ISSUE", "Known issue"], ["NO_RECENT_EVENTS", "No recent events"],
   ["NOT_MONITORED", "Not monitored"], ["OK", "OK"]
 ];
 const CONDITION_LABEL = Object.fromEntries(CONDITIONS);
@@ -422,7 +438,10 @@ const LABELS = {
   HISTORICAL_NOT_CONFIGURED: "Not enabled",
   RETENTION_VERIFIED: "Verified", RETENTION_PARTIAL: "Partial", RETENTION_PENDING: "Pending",
   RETENTION_STALE: "Previous scan", RETENTION_UNSUPPORTED: "Not supported", RETENTION_ERROR: "Query error",
-  RETENTION_INCONCLUSIVE: "Inconclusive", RETENTION_UNVERIFIED: "Unverified track", RETENTION_NOT_CONFIGURED: "Not enabled"
+  RETENTION_INCONCLUSIVE: "Inconclusive", RETENTION_UNVERIFIED: "Unverified track", RETENTION_NOT_CONFIGURED: "Not enabled",
+  PICTURE_OK: "Picture OK", PICTURE_BLACK: "Black", PICTURE_UNIFORM: "Flat / covered", PICTURE_FROZEN: "Frozen",
+  PICTURE_VIEW_CHANGED: "View changed", PICTURE_UNAVAILABLE: "No picture", PICTURE_NOT_CHECKED: "Not checked",
+  PICTURE_NOT_CONFIGURED: "Not enabled", UNVERIFIED: "Unverified"
 };
 const STORAGE_LABEL = {HEALTHY: "Storage healthy", WARNING: "Storage warning", CRITICAL: "Storage critical", UNKNOWN: "Storage unknown"};
 
@@ -659,7 +678,10 @@ function renderFacts() {
   group("NVRs", [
     ["Reporting", (s.latest_run_reporting ?? s.total_nvrs ?? 0) + " of " + (s.total_nvrs ?? 0), num(s.latest_run_failed) ? "crit" : "ok", true],
     ["Healthy", num(s.healthy), "ok", true], ["Warning", num(s.warning), "warn", true],
-    ["Critical", num(s.critical), "crit", true], ["Latest run failed", num(s.latest_run_failed), "crit"]
+    ["Critical", num(s.critical), "crit", true], ["Latest run failed", num(s.latest_run_failed), "crit"],
+    ["Restarted since last scan", num(s.restarts), "warn"], ["Camera list changes", num(s.camera_changes), "warn"],
+    ["Real-time events (24 h)", num(s.events_24h), "info"], ["Event streams down", num(s.event_streams_down), "crit"],
+    ["Known issues (alerts paused)", num(s.known_issues), ""]
   ]);
   group("Cameras live", [
     ["Online", num(s.cameras_online), "ok", true], ["Offline", num(s.cameras_offline), "crit", true],
@@ -677,6 +699,7 @@ function renderFacts() {
   ]);
   group("Storage", [
     ["Critical", num(s.storage_critical), "crit", true], ["Warning", num(s.storage_warnings), "warn", true],
+    ["Disk SMART problems", num(s.smart_problems), "crit"],
     ["Calendar errors", num(s.retention_errors) + num(s.retention_partial), "warn"],
     ["Failed history searches", num(s.historical_errors), "crit"]
   ]);
@@ -921,7 +944,8 @@ function cameraPanel(row) {
       ["hist", "History", ch => pill(notNeeded(ch) ? "HISTORICAL_NOT_NEEDED" : h(ch).status), null],
       ["histwhen", "History checked", ch => h(ch).checked_at ? stamp(h(ch).checked_at) + (h(ch).from_cache ? " (cached)" : "") : "—", null],
       ["cal", "Calendar", ch => pill(ch.retention_result.status), null],
-      ["expect", "Expectation", ch => ch.recording_expectation, null]
+      ["expect", "Expectation", ch => ch.recording_expectation, null],
+      ["pic", "Picture", ch => pictureCell(nvr, ch), null]
     );
   }
   cols.push(["why", "Why", ch => {
@@ -932,7 +956,19 @@ function cameraPanel(row) {
       if (h.message && h.status !== "HISTORICAL_NOT_CHECKED" && h.status !== "HISTORICAL_NOT_CONFIGURED") parts.push(h.message);
       if (r.anomalies?.length) parts.push("Anomalies: " + r.anomalies.join(", "));
     }
-    return parts.filter(Boolean).join(" ");
+    const box = el("span", "", parts.filter(Boolean).join(" "));
+    if (ch.known_issue && cond(ch).code !== "KNOWN_ISSUE")
+      box.append(el("span", "note-line known", "Known issue" + (ch.known_issue.until ? " until " + ch.known_issue.until : "") + ": " + ch.known_issue.reason));
+    for (const n of (ch.notes || []).slice(0, full ? 3 : 1))
+      box.append(el("span", "note-line", stamp(n.at) + " · " + n.text + (n.by ? " (" + n.by + ")" : "")));
+    return box;
+  }, null]);
+  cols.push(["act", "", ch => {
+    const b = el("button", "rowbtn", "Notes…");
+    b.type = "button";
+    b.title = "Known issue, fixed, repair note" + (ch.snapshot_result?.has_image ? ", picture" : "");
+    b.addEventListener("click", () => openCameraDialog(nvr, ch));
+    return b;
   }, null]);
 
   const source = row.narrowed ? nvr.channels.filter(ch => row.match.has(ch)) : nvr.channels;
@@ -987,6 +1023,80 @@ function cameraPanel(row) {
   frag.append(scroller);
   return frag;
 }
+function pictureCell(nvr, ch) {
+  const s = ch.snapshot_result || {status: "PICTURE_NOT_CONFIGURED"};
+  const p = pill(s.status);
+  if (s.message) p.title = s.message;
+  if (!s.has_image) return p;
+  const wrap = el("span");
+  const b = el("button", "rowbtn", "View");
+  b.type = "button";
+  b.addEventListener("click", () => openCameraDialog(nvr, ch, true));
+  wrap.append(p, " ", b);
+  return wrap;
+}
+function closeDialog() { document.querySelector(".modal-back")?.remove(); }
+function openCameraDialog(nvr, ch, pictureFirst) {
+  closeDialog();
+  const back = el("div", "modal-back");
+  const box = el("div", "modal");
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  const title = ch ? (ch.name || "Channel " + ch.channel_id) + " · ch" + ch.channel_id : "Whole NVR";
+  box.append(el("h3", "", title), el("div", "sub", nvrTitle(nvr) + (ch ? " · " + cond(ch).label : "")));
+  if (ch && ch.snapshot_result?.has_image) {
+    const img = el("img");
+    img.alt = "Latest picture from " + title;
+    img.src = "/api/snapshot?nvr=" + encodeURIComponent(nvr.id) + "&ch=" + encodeURIComponent(ch.channel_id) + "&t=" + Date.now();
+    box.append(img, el("div", "sub", label(ch.snapshot_result.status) + " · " + stamp(ch.snapshot_result.checked_at) + " · " + (ch.snapshot_result.message || "")));
+  }
+  const issue = ch ? ch.known_issue : nvr.nvr_known_issue;
+  if (issue) box.append(el("p", "", "Known issue" + (issue.until ? " until " + issue.until : " until marked fixed") + ": " + issue.reason));
+  const notes = ch ? ch.notes || [] : nvr.nvr_notes || [];
+  if (notes.length) {
+    const ul = el("ul");
+    for (const n of notes) ul.append(el("li", "", stamp(n.at) + " · " + n.text + (n.by ? " (" + n.by + ")" : "")));
+    box.append(el("label", "", "Recent notes"), ul);
+  }
+  const textLabel = el("label", "", "Reason or note");
+  const text = el("textarea");
+  text.maxLength = 300;
+  text.placeholder = "e.g. Cable cut, technician on Friday";
+  textLabel.htmlFor = text.id = "dlg-text";
+  const untilLabel = el("label", "", "Pause alerts for");
+  const until = el("select", "control");
+  until.id = untilLabel.htmlFor = "dlg-until";
+  for (const [v, n] of [["1d", "1 day"], ["3d", "3 days"], ["7d", "7 days"], ["14d", "14 days"], ["30d", "30 days"], ["", "Until marked fixed"]]) {
+    const o = el("option", "", n); o.value = v; until.append(o);
+  }
+  until.value = "7d";
+  const msg = el("p", "msg");
+  msg.setAttribute("role", "status");
+  const send = async (action) => {
+    msg.className = "msg"; msg.textContent = "Saving…";
+    try {
+      const r = await fetch("/api/notes", {method: "POST", cache: "no-store", credentials: "same-origin",
+        headers: {"Content-Type": "application/json", "X-NVR-Track": "notes"},
+        body: JSON.stringify({action, nvr: nvr.id, channel: ch ? ch.channel_id : null, text: text.value, until: until.value})});
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || "HTTP " + r.status);
+      closeDialog(); refresh();
+    } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+  };
+  const row = el("div", "row");
+  const known = el("button", "btn primary", "Mark known issue"); known.type = "button"; known.addEventListener("click", () => send("known"));
+  const fixed = el("button", "btn", "Mark fixed"); fixed.type = "button"; fixed.addEventListener("click", () => send("fixed"));
+  const note = el("button", "btn", "Add note"); note.type = "button"; note.addEventListener("click", () => send("note"));
+  const close = el("button", "btn", "Close"); close.type = "button"; close.addEventListener("click", closeDialog);
+  row.append(known, fixed, note, close);
+  box.append(textLabel, text, untilLabel, until, row, msg,
+    el("p", "sub", "A known issue pauses alerts and shows the camera as Known issue. Marking fixed resumes alerts and accepts the camera's current view as its reference picture."));
+  back.append(box);
+  back.addEventListener("click", e => { if (e.target === back) closeDialog(); });
+  back.addEventListener("keydown", e => { if (e.key === "Escape") closeDialog(); });
+  document.body.append(back);
+  (pictureFirst ? close : text).focus();
+}
 function space(mb) {
   const n = Number(mb);
   if (mb === null || mb === undefined || mb === "" || !Number.isFinite(n)) return "—";
@@ -997,15 +1107,18 @@ function space(mb) {
 function storagePanel(nvr) {
   const frag = document.createDocumentFragment();
   frag.append(el("p", "note", nvr.storage_message || "No storage message in this report."));
+  if (nvr.smart && nvr.smart.status !== "NOT_CONFIGURED")
+    frag.append(el("p", "note", "Disk SMART: " + label(nvr.smart.status) + (nvr.smart.message ? " — " + nvr.smart.message : "") +
+      (nvr.smart.checked_at ? " (checked " + stamp(nvr.smart.checked_at) + (nvr.smart.from_cache ? ", cached" : "") + ")" : "")));
   const scroller = el("div", "scroller");
   const table = el("table");
   const thead = el("thead"), hr = el("tr");
-  ["Disk", "Name", "Type", "State", "Capacity", "Free", "Used", "Property", "Group"].forEach(t => { const th = el("th", "", t); th.scope = "col"; hr.append(th); });
+  ["Disk", "Name", "Type", "State", "Capacity", "Free", "Used", "Property", "Group", "SMART", "Temp."].forEach(t => { const th = el("th", "", t); th.scope = "col"; hr.append(th); });
   thead.append(hr);
   const tbody = el("tbody");
   if (!nvr.disks.length) {
     const tr = el("tr"), td = el("td", "empty", "No disks were returned in this report.");
-    td.colSpan = 9; tr.append(td); tbody.append(tr);
+    td.colSpan = 11; tr.append(td); tbody.append(tr);
   }
   const clean = v => v && v !== "NOT_RETURNED" ? v : "—";
   for (const d of nvr.disks) {
@@ -1022,7 +1135,11 @@ function storagePanel(nvr) {
       bar.append(fill); used.append(bar);
       if (pct >= 99) used.title = "Full. NVRs normally overwrite the oldest footage when full; confirm the overwrite policy.";
     } else used.append("—");
-    const cells = [d.id, clean(d.name), clean(d.type), pill(tone, state_ === "notexist" ? "Not detected" : d.reported_status), space(d.capacity_mb), space(d.free_space_mb), used, clean(d.property), clean(d.group)];
+    const sm = d.smart;
+    const smartCell = sm ? pill(sm.status === "HEALTHY" ? "HEALTHY" : sm.status, label(sm.status)) : "—";
+    if (sm && sm.message) smartCell.title = sm.message;
+    const temp = sm && Number.isFinite(sm.temperature_c) ? sm.temperature_c + " °C" : "—";
+    const cells = [d.id, clean(d.name), clean(d.type), pill(tone, state_ === "notexist" ? "Not detected" : d.reported_status), space(d.capacity_mb), space(d.free_space_mb), used, clean(d.property), clean(d.group), smartCell, temp];
     for (const v of cells) { const td = el("td"); if (v instanceof Node) td.append(v); else td.textContent = String(v); tr.append(td); }
     tbody.append(tr);
   }
@@ -1043,6 +1160,31 @@ function findingsPanel(nvr) {
     ul.append(el("li", "w", "Inventory mismatch: " + nvr.configured_channels + " configured, " + nvr.expected_channels + " expected."));
   if (!ul.children.length) ul.append(el("li", "", "No findings in this report."));
   list.append(ul);
+  const extra = [];
+  const changes = nvr.inventory_changes?.changes || [];
+  if (changes.length) {
+    const sec = el("section"), cl = el("ul");
+    sec.append(el("h4", "", "Camera list changes since " + stamp(nvr.inventory_changes.compared_with)));
+    const kind = {added: "Added", removed: "Removed", renamed: "Renamed", ip_changed: "IP changed"};
+    for (const c of changes) cl.append(el("li", "w", kind[c.type] + ": ch" + c.channel_id + " " + [c.old, c.new].filter(Boolean).join(" → ")));
+    sec.append(cl); extra.push(sec);
+  }
+  const evs = nvr.events || [];
+  if (evs.length || nvr.event_stream) {
+    const sec = el("section"), cl = el("ul");
+    const st = nvr.event_stream;
+    sec.append(el("h4", "", "Real-time events (24 h)" + (st ? (st.connected ? " · stream connected" : " · stream DOWN (" + (st.last_error || "?") + ")") : "")));
+    for (const e of evs) cl.append(el("li", e.severity === "critical" ? "c" : "w", stamp(e.at) + " · " + e.label + (e.channel ? " · ch" + e.channel : "") + (e.description ? " — " + e.description : "")));
+    if (!evs.length) cl.append(el("li", "", "No events in the last 24 hours."));
+    sec.append(cl); extra.push(sec);
+  }
+  if (nvr.nvr_known_issue || (nvr.nvr_notes || []).length) {
+    const sec = el("section"), cl = el("ul");
+    sec.append(el("h4", "", "NVR notes"));
+    if (nvr.nvr_known_issue) cl.append(el("li", "w", "Known issue for the whole NVR" + (nvr.nvr_known_issue.until ? " until " + nvr.nvr_known_issue.until : "") + ": " + nvr.nvr_known_issue.reason));
+    for (const n of nvr.nvr_notes || []) cl.append(el("li", "", stamp(n.at) + " · " + n.text + (n.by ? " (" + n.by + ")" : "")));
+    sec.append(cl); extra.push(sec);
+  }
   const facts = el("section");
   facts.append(el("h4", "", "Report details"));
   const dl = el("dl", "kv");
@@ -1056,9 +1198,16 @@ function findingsPanel(nvr) {
   if (Number.isInteger(pc.nvr_clock_offset_seconds_approx)) add("NVR clock offset", pc.nvr_clock_offset_seconds_approx + " s");
   add("Camera list source", nvr.channel_source === "CHANNEL_STATUS_FALLBACK" ? "Status list (channel list failed)" : "Channel inventory");
   add("Ports", "HTTP " + (nvr.http_port ?? "—") + ", server " + (nvr.server_port ?? "—"));
+  if (Number.isFinite(nvr.uptime_seconds)) add("NVR uptime", Math.floor(nvr.uptime_seconds / 86400) + " d " + Math.floor(nvr.uptime_seconds % 86400 / 3600) + " h" + (nvr.restart?.detected ? " (restarted since the previous scan)" : ""));
+  if (Number.isFinite(nvr.cpu_percent)) add("NVR CPU", nvr.cpu_percent + "%");
+  add("Snapshots", nvr.snapshots_enabled ? "Enabled" : "Not enabled");
   add("Report file", nvr.report_file || "—");
   facts.append(dl);
-  grid.append(list, facts);
+  const whole = el("button", "rowbtn", "NVR known issue / note…");
+  whole.type = "button";
+  whole.addEventListener("click", () => openCameraDialog(nvr, null));
+  facts.append(el("p", "", ""), whole);
+  grid.append(list, facts, ...extra);
   return grid;
 }
 

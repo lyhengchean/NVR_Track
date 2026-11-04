@@ -21,15 +21,30 @@ CONDITIONS = {
     "GAPS": ("Gaps", "warning", 3),
     # Keeps fewer days of footage than NVR_REQUIRED_RETENTION_DAYS.
     "BELOW_RETENTION": ("Below required days", "warning", 4),
-    "OFFLINE_RECORDING": ("Offline, still recording", "warning", 5),
-    "SHORT_HISTORY": ("Short history", "info", 6),
+    # Recording, but the snapshot is black, blank/covered, frozen or moved.
+    "BAD_PICTURE": ("Picture problem", "warning", 5),
+    "OFFLINE_RECORDING": ("Offline, still recording", "warning", 6),
+    "SHORT_HISTORY": ("Short history", "info", 7),
+    # Set by app.notes.overlay: someone marked the problem as being handled.
+    "KNOWN_ISSUE": ("Known issue", "info", 8),
     # Online camera marked "event" in recording_expectations: a quiet window
     # is expected, so it is not "Stopped recording" (README, reporting.py).
-    "NO_RECENT_EVENTS": ("No recent events", "info", 7),
+    "NO_RECENT_EVENTS": ("No recent events", "info", 9),
     # Checks are switched off for this NVR: unknown, never counted as OK.
-    "NOT_MONITORED": ("Not monitored", "info", 8),
-    "OK": ("OK", "ok", 9),
+    "NOT_MONITORED": ("Not monitored", "info", 10),
+    "OK": ("OK", "ok", 11),
 }
+BAD_PICTURES = {
+    "PICTURE_BLACK": "The picture is black (lens covered, IR failure or no light).",
+    "PICTURE_UNIFORM": "The picture is a flat colour (covered, blurred or no signal).",
+    "PICTURE_FROZEN": "The picture has not changed since the previous scan (frozen).",
+    "PICTURE_VIEW_CHANGED": "The view differs from the reference picture (camera moved?).",
+}
+
+
+def known_condition() -> dict:
+    label, severity, rank = CONDITIONS["KNOWN_ISSUE"]
+    return {"code": "KNOWN_ISSUE", "label": label, "severity": severity, "rank": rank}
 
 
 def required_retention_days() -> int:
@@ -105,9 +120,12 @@ def classify(channel: dict) -> dict:
     cal = calendar_facts(channel.get("retention_result"))
     window = window_text(recording)
 
+    picture = _dict(channel.get("snapshot_result")).get("status")
     if status in EVIDENCE:
         if live == "OFFLINE":
             code, detail = "OFFLINE_RECORDING", f"Reported offline, but video was recorded in {window}."
+        elif picture in BAD_PICTURES:
+            code, detail = "BAD_PICTURE", "Recording, but " + BAD_PICTURES[picture][0].lower() + BAD_PICTURES[picture][1:]
         elif cal["known"] and cal["missing_days"]:
             code = "GAPS"
             detail = f"{cal['missing_days']} of the last {cal['history_days']} days have no video."

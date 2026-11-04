@@ -15,12 +15,17 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
-from app.camera_condition import CONDITIONS, classify
+from app import events as event_store
+from app import notes as notes_store
+from app.camera_condition import CONDITIONS, classify, known_condition
+from app.snapshots import STATUSES as PICTURE_STATUSES
 
 
 REPORTS_DIR = Path(os.environ.get("REPORTS_DIR", "reports"))
 # Shared with the nvr-scanner service. The dashboard only writes request.json.
 SCAN_STATE_DIR = Path(os.environ.get("SCAN_STATE_DIR", "state/scan"))
+# Snapshot thumbnails written by the reporter (read-only here).
+SNAPSHOT_DIR = Path(os.environ.get("SNAPSHOT_DIR", "state/snapshots"))
 SCANNER_STALE_SECONDS = 45
 HOST = "0.0.0.0"
 PORT = int(os.environ.get("DASHBOARD_PORT", "8080"))
@@ -231,7 +236,56 @@ def _public_camera_summary(value: object) -> dict:
     }
 
 
-def _public_report(report: dict, path: Path) -> dict:
+def _number(value: object, low: float = 0, high: float = 10**9) -> float | None:
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) \
+        and low <= value <= high else None
+
+
+def _public_snapshot(value: object) -> dict:
+    raw = _as_dict(value)
+    status = raw.get("status") if raw.get("status") in PICTURE_STATUSES else "PICTURE_NOT_CONFIGURED"
+    return {"status": status, "message": str(raw.get("message") or "")[:200],
+            "checked_at": str(raw.get("checked_at") or "")[:40],
+            "brightness": _number(raw.get("brightness"), 0, 255),
+            "contrast": _number(raw.get("contrast"), 0, 255),
+            "mode": raw.get("mode") if raw.get("mode") in {"day", "night"} else None,
+            "has_image": raw.get("has_image") is True}
+
+
+SMART_STATUSES = {"HEALTHY", "WARNING", "CRITICAL", "UNVERIFIED", "NOT_CONFIGURED"}
+
+
+def _public_smart(value: object) -> dict:
+    raw = _as_dict(value)
+    disks = []
+    for disk in raw.get("disks") or []:
+        disk = _as_dict(disk)
+        disks.append({"id": str(disk.get("id", ""))[:20],
+                      "status": disk.get("status") if disk.get("status") in SMART_STATUSES else "UNVERIFIED",
+                      "message": str(disk.get("message") or "")[:200],
+                      "temperature_c": _number(disk.get("temperature_c"), 0, 150),
+                      "power_on_days": _number(disk.get("power_on_days"), 0, 100000),
+                      "reallocated": _number(disk.get("reallocated")),
+                      "pending": _number(disk.get("pending")),
+                      "uncorrectable": _number(disk.get("uncorrectable"))})
+    return {"status": raw.get("status") if raw.get("status") in SMART_STATUSES else "NOT_CONFIGURED",
+            "message": str(raw.get("message") or "")[:400], "checked_at": str(raw.get("checked_at") or "")[:40],
+            "from_cache": raw.get("from_cache") is True, "disks": disks[:64]}
+
+
+def _public_changes(value: object) -> dict:
+    raw = _as_dict(value)
+    changes = []
+    for change in raw.get("changes") or []:
+        change = _as_dict(change)
+        if change.get("type") in {"added", "removed", "renamed", "ip_changed"}:
+            changes.append({"type": change["type"], "channel_id": str(change.get("channel_id", ""))[:8],
+                            "old": str(change.get("old") or "")[:80], "new": str(change.get("new") or "")[:80]})
+    return {"status": str(raw.get("status") or "NOT_COMPARED")[:20],
+            "compared_with": str(raw.get("compared_with") or "")[:40], "changes": changes[:100]}
+
+
+def _public_report(report: dict, path: Path, notes: dict | None = None) -> dict:
     """Expose only dashboard fields; never expose arbitrary report contents."""
     nvr = _as_dict(report.get("nvr"))
     device = _as_dict(report.get("device_info"))
@@ -270,8 +324,14 @@ def _public_report(report: dict, path: Path) -> dict:
                 "reported_status": str(
                     channel.get("reported_status", "UNKNOWN")
                 ),
+                "snapshot_result": _public_snapshot(channel.get("snapshot_result")),
             })
             channels[-1]["condition"] = classify(channels[-1])
+    nvr_id = str(nvr.get("id", path.name.split("_")[0]))
+    if notes is not None:
+        notes_store.overlay(nvr_id, channels, notes, known_condition())
+    smart = _public_smart(storage.get("smart"))
+    smart_by_disk = {d["id"]: d for d in smart["disks"]}
 
     disks = []
     raw_disks = storage.get("disks", [])
@@ -289,7 +349,10 @@ def _public_report(report: dict, path: Path) -> dict:
                 "free_space_mb": disk.get("free_space_mb"),
                 "property": str(disk.get("property", "")),
                 "group": str(disk.get("group", "")),
+                "smart": smart_by_disk.get(str(disk.get("id", "")).split(" (", 1)[0]),
             })
+    device_status = _as_dict(report.get("device_status"))
+    restart = _as_dict(report.get("restart"))
 
     return {
         "id": str(nvr.get("id", path.name.split("_")[0])),
@@ -331,6 +394,17 @@ def _public_report(report: dict, path: Path) -> dict:
         "condition_counts": {code: sum(ch["condition"]["code"] == code for ch in channels)
                              for code in CONDITIONS},
         "disks": disks,
+        "smart": smart,
+        "uptime_seconds": _number(device_status.get("uptime_seconds"), 0, 10**10),
+        "cpu_percent": _number(device_status.get("cpu_percent"), 0, 100),
+        "restart": {"detected": restart.get("detected") is True,
+                    "boot_time": str(restart.get("boot_time") or "")[:40]},
+        "inventory_changes": _public_changes(report.get("inventory_changes")),
+        "snapshots_enabled": _as_dict(report.get("snapshots")).get("enabled") is True,
+        "nvr_notes": [notes_store.public_note(n) for n in reversed(notes.get("log", []))
+                      if n["nvr"] == nvr_id and n.get("channel") is None][:5] if notes is not None else [],
+        "nvr_known_issue": notes_store.public_issue(notes_store.issue_for(
+            notes_store.active_issues(notes), nvr_id, None)) if notes is not None else None,
     }
 
 
@@ -361,6 +435,31 @@ def _stale_cutoff(now: datetime, scan_times: list[str]) -> tuple[datetime, datet
              for h, m in times]
     slot = max(s for s in slots if s <= reference)  # Yesterday's slots always qualify.
     return slot - STALE_TOLERANCE, slot
+
+
+EVENT_SERVICE_STALE = timedelta(minutes=2)
+
+
+def _attach_events(nvrs: list[dict]) -> list[dict]:
+    """Recent real-time events and stream state per NVR (nvr-events service)."""
+    status = event_store.read_status()
+    streams = status.get("nvrs") if isinstance(status.get("nvrs"), dict) else {}
+    try:
+        updated = datetime.fromisoformat(status["updated_at"])
+        service_alive = datetime.now(timezone.utc) - updated < EVENT_SERVICE_STALE
+    except (KeyError, TypeError, ValueError):
+        service_alive = False
+    recent = event_store.recent_events(hours=24)
+    for nvr in nvrs:
+        state = streams.get(nvr["id"])
+        nvr["event_stream"] = None if not isinstance(state, dict) else {
+            "connected": service_alive and state.get("connected") is True,
+            "since": str(state.get("since") or "")[:40],
+            "last_seen": str(state.get("last_seen") or "")[:40],
+            "last_error": "SERVICE_STOPPED" if not service_alive else str(state.get("last_error") or "")[:40],
+        }
+        nvr["events"] = [e for e in recent if e["nvr"] == nvr["id"]][:20]
+    return recent
 
 
 def _is_fresh(timestamp: str, cutoff: datetime | None = None) -> bool:
@@ -524,8 +623,9 @@ def read_dashboard_data() -> dict:
     for path in other:
         consider(path)
 
+    notes = notes_store.load()
     nvrs = [
-        _public_report(report, path)
+        _public_report(report, path, notes)
         for _, report, path in latest.values()
     ]
     failed, run_started, manifest_errors = _read_fleet_run_state()
@@ -557,6 +657,7 @@ def read_dashboard_data() -> dict:
     for nvr in nvrs:
         nvr["stale"] = bool(nvr["last_run_failed"] or not nvr["last_check"]
                             or not _is_fresh(nvr["last_check"], stale_cutoff))
+    events = _attach_events(nvrs)
 
     # Preserve last-known camera data in the device card, but never count it
     # as a fresh observation after a failed fleet run.
@@ -639,6 +740,13 @@ def read_dashboard_data() -> dict:
                                           or ch["historical_recording_result"]["status"] == "HISTORICAL_RECORDING_FOUND")
                                      for ch in all_channels),
         "storage_warnings": sum(nvr["storage_status"] == "WARNING" for nvr in current_nvrs),
+        "smart_problems": sum(nvr["smart"]["status"] in {"WARNING", "CRITICAL"} for nvr in current_nvrs),
+        "events_24h": len(events),
+        "event_streams_down": sum(bool(nvr["event_stream"]) and not nvr["event_stream"]["connected"]
+                                  for nvr in nvrs),
+        "known_issues": len(notes_store.active_issues(notes)),
+        "camera_changes": sum(len(nvr["inventory_changes"]["changes"]) for nvr in current_nvrs),
+        "restarts": sum(nvr["restart"]["detected"] for nvr in current_nvrs),
         "storage_critical": sum(nvr["storage_status"] == "CRITICAL" for nvr in current_nvrs),
     }
 
@@ -770,6 +878,29 @@ def request_scan(target: object) -> tuple[int, dict]:
         return 202, {"queued": target, "scan": read_scan_status()}
 
 
+def save_note(body: dict, by: str) -> tuple[int, dict]:
+    """Known issue / fixed / repair note from the dashboard. Returns (HTTP status, body)."""
+    action = body.get("action")
+    nvr_id = body.get("nvr")
+    channel = body.get("channel")
+    channel = str(channel) if isinstance(channel, (str, int)) and str(channel) not in {"", "all"} else None
+    if action not in {"known", "fixed", "note"} or not notes_store.valid_target(nvr_id, channel):
+        return 400, {"error": "Choose an NVR, a camera and an action."}
+    if action == "known":
+        until = notes_store.parse_until(str(body.get("until") or ""))
+        if until == "invalid":
+            return 400, {"error": "Until must be like 7d, 2w or YYYY-MM-DD (at most 180 days)."}
+        item = notes_store.add_known_issue(nvr_id, channel, str(body.get("text") or ""), until, by)
+        return 200, {"ok": True, "known_issue": notes_store.public_issue(item)}
+    if action == "fixed":
+        removed = notes_store.clear_known_issue(nvr_id, channel, by, str(body.get("text") or ""))
+        return 200, {"ok": True, "cleared": removed}
+    if not notes_store.clean_text(body.get("text")):
+        return 400, {"error": "Write a note first."}
+    notes_store.add_note(nvr_id, channel, str(body.get("text")), by)
+    return 200, {"ok": True}
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "NVRDashboard"
     sys_version = ""
@@ -858,35 +989,64 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._json(200, read_scan_status())
             return
 
+        if path == "/api/snapshot":
+            self._snapshot(urlsplit(self.path).query)
+            return
+
         self._send(404, "text/plain; charset=utf-8", b"Not found.\n")
 
     def _json(self, code: int, data: dict) -> None:
         self._send(code, "application/json; charset=utf-8", json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
+    def _snapshot(self, query: str) -> None:
+        """Latest stored thumbnail of one camera (written by the reporter)."""
+        params = dict(part.partition("=")[::2] for part in query.split("&") if part)
+        nvr_id, channel = params.get("nvr", ""), params.get("ch", "")
+        if not notes_store.valid_target(nvr_id, channel) or not channel:
+            self._send(400, "text/plain; charset=utf-8", b"Bad request.\n")
+            return
+        path = SNAPSHOT_DIR / nvr_id / f"{channel}.jpg"
+        try:
+            body = path.read_bytes() if path.is_file() and not path.is_symlink() else None
+        except OSError:
+            body = None
+        if not body or not body.startswith(b"\xff\xd8") or len(body) > 5_000_000:
+            self._send(404, "text/plain; charset=utf-8", b"No picture.\n")
+            return
+        self._send(200, "image/jpeg", body)
+
     def do_POST(self) -> None:
         if not self._authorized():
             self._unauthorized()
             return
-        if urlsplit(self.path).path != "/api/scan":
+        route = urlsplit(self.path).path
+        if route not in {"/api/scan", "/api/notes"}:
             self._send(404, "text/plain; charset=utf-8", b"Not found.\n")
             return
         # Cross-site protection: browsers cannot send this header or a JSON
         # body cross-origin without a CORS preflight, which is never granted.
         origin = self.headers.get("Origin")
-        if (self.headers.get("X-NVR-Track") != "scan"
+        if (self.headers.get("X-NVR-Track") != route.rsplit("/", 1)[-1]
                 or not self.headers.get("Content-Type", "").startswith("application/json")
                 or (origin and origin != f"http://{self.headers.get('Host', '')}")):
             self._json(403, {"error": "Request refused."})
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= 1024:
+            if not 0 < length <= 4096:
                 raise ValueError
             body = json.loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(body, dict):
                 raise ValueError
         except (ValueError, UnicodeDecodeError):
             self._json(400, {"error": "Invalid request."})
+            return
+        if route == "/api/notes":
+            try:
+                code, data = save_note(body, "Dashboard")
+            except OSError:
+                code, data = 503, {"error": "The note could not be saved."}
+            self._json(code, data)
             return
         try:
             code, data = request_scan(body.get("target"))
