@@ -33,6 +33,8 @@ def jpeg(kind: str, seed: int = 0) -> bytes:
 class FakeNVR:
     def __init__(self):
         self.channels = {"1": ("Gate", True), "2": ("Yard", True), "3": ("Store", True), "4": ("Roof", False)}
+        self.camera_ips: dict[str, str] = {}   # Channel -> camera IP (default 192.0.2.<channel>).
+        self.source_inputs: dict[str, int] = {}  # Channel -> srcInputPort (default 1).
         self.recording = {"1", "2", "3"}       # Channels with footage now.
         self.uptime = 10 * 86400
         self.smart_raw_reallocated = {"1": 0, "2": 8}
@@ -53,7 +55,8 @@ class FakeNVR:
     def channel_list(self) -> str:
         items = "".join(
             f"<InputProxyChannel><id>{cid}</id><name>{name}</name><sourceInputPortDescriptor>"
-            f"<ipAddress>192.0.2.{cid}</ipAddress><managePortNo>8000</managePortNo></sourceInputPortDescriptor>"
+            f"<ipAddress>{self.camera_ips.get(cid, f'192.0.2.{cid}')}</ipAddress><managePortNo>8000</managePortNo>"
+            f"<srcInputPort>{self.source_inputs.get(cid, 1)}</srcInputPort></sourceInputPortDescriptor>"
             f"</InputProxyChannel>" for cid, (name, _) in self.channels.items())
         return f'<InputProxyChannelList xmlns="http://www.hikvision.com/ver20/XMLSchema">{items}</InputProxyChannelList>'
 

@@ -186,6 +186,9 @@ class ChannelInfo:
     name: str | None = None
     camera_ip: str | None = None
     management_port: int | None = None
+    # Input on the camera/encoder (srcInputPort): a multi-lens camera or an
+    # encoder serves several inputs from one IP address.
+    source_input: int | None = None
 
 
 @dataclass(frozen=True)
@@ -391,12 +394,17 @@ def parse_channel_inventory(content: bytes) -> tuple[ChannelInfo, ...]:
             except ValueError:
                 pass
 
+        raw_input = _first_xml_text(node, "srcInputPort")
+        source_input = int(raw_input) if raw_input and raw_input.isdecimal() \
+            and 1 <= int(raw_input) <= 1024 else None
+
         channels.append(
             ChannelInfo(
                 channel_id=channel_id,
                 name=name,
                 camera_ip=camera_ip,
                 management_port=management_port,
+                source_input=source_input,
             )
         )
 
