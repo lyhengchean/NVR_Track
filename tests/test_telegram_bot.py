@@ -374,6 +374,25 @@ class TokenSafetyTests(unittest.TestCase):
         self.assertNotIn("nvrs.local.json", block)
         self.assertIn("./reports:/app/reports:ro", block)
 
+    def test_every_setting_the_bot_reads_reaches_its_container(self):
+        """nvr-telegram has no env_file: a setting missing from its block silently
+        falls back to the default (TELEGRAM_KNOWN_REMINDER was, 05 Nov)."""
+        import re
+        root = Path(__file__).resolve().parent.parent
+        if not (root / "compose.yaml").exists():
+            self.skipTest("compose.yaml is not part of this test image")
+        block = (root / "compose.yaml").read_text(encoding="utf-8").split("  nvr-telegram:", 1)[1].split("\n  nvr-", 1)[0]
+        listener_only = {"NVR_EVENT_TYPES"}                     # app.events, used by nvr-events only.
+        sources = ["scripts/telegram_bot.py", "app/telegram_views.py", "app/notes.py", "app/camera_condition.py",
+                   "app/dashboard.py", "app/events.py", "app/uptime.py", "app/duplicates.py"]
+        names = set()
+        for name in sources:
+            names |= set(re.findall(r'(?:environ|env)(?:\.get\(|\[)"((?:TELEGRAM|NVR)_[A-Z0-9_]+)"',
+                                    (root / name).read_text(encoding="utf-8")))
+        self.assertIn("TELEGRAM_KNOWN_REMINDER", names)                       # The scan finds them.
+        missing = sorted(n for n in names - listener_only if f"{n}:" not in block)
+        self.assertEqual(missing, [])
+
 
 class RequiredRetentionTests(unittest.TestCase):
     def test_short_history_becomes_a_warning_when_days_are_required(self):

@@ -1126,15 +1126,19 @@ function space(mb) {
   return n + " MB";
 }
 // Days of footage kept: the median camera recording now (verified 30-day calendar).
+function fewestList(k) {
+  const more = (k.fewest_count || 0) - k.fewest_channels.length;
+  return k.fewest_channels.map(c => "ch" + c).join(", ") + (more > 0 ? " +" + more + " more" : "");
+}
 function keptText(k, short) {
   if (!k || !k.cameras || k.typical === null || k.typical === undefined) return short ? "unknown" : "unknown (no verified calendar)";
   const d = n => n >= k.window ? n + "+ days" : plural(n, "day");
-  return d(k.typical) + (!short && k.fewest < k.typical ? " (fewest " + k.fewest + ": " + k.fewest_channels.map(c => "ch" + c).join(", ") + ")" : "");
+  return d(k.typical) + (!short && k.fewest < k.typical ? " (fewest " + k.fewest + ": " + fewestList(k) + ")" : "");
 }
 function keptTitle(k) {
   if (!k || !k.cameras) return "No camera recording now has a verified 30-day calendar.";
   return "Typical (median) days of footage on the " + plural(k.cameras, "camera") + " recording now with a verified calendar" +
-    (k.fewest < k.typical ? "; fewest " + k.fewest + " (" + k.fewest_channels.map(c => "ch" + c).join(", ") + "), possibly a camera added recently" : "") +
+    (k.fewest < k.typical ? "; fewest " + k.fewest + " (" + fewestList(k) + "), possibly a camera added recently" : "") +
     ". " + k.window + "+ means at least the " + k.window + " days the calendar covers.";
 }
 function storagePanel(nvr) {

@@ -46,8 +46,9 @@ class KeptDaysTests(unittest.TestCase):
         self.assertEqual(kept_text(None), "unknown (no verified calendar)")
 
     def test_fewest_lists_at_most_five_channels_in_order(self):
-        kept = kept_days([cam(c, 4) for c in (12, 3, 7, 1, 9, 30)] + [cam(40, 30)])
-        self.assertEqual(kept["fewest_channels"], ["1", "3", "7", "9", "12"])
+        kept = kept_days([cam(c, 4) for c in (12, 3, 7, 1, 9, 30)] + [cam(40 + c, 30) for c in range(7)])
+        self.assertEqual((kept["fewest_channels"], kept["fewest_count"]), (["1", "3", "7", "9", "12"], 6))
+        self.assertEqual(kept_text(kept), "30+ days (fewest 4: ch1, ch3, ch7, ch9, ch12 +1 more)")
 
 
 class ShownEverywhereTests(Fixture):
