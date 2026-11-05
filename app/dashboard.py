@@ -374,6 +374,7 @@ def _public_report(report: dict, path: Path, notes: dict | None = None) -> dict:
         "critical_reasons": _list_of_text(overall.get("critical_reasons")),
         "warnings": _list_of_text(overall.get("warnings")),
         "unknown_checks": _list_of_text(overall.get("unknown_checks")),
+        "info": _list_of_text(overall.get("info")),
         "expected_channels": channel_inventory.get("expected_count"),
         "configured_channels": channel_inventory.get("configured_count"),
         "online_channels": _safe_count(channel_status.get("online_count")),

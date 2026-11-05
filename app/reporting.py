@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from app.duplicates import warnings as duplicate_warnings
+from app.duplicates import info as duplicate_info, warnings as duplicate_warnings
 
 LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
 
@@ -154,4 +154,6 @@ def determine_overall_status(
         "critical_reasons": critical,
         "warnings": warnings,
         "unknown_checks": unknown,
+        # Information only; never changes the status.
+        "info": duplicate_info(duplicates),
     }
