@@ -389,6 +389,8 @@ def camera_search(data: dict, query: str, show_ips: bool, limit: int = 12) -> st
             block.append(f"⚠️ {esc(note)}")
         if ch.get("unstable"):
             block.append(f"〰️ Unstable connection: {unstable_text(ch['unstable'])}")
+        for note in (ch.get("fleet_notes") or [])[:2]:
+            block.append(f"↔️ {esc(note)}")
         for note in (ch.get("notes") or [])[:2]:
             block.append(f"📝 {when(note.get('at'))} {esc(note.get('text'))}"
                          + (f" ({esc(note['by'])})" if note.get("by") else ""))

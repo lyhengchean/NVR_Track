@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from app import events as event_store
 from app import notes as notes_store
 from app.camera_condition import CONDITIONS, classify, kept_days, known_condition
-from app.duplicates import notes_by_channel
+from app.duplicates import fleet_info, fleet_notes, find_fleet_duplicates, notes_by_channel
 from app.snapshots import STATUSES as PICTURE_STATUSES
 
 
@@ -315,6 +315,8 @@ def _public_report(report: dict, path: Path, notes: dict | None = None) -> dict:
                 "channel_id": str(channel.get("channel_id", "")),
                 "name": str(channel.get("name") or ""),
                 "camera_ip": str(channel.get("camera_ip") or ""),
+                "source_input": (channel["source_input"] if type(channel.get("source_input")) is int
+                                 and 0 <= channel["source_input"] <= 256 else None),
                 "management_port": channel.get("management_port"),
                 "recording_result": _public_recording(per_camera),
                 "historical_recording_result": _public_historical(
@@ -679,6 +681,13 @@ def read_dashboard_data() -> dict:
         nvr["stale"] = bool(nvr["last_run_failed"] or not nvr["last_check"]
                             or not _is_fresh(nvr["last_check"], stale_cutoff))
     events = _attach_events(nvrs)
+    # Cameras recorded by more than one NVR (information only, no IPs in text).
+    fleet_duplicates = find_fleet_duplicates((nvr["id"], nvr["channels"]) for nvr in nvrs)
+    also = fleet_notes(fleet_duplicates)
+    for nvr in nvrs:
+        nvr["info"] = list(nvr.get("info") or []) + fleet_info(fleet_duplicates, nvr["id"])
+        for channel in nvr["channels"]:
+            channel["fleet_notes"] = also.get((nvr["id"], channel["channel_id"]), [])[:2]
 
     # Preserve last-known camera data in the device card, but never count it
     # as a fresh observation after a failed fleet run.
@@ -786,6 +795,7 @@ def read_dashboard_data() -> dict:
         "refresh_seconds": _refresh_seconds(),
         "summary": summary,
         "nvrs": nvrs,
+        "fleet_duplicates": fleet_duplicates,
         "report_errors": report_errors,
         "scan": scan,
     }

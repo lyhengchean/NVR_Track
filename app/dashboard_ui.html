@@ -972,6 +972,7 @@ function cameraPanel(row) {
     }
     const box = el("span", "", parts.filter(Boolean).join(" "));
     for (const note of ch.duplicate_notes || []) box.append(el("span", "note-line known", note));
+    for (const note of ch.fleet_notes || []) box.append(el("span", "note-line", note));
     if (ch.unstable) box.append(el("span", "note-line known", "Unstable connection: " + plural(ch.unstable.changes, "online/offline change") +
       " in " + ch.unstable.hours + " h (last " + stamp(ch.unstable.last_change) + ")"));
     if (ch.known_issue && cond(ch).code !== "KNOWN_ISSUE")
