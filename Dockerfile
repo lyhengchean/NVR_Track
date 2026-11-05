@@ -18,6 +18,7 @@ COPY tests/ ./tests/
 COPY config/nvrs.example.json ./config/nvrs.example.json
 # Example settings only (no secrets); tests check its documented defaults.
 COPY .env.example ./.env.example
+COPY compose.yaml ./compose.yaml
 ENTRYPOINT ["python", "-m", "pytest", "-q"]
 
 FROM base AS runtime

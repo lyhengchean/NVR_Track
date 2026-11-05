@@ -275,7 +275,7 @@ class SmartTests(unittest.TestCase):
         attrs = "".join(f"<TestResult><attributeID>{k}</attributeID><status>{s}</status><rawValue>{r}</rawValue></TestResult>"
                         for k, (s, r) in fields.get("attrs", {}).items())
         return (f"<SMARTTestStatus><temprature>{fields.get('temp', 40)}</temprature>"
-                f"<selfEvaluaingStatus>{fields.get('self', 'ok')}</selfEvaluaingStatus>"
+                f"<selfEvaluaingStatus>{fields.get('self_eval', 'ok')}</selfEvaluaingStatus>"
                 f"<allEvaluaingStatus>{fields.get('all', 'ok')}</allEvaluaingStatus>"
                 f"<TestResultList>{attrs}</TestResultList></SMARTTestStatus>").encode()
 
@@ -290,6 +290,12 @@ class SmartTests(unittest.TestCase):
         self.assertEqual(self.status(temp=57), "WARNING")
         self.assertEqual(self.status(temp=63), "CRITICAL")
         self.assertEqual(self.status(attrs={9: ("fail", 1)}), "WARNING")
+        # Hikvision's own words for a healthy disk; unknown words never alarm.
+        self.assertEqual(self.status(self_eval="pass", all="functional"), "HEALTHY")
+        self.assertEqual(self.status(all="somethingnew"), "UNVERIFIED")
+        self.assertEqual(self.status(self_eval="error"), "CRITICAL")
+        self.assertEqual(self.status(all="warning"), "WARNING")
+        self.assertEqual(self.status(attrs={190: ("pre-fail", 0), 9: ("old_age", 0)}), "HEALTHY")
         unknown = smart.parse_smart(b"<SMARTTestStatus><other>1</other></SMARTTestStatus>")
         self.assertEqual(smart.classify_disk(unknown)[0], "UNVERIFIED")
         with self.assertRaises(ValueError):
@@ -297,8 +303,9 @@ class SmartTests(unittest.TestCase):
 
     def test_cache(self):
         recent = {"status": "HEALTHY", "checked_at": datetime.now(timezone.utc).isoformat(),
-                  "disks": [{"id": "1"}, {"id": "2"}]}
+                  "disks": [{"id": "1"}, {"id": "2"}], "rules": smart.RULES_VERSION}
         self.assertTrue(smart.cached(recent, ["2", "1"], 24)["from_cache"])
+        self.assertIsNone(smart.cached({**recent, "rules": None}, ["1", "2"], 24))  # Old rules: re-check.
         self.assertIsNone(smart.cached(recent, ["1"], 24))                       # Disk set changed.
         old = {**recent, "checked_at": (datetime.now(timezone.utc) - timedelta(hours=30)).isoformat()}
         self.assertIsNone(smart.cached(old, ["1", "2"], 24))
