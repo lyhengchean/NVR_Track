@@ -965,6 +965,7 @@ function cameraPanel(row) {
       if (r.anomalies?.length) parts.push("Anomalies: " + r.anomalies.join(", "));
     }
     const box = el("span", "", parts.filter(Boolean).join(" "));
+    for (const note of ch.duplicate_notes || []) box.append(el("span", "note-line known", note));
     if (ch.known_issue && cond(ch).code !== "KNOWN_ISSUE")
       box.append(el("span", "note-line known", "Known issue" + (ch.known_issue.until ? " until " + ch.known_issue.until : "") + ": " + ch.known_issue.reason));
     for (const n of (ch.notes || []).slice(0, full ? 3 : 1))

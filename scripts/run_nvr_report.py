@@ -21,6 +21,7 @@ from app.isapi import (
 from app import notes as notes_store
 from app import smart as smart_check
 from app import snapshots as snapshot_check
+from app.duplicates import find_duplicates
 from app.inventory_changes import inventory_changes, recent_reports, restart_info
 from app.recording import check_recording_evidence
 from app.camera_recording import check_all_cameras
@@ -387,6 +388,7 @@ def main() -> int:
             "name": channel.name,
             "camera_ip": channel.camera_ip,
             "management_port": channel.management_port,
+            "source_input": channel.source_input,
             "reported_status": state,
             "recording_expectation": configured_nvr.recording_expectations.get(
                 str(channel.channel_id), default_expectation
@@ -442,6 +444,7 @@ def main() -> int:
     # ---- Add-on checks (all read-only GETs; the opt-in ones per NVR ID) ----
     previous_reports = list(recent_reports(report_dir, configured_nvr.id, limit=6))
     changes = inventory_changes(previous_reports, channel_rows if inventory_ok else None)
+    duplicates = find_duplicates(channel_rows if inventory_ok else None)
     device_status = None
     if os.environ.get("NVR_DEVICE_STATUS", "true").strip().lower() == "true":
         device_status = get_device_status(configured_nvr.ip, username, password, http_port)
@@ -488,6 +491,7 @@ def main() -> int:
         restart=restart,
         inventory_changes=changes,
         storage_message=storage.message,
+        duplicates=duplicates,
     )
 
     completed_at = now_local()
@@ -564,6 +568,7 @@ def main() -> int:
         },
         "restart": restart,
         "inventory_changes": changes,
+        "duplicates": duplicates,
         "snapshots": snapshots,
         "recording": recording,
         "per_camera_recording": per_camera_summary,

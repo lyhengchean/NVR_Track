@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from app import events as event_store
 from app import notes as notes_store
 from app.camera_condition import CONDITIONS, classify, known_condition
+from app.duplicates import notes_by_channel
 from app.snapshots import STATUSES as PICTURE_STATUSES
 
 
@@ -327,6 +328,10 @@ def _public_report(report: dict, path: Path, notes: dict | None = None) -> dict:
                 "snapshot_result": _public_snapshot(channel.get("snapshot_result")),
             })
             channels[-1]["condition"] = classify(channels[-1])
+    # "Same camera as ch51" / "Same name as ch22" (app.duplicates; no IPs).
+    duplicate_notes = notes_by_channel(report.get("duplicates"))
+    for channel in channels:
+        channel["duplicate_notes"] = [str(note)[:80] for note in duplicate_notes.get(channel["channel_id"], [])][:4]
     nvr_id = str(nvr.get("id", path.name.split("_")[0]))
     if notes is not None:
         notes_store.overlay(nvr_id, channels, notes, known_condition())

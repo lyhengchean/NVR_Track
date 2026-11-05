@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from app.duplicates import warnings as duplicate_warnings
+
 LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
 
 
@@ -30,6 +32,7 @@ def determine_overall_status(
     restart: dict | None = None,
     inventory_changes: dict | None = None,
     storage_message: str = "",
+    duplicates: dict | None = None,
 ) -> dict[str, Any]:
     critical: list[str] = []
     warnings: list[str] = []
@@ -135,6 +138,7 @@ def determine_overall_status(
         parts = [f"{sum(c.get('type') == k for c in changes)} {label}" for k, label in kinds.items()
                  if any(c.get("type") == k for c in changes)]
         warnings.append("Camera list changed since the previous report: " + ", ".join(parts) + ".")
+    warnings += duplicate_warnings(duplicates)
 
     if critical:
         overall = "CRITICAL"
