@@ -18,7 +18,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app import notes as notes_store
-from app.camera_condition import classify, known_condition
+from app.camera_condition import classify, kept_days, kept_text, known_condition
 from app.config import InventoryError, load_inventory
 from app.duplicates import info as duplicate_info, warnings as duplicate_warnings
 
@@ -185,7 +185,8 @@ def camera_conditions(report: dict, notes: dict | None = None) -> dict:
         names = " → ".join(str(v) for v in (change.get("old"), change.get("new"))
                            if v and change.get("type") != "ip_changed")
         findings.append(f"{kind}: ch{change.get('channel_id')}" + (f" {names}" if names else ""))
-    return {**counts, "attention": attention, "known": known, "known_ok": known_ok, "findings": findings}
+    return {**counts, "attention": attention, "known": known, "known_ok": known_ok, "findings": findings,
+            "kept_days": kept_days(rows)}
 
 
 def send_email_report(summary: list[dict]) -> tuple[bool, str]:
@@ -260,7 +261,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         "<tr><th>NVR</th><th>IP address</th><th>Overall</th>"
         "<th>Storage</th><th>Online</th><th>Offline</th><th>Recording now</th>"
         "<th>Stopped recording</th><th>No footage 30+ days</th><th>Gaps</th>"
-        "<th>Online but not recording</th><th>Checks failed</th></tr>"
+        "<th>Online but not recording</th><th>Checks failed</th><th>Footage kept</th></tr>"
     )
     rows = []
 
@@ -287,6 +288,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
             item.get("gaps", 0) if status != "ERROR" else "—",
             item.get("online_missing_expected", 0) if status != "ERROR" else "—",
             item.get("check_failed", 0) if status != "ERROR" else "—",
+            kept_text(item.get("kept_days")) if status != "ERROR" else "—",
         ]
         escaped = [escape(str(value)) for value in cells]
         escaped[2] = (
@@ -427,6 +429,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
             f"no_footage_30d={item.get('no_footage_30', 0)} | gaps={item.get('gaps', 0)}"
             f" | check_failed={item.get('check_failed', 0)}"
             f" | online_missing_expected={item.get('online_missing_expected', 0)}"
+            + (f" | footage_kept={kept_text(item.get('kept_days'))}" if item.get("overall") != "ERROR" else "")
         )
     if attention_text:
         plain_lines += ["", "Cameras that need action:", *attention_text]

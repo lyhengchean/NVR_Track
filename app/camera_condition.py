@@ -195,3 +195,48 @@ def count(channels: list[dict]) -> dict[str, int]:
     for channel in channels:
         totals[classify(channel)["code"]] += 1
     return totals
+
+
+def kept_days(channels: list[dict]) -> dict:
+    """How many days of footage an NVR keeps, from its cameras' 30-day calendars.
+
+    Only cameras recording now with a fully verified calendar count: a camera
+    that stopped, or whose calendar is partial or old, says nothing about how
+    long the disks keep video. Per camera: days from its oldest recorded day
+    to yesterday (as in "Footage kept for only N days"); the window itself
+    means "at least the window", because older days are not read.
+    typical is the median camera; fewest may be a camera added recently.
+    """
+    found = []
+    for channel in channels:
+        channel = _dict(channel)
+        retention = _dict(channel.get("retention_result"))
+        if (_dict(channel.get("recording_result")).get("status") not in EVIDENCE
+                or retention.get("status") != "RETENTION_VERIFIED"):
+            continue
+        cal = calendar_facts(retention)
+        if cal["known"] and cal["history_days"] > 0 and type(cal["window"]) is int and cal["window"] > 0:
+            found.append((min(cal["history_days"], cal["window"]), cal["window"], str(channel.get("channel_id", ""))))
+    if not found:
+        return {"cameras": 0, "window": None, "typical": None, "fewest": None, "fewest_channels": [], "full": 0}
+    values = sorted(days for days, _, _ in found)
+    fewest = values[0]
+    channels_fewest = sorted((cid for days, _, cid in found if days == fewest),
+                             key=lambda cid: int(cid) if cid.isdigit() else 10**6)
+    return {"cameras": len(found), "window": max(window for _, window, _ in found),
+            "typical": values[(len(values) - 1) // 2], "fewest": fewest,
+            "fewest_channels": channels_fewest[:5], "full": sum(days >= window for days, window, _ in found)}
+
+
+def kept_text(kept: dict | None) -> str:
+    """'21 days (fewest 9: ch12)', '30+ days' or 'unknown'."""
+    kept = _dict(kept)
+    if not kept.get("cameras") or kept.get("typical") is None:
+        return "unknown (no verified calendar)"
+
+    def days(n):
+        return f"{n}+ days" if n >= kept["window"] else ("1 day" if n == 1 else f"{n} days")
+    text = days(kept["typical"])
+    if kept["fewest"] < kept["typical"]:
+        text += f" (fewest {kept['fewest']}: " + ", ".join(f"ch{c}" for c in kept["fewest_channels"]) + ")"
+    return text

@@ -165,14 +165,19 @@ for key in ("total_nvrs", "latest_run_reporting", "healthy", "warning", "critica
             "offline_with_evidence", "storage_warnings", "storage_critical", "stale_reports"):
     print(f"  {key:24} {s.get(key)}")
 print()
-print(f"  {'NVR':7} {'OVERALL':9} {'STORAGE':9} {'ROWS':>7}  RECORDING RESULTS")
+print(f"  {'NVR':7} {'OVERALL':9} {'STORAGE':9} {'ROWS':>7}  {'KEPT':7} RECORDING RESULTS")
 problems = 0
 for nvr in data["nvrs"]:
     rows = len(nvr["channels"])
+    # KEPT: days of footage, typical/fewest camera recording now ("30+" = whole calendar).
     expected = nvr["expected_channels"]
     counts = Counter(ch["recording_result"]["status"] for ch in nvr["channels"])
     text = ", ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "no camera rows"
-    print(f"  {nvr['id']:7} {nvr['overall_status']:9} {nvr['storage_status']:9} {rows:>3}/{expected!s:<3}  {text}")
+    k = nvr.get("kept_days") or {}
+    kept = "?" if not k.get("cameras") else (
+        (f"{k['typical']}+" if k["typical"] >= k["window"] else str(k["typical"]))
+        + (f"/{k['fewest']}" if k["fewest"] < k["typical"] else ""))
+    print(f"  {nvr['id']:7} {nvr['overall_status']:9} {nvr['storage_status']:9} {rows:>3}/{expected!s:<3}  {kept:7} {text}")
     if not isinstance(expected, int) or rows < expected:
         problems += 1
 print()

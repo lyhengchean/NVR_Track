@@ -10,7 +10,8 @@ from datetime import date, datetime
 from html import escape
 from zoneinfo import ZoneInfo
 
-from app.camera_condition import CONDITIONS, EVIDENCE, required_retention_days, retention_shortfall
+from app.camera_condition import (CONDITIONS, EVIDENCE, kept_text, required_retention_days,
+                                  retention_shortfall)
 from app.notes import age_days
 
 LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
@@ -297,6 +298,8 @@ def nvr_detail(data: dict, nvr: dict, show_ips: bool) -> str:
         lines.append(" · ".join(shown))
     lines.append(f"Storage: {HEALTH_ICON.get(nvr['storage_status'], '⚪')} {esc(nvr['storage_status'].title())}"
                  + (f" — {esc(nvr['storage_message'])}" if nvr.get("storage_message") else ""))
+    if nvr.get("channels"):
+        lines.append(f"Footage kept: {esc(kept_text(nvr.get('kept_days')))}")
     if not pc.get("enabled"):
         lines.append("Per-camera recording checks are not enabled for this NVR.")
     smart = nvr.get("smart") or {}
@@ -419,6 +422,8 @@ def storage_text(data: dict) -> str:
                      f"{esc(nvr['storage_status'].title())}")
         if nvr["storage_status"] != "HEALTHY" and nvr.get("storage_message"):
             lines.append(f"   {esc(nvr['storage_message'])}")
+        if nvr.get("channels"):
+            lines.append(f"   Footage kept: {esc(kept_text(nvr.get('kept_days')))}")
         smart = nvr.get("smart") or {}
         if smart.get("status") not in {None, "NOT_CONFIGURED"}:
             temps = [d["temperature_c"] for d in smart.get("disks", []) if isinstance(d.get("temperature_c"), (int, float))]
