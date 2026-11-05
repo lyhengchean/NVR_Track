@@ -142,13 +142,27 @@ class StorageFindingTests(unittest.TestCase):
         report["storage"]["status"] = "HEALTHY"
         self.assertEqual(camera_conditions(report)["findings"], [])
 
-    def test_deploy_check_shows_warnings_the_reporter_prints(self):
-        root = Path(__file__).resolve().parent.parent
-        script, reporter = root / "scripts" / "deploy_check.sh", root / "scripts" / "run_nvr_report.py"
+    def test_reporter_prints_every_warning_uncut(self):
+        from scripts.run_nvr_report import reason_lines
+        storage = ("Storage warning: HDD slots reported not detected (2, 9); confirm whether drives are expected; "
+                   "HDDs 1, 3, 4, 5 are full, but cameras recorded within the last 60 minutes, so old footage is "
+                   "being overwritten.")
+        overall = {"critical_reasons": [], "warnings": [
+            "3 channels are reported offline.", storage,
+            "3 continuous-recording cameras have no evidence in the configured window.",
+            "1 cameras have a picture problem (black, covered, frozen or moved)."]}
+        lines = reason_lines(overall)
+        self.assertEqual(len(lines), 4)                                   # The 4th (picture) was hidden before.
+        self.assertIn("Warning: " + storage, lines)                      # Not cut at 160 characters.
+        self.assertTrue(lines[-1].startswith("Warning: 1 cameras have a picture problem"))
+
+    def test_deploy_check_shows_all_reasons(self):
+        script = Path(__file__).resolve().parent.parent / "scripts" / "deploy_check.sh"
         if not script.exists():
             self.skipTest("deploy_check.sh is not part of this test image")
-        self.assertIn('print(f"Warning: {reason[:160]}")', reporter.read_text(encoding="utf-8"))
-        self.assertIn("s/^Warning: /            warning: /p", script.read_text(encoding="utf-8"))
+        text = script.read_text(encoding="utf-8")
+        self.assertIn("s/^Warning: /            warning: /p' | head -10", text)
+        self.assertIn("s/^Critical: /            critical: /p' | head -10", text)
 
 
 class StreamServer:
