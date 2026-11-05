@@ -140,7 +140,7 @@ def camera_conditions(report: dict, notes: dict | None = None) -> dict:
     channels = report.get("channel_inventory", {}).get("channels", [])
     counts = {"no_footage_30": 0, "stopped_recording": 0, "check_failed": 0, "gaps": 0,
               "below_retention": 0, "bad_picture": 0, "offline_recording": 0, "known_issues": 0}
-    attention, known = [], []
+    attention, known, known_ok = [], [], []
     rows = []
     for channel in channels if isinstance(channels, list) else []:
         if isinstance(channel, dict):
@@ -152,10 +152,16 @@ def camera_conditions(report: dict, notes: dict | None = None) -> dict:
         condition = channel["condition"]
         entry = {"condition": condition["label"], "channel": str(channel.get("channel_id", "")),
                  "camera": str(channel.get("name") or "")[:80], "detail": condition["detail"]}
+        issue = channel.get("known_issue") or {}
         if condition["code"] == "KNOWN_ISSUE":
             counts["known_issues"] += 1
-            known.append(entry)
+            since = notes_store.opened_on(issue)
+            known.append({**entry, "since": since.isoformat() if since else "",
+                          "age_days": notes_store.age_days(issue)})
             continue
+        if issue and not issue.get("whole_nvr") and condition["code"] == "OK":
+            # Alerts are still paused, but the latest scan found no problem.
+            known_ok.append({**entry, "detail": f"Known issue: {issue.get('reason') or ''}"[:200]})
         key = {"NO_FOOTAGE_30": "no_footage_30", "NOT_RECORDING": "stopped_recording",
                "CHECK_FAILED": "check_failed", "GAPS": "gaps", "BELOW_RETENTION": "below_retention",
                "BAD_PICTURE": "bad_picture", "OFFLINE_RECORDING": "offline_recording"}.get(condition["code"])
@@ -179,7 +185,7 @@ def camera_conditions(report: dict, notes: dict | None = None) -> dict:
         names = " → ".join(str(v) for v in (change.get("old"), change.get("new"))
                            if v and change.get("type") != "ip_changed")
         findings.append(f"{kind}: ch{change.get('channel_id')}" + (f" {names}" if names else ""))
-    return {**counts, "attention": attention, "known": known, "findings": findings}
+    return {**counts, "attention": attention, "known": known, "known_ok": known_ok, "findings": findings}
 
 
 def send_email_report(summary: list[dict]) -> tuple[bool, str]:
@@ -301,12 +307,25 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
             attention_text.append(f"{camera['condition']}: {label} ch{camera['channel']} "
                                   f"{camera['camera']} - {camera['detail']}")
     known_rows, findings_rows, known_text, findings_text = [], [], [], []
+    known_ok_rows, known_ok_text = [], []
+    stale_after = notes_store.stale_days()
+    known_old = 0
     for item in summary:
         label = " - ".join(str(v) for v in (item.get("id"), item.get("name")) if v)
         for camera in item.get("known", [])[:100]:
-            known_rows.append("<tr>" + "".join(f"<td>{escape(str(v))}</td>" for v in (
-                label, camera["channel"], camera["camera"], camera["detail"])) + "</tr>")
-            known_text.append(f"{label} ch{camera['channel']} {camera['camera']} - {camera['detail']}")
+            age = camera.get("age_days")
+            old = age is not None and age >= stale_after
+            known_old += old
+            opened = (f"{age} d since {camera['since']}" if age is not None else "—") + (" (review)" if old else "")
+            cells = "".join(f"<td>{escape(str(v))}</td>" for v in (label, camera["channel"], camera["camera"]))
+            opened_cell = f"<td><strong>{escape(opened)}</strong></td>" if old else f"<td>{escape(opened)}</td>"
+            known_rows.append(f"<tr>{cells}{opened_cell}<td>{escape(str(camera['detail']))}</td></tr>")
+            known_text.append(f"{label} ch{camera['channel']} {camera['camera']} - {camera['detail']}"
+                              + (f" - open {opened}" if age is not None else ""))
+        for camera in item.get("known_ok", [])[:100]:
+            known_ok_rows.append(f"<li>{escape(label)} ch{escape(str(camera['channel']))} "
+                                 f"{escape(str(camera['camera']))}: {escape(str(camera['detail']))}</li>")
+            known_ok_text.append(f"{label} ch{camera['channel']} {camera['camera']} - {camera['detail']}")
         for finding in item.get("findings", [])[:30]:
             findings_rows.append(f"<li>{escape(label)}: {escape(finding)}</li>")
             findings_text.append(f"{label}: {finding}")
@@ -315,10 +334,17 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         extra_html += "<h3>NVR findings</h3><ul>" + "".join(findings_rows) + "</ul>"
     if known_rows:
         extra_html += ("<h3>Known issues (alerts paused)</h3>"
-                       '<table border="1" cellpadding="6" cellspacing="0" '
+                       + (f"<p>{known_old} open {stale_after}+ days: check someone is still on "
+                          f"{'it' if known_old == 1 else 'them'}.</p>" if known_old else "")
+                       + '<table border="1" cellpadding="6" cellspacing="0" '
                        'style="border-collapse:collapse;border-color:#cbd5e1;font-size:13px">'
-                       "<tr><th>NVR</th><th>Ch.</th><th>Camera</th><th>Note</th></tr>"
+                       "<tr><th>NVR</th><th>Ch.</th><th>Camera</th><th>Open</th><th>Note</th></tr>"
                        + "".join(known_rows) + "</table>")
+    if known_ok_rows:
+        extra_html += ("<h3>Known issue, but the latest scan found no problem</h3>"
+                       "<p>Alerts are still paused for these. If repaired, mark them fixed "
+                       "(dashboard, or /fixed in Telegram) so alerts resume.</p>"
+                       "<ul>" + "".join(known_ok_rows) + "</ul>")
 
     attention_html = (
         "<h3>Cameras that need action</h3>"
@@ -407,7 +433,11 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     if findings_text:
         plain_lines += ["", "NVR findings:", *findings_text]
     if known_text:
-        plain_lines += ["", "Known issues (alerts paused):", *known_text]
+        plain_lines += ["", "Known issues (alerts paused):"
+                        + (f" {known_old} open {stale_after}+ days, review." if known_old else ""), *known_text]
+    if known_ok_text:
+        plain_lines += ["", "Known issue, but the latest scan found no problem (mark fixed so alerts resume):",
+                        *known_ok_text]
 
     message = EmailMessage()
     message["Subject"] = subject
