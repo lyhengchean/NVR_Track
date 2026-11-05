@@ -162,7 +162,11 @@ def camera_conditions(report: dict, notes: dict | None = None) -> dict:
             counts[key] += 1
             attention.append(entry)
     findings = []
-    smart = (report.get("storage") or {}).get("smart") or {}
+    storage = report.get("storage") or {}
+    if storage.get("status") in {"WARNING", "CRITICAL"} and storage.get("message"):
+        # Which disk and why; the per-NVR table shows only the status word.
+        findings.append(f"Storage {str(storage['status']).lower()}: {' '.join(str(storage['message']).split())[:200]}")
+    smart = storage.get("smart") or {}
     if smart.get("status") in {"WARNING", "CRITICAL"}:
         findings.append(f"Disk SMART {smart['status'].lower()}: {smart.get('message', '')}")
     if (report.get("restart") or {}).get("detected"):

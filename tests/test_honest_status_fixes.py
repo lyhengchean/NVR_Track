@@ -133,6 +133,24 @@ class EmailCameraListTests(unittest.TestCase):
         self.assertIn("Offline, still recording: nvr-01 ch3", text)
 
 
+class StorageFindingTests(unittest.TestCase):
+    def test_email_findings_say_which_disk(self):
+        report = {"nvr": {"id": "nvr-04"}, "channel_inventory": {"channels": [channel(1)]},
+                  "storage": {"status": "CRITICAL", "message": "NVR reports abnormal HDD states: 3 (error)."}}
+        self.assertEqual(camera_conditions(report)["findings"][0],
+                         "Storage critical: NVR reports abnormal HDD states: 3 (error).")
+        report["storage"]["status"] = "HEALTHY"
+        self.assertEqual(camera_conditions(report)["findings"], [])
+
+    def test_deploy_check_shows_warnings_the_reporter_prints(self):
+        root = Path(__file__).resolve().parent.parent
+        script, reporter = root / "scripts" / "deploy_check.sh", root / "scripts" / "run_nvr_report.py"
+        if not script.exists():
+            self.skipTest("deploy_check.sh is not part of this test image")
+        self.assertIn('print(f"Warning: {reason[:160]}")', reporter.read_text(encoding="utf-8"))
+        self.assertIn("s/^Warning: /            warning: /p", script.read_text(encoding="utf-8"))
+
+
 class StreamServer:
     """One HTTP client: headers, optional documents, then holds the stream open."""
 

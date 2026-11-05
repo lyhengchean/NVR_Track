@@ -147,6 +147,7 @@ for ip in $IPS; do
     DEVICE=$(echo "$OUT" | sed -n 's/^Device information: //p')
     printf '  %-7s %-15s %-9s device=%-22s %s (%ss)\n' "${ID:-?}" "$ip" "${OVERALL:-NO_REPORT}" "${DEVICE:-?}" "$PERCAM" "$(( $(date +%s) - START ))"
     echo "$OUT" | sed -n 's/^Critical: /            critical: /p' | head -3
+    echo "$OUT" | sed -n 's/^Warning: /            warning: /p' | head -3
 done
 
 section "6. Dashboard data (what the web page shows)"
