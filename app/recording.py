@@ -515,10 +515,12 @@ def check_recording_evidence(
                     response.content,
                     timestamp_timezone=nvr_timezone,
                 )
-            except ValueError:
+            except ValueError as exc:
+                # Say which rule failed (fixed texts from parse_search_response,
+                # never device data), so a persistent case can be diagnosed.
                 return _result(
                     "INCONSISTENT_OR_UNEXPECTED_RESPONSE",
-                    "Recording-search response could not be validated.",
+                    f"Recording-search response could not be validated: {exc}",
                     track_id=track_id,
                     http_status=response.status_code,
                     start_utc=start_utc,
