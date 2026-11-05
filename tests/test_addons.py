@@ -325,6 +325,8 @@ class SnapshotJudgeTests(unittest.TestCase):
         self.assertEqual(snapshots.judge(self.metrics(), "c", entry, None)[0], "PICTURE_FROZEN")
         moved = snapshots.analyze(self._flipped())
         status, _, moved_entry = snapshots.judge(moved, "d", entry, None)
+        self.assertEqual(status, "PICTURE_VIEW_CHECKING")                         # Re-checked first.
+        status, _, moved_entry = snapshots.judge(moved, "d2", moved_entry, None)
         self.assertEqual(status, "PICTURE_VIEW_CHANGED")
         later = (datetime.now(timezone.utc) + timedelta(seconds=5)).isoformat()
         self.assertEqual(snapshots.judge(moved, "e", moved_entry, later)[0], "PICTURE_OK")  # Marked fixed.

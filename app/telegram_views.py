@@ -30,6 +30,7 @@ PROBLEMS = ("NO_FOOTAGE_30", "NOT_RECORDING", "CHECK_FAILED", "GAPS",
 BAD_PICTURES = {"PICTURE_BLACK", "PICTURE_UNIFORM", "PICTURE_FROZEN", "PICTURE_VIEW_CHANGED"}
 PICTURE_LABEL = {"PICTURE_OK": "OK", "PICTURE_BLACK": "black", "PICTURE_UNIFORM": "flat / covered",
                  "PICTURE_FROZEN": "frozen", "PICTURE_VIEW_CHANGED": "view changed",
+                 "PICTURE_VIEW_CHECKING": "view differs, re-checking",
                  "PICTURE_UNAVAILABLE": "not available", "PICTURE_NOT_CHECKED": "not checked",
                  "PICTURE_NOT_CONFIGURED": "not enabled"}
 LIVE_LABEL = {"ONLINE": "Online", "OFFLINE": "Offline", "UNKNOWN": "Unknown",
