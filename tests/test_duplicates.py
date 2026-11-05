@@ -12,7 +12,7 @@ from fake_nvr import FakeNVR
 
 from app import dashboard
 from app import telegram_views as views
-from app.duplicates import find_duplicates, notes_by_channel, warnings
+from app.duplicates import find_duplicates, info, notes_by_channel, warnings
 from app.isapi import parse_channel_inventory
 from app.reporting import determine_overall_status
 from scripts import run_nvr_report as runner
@@ -45,21 +45,37 @@ class FindDuplicatesTests(unittest.TestCase):
 
     def test_messages_never_contain_ip_addresses(self):
         result = find_duplicates([cam(21, "10.0.0.117", "Silo", 1), cam(51, "10.0.0.117", "Silo", 1)])
-        text = " ".join(warnings(result))
+        text = " ".join(warnings(result) + info(result))
         self.assertNotIn("10.0.0.117", text)
         self.assertIn("ch21 = ch51", text)
         self.assertIn("“Silo” (ch21, ch51)", text)
         self.assertEqual(notes_by_channel(result)["51"], ["Same camera as ch21", "Same name as ch21"])
 
-    def test_duplicates_make_an_otherwise_healthy_nvr_a_warning(self):
+    def test_same_camera_is_a_warning_but_a_shared_name_is_only_information(self):
         base = {"device_info_status": "DEVICE_INFO_RETRIEVED", "inventory_status": "CHANNELS_RETRIEVED",
                 "channel_status": "CHANNEL_STATUS_RETRIEVED", "storage_status": "HEALTHY", "offline_count": 0,
                 "expected_count": 2, "actual_count": 2, "recording_status": "RECORDING_EVIDENCE_FOUND"}
         self.assertEqual(determine_overall_status(**base)["status"], "HEALTHY")
-        dup = find_duplicates([cam(1, "", "Gate"), cam(2, "", "Gate")])
-        result = determine_overall_status(**base, duplicates=dup)
-        self.assertEqual(result["status"], "WARNING")
-        self.assertTrue(result["warnings"][0].startswith("Channel names used more than once"))
+        # Several cameras named after one place (nvr-06 "Warehouse 3" ch27-32): HEALTHY stays HEALTHY.
+        names = determine_overall_status(**base, duplicates=find_duplicates(
+            [cam(c, f"10.0.0.{c}", "Warehouse 3") for c in range(27, 33)]))
+        self.assertEqual((names["status"], names["warnings"]), ("HEALTHY", []))
+        self.assertEqual(names["info"], ["Channel names used more than once: “Warehouse 3” "
+                                         "(ch27, ch28, ch29, ch30, ch31, ch32). Unique names make alerts "
+                                         "and searches clearer."])
+        same = determine_overall_status(**base, duplicates=find_duplicates(
+            [cam(37, "10.0.0.5", "Packing 01", 1), cam(41, "10.0.0.5", "Packing 02", 1)]))
+        self.assertEqual(same["status"], "WARNING")
+        self.assertTrue(same["warnings"][0].startswith("Same camera on more than one channel: ch37 = ch41."))
+        self.assertEqual(same["info"], [])
+
+    def test_reporter_prints_information_as_notes(self):
+        from scripts.run_nvr_report import reason_lines
+        lines = reason_lines({"critical_reasons": [], "warnings": ["W"], "info": ["Channel names used twice"]})
+        self.assertEqual(lines, ["Warning: W", "Note: Channel names used twice"])
+        script = Path(__file__).resolve().parent.parent / "scripts" / "deploy_check.sh"
+        if script.exists():
+            self.assertIn("s/^Note: /            note: /p", script.read_text(encoding="utf-8"))
 
     def test_parser_reads_the_camera_input(self):
         channels = parse_channel_inventory(
@@ -103,11 +119,13 @@ class EndToEndDuplicateTests(unittest.TestCase):
                 patch("sys.stdout", new_callable=io.StringIO) as out:
             runner.main()
         self.assertIn("Warning: Same camera on more than one channel: ch1 = ch3.", out.getvalue())
+        self.assertIn("Note: Channel names used more than once: “Gate” (ch1, ch2).", out.getvalue())
         report = json.loads(next((self.root / "reports").glob("nvr-01_*.json")).read_text(encoding="utf-8"))
         self.assertEqual(report["duplicates"]["same_camera"], [{"channels": ["1", "3"]}])
         self.assertEqual(report["duplicates"]["same_name"], [{"name": "Gate", "channels": ["1", "2"]}])
         self.assertEqual(report["channel_inventory"]["channels"][0]["source_input"], 1)
-        self.assertNotIn("192.0.2.1", " ".join(report["overall"]["warnings"]))
+        self.assertNotIn("192.0.2.1", " ".join(report["overall"]["warnings"] + report["overall"]["info"]))
+        self.assertFalse(any("names used" in w for w in report["overall"]["warnings"]))
         # Read-only: the only POSTs are recording searches.
         self.assertTrue(all(p == "/ISAPI/ContentMgmt/search" for m, p in self.nvr.requests if m == "POST"))
 
@@ -117,8 +135,12 @@ class EndToEndDuplicateTests(unittest.TestCase):
         self.assertEqual(cams["1"]["duplicate_notes"], ["Same camera as ch3", "Same name as ch2"])
         self.assertIn("ch.duplicate_notes", dashboard.HTML)
         self.assertIn("⚠️ Same camera as ch1", views.camera_search(data, "nvr-01 3", show_ips=False))
-        self.assertTrue(any("Same camera on more than one channel" in f
-                            for f in camera_conditions(report)["findings"]))
+        self.assertEqual(data["nvrs"][0]["info"], report["overall"]["info"])
+        self.assertIn("(nvr.info || []).forEach", dashboard.HTML)
+        self.assertIn("ℹ️ Channel names used more than once", views.nvr_detail(data, data["nvrs"][0], False))
+        findings = camera_conditions(report)["findings"]
+        self.assertTrue(any("Same camera on more than one channel" in f for f in findings))
+        self.assertTrue(any("Channel names used more than once" in f for f in findings))
 
 
 if __name__ == "__main__":

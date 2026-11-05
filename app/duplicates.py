@@ -47,22 +47,28 @@ def find_duplicates(channels: list[dict] | None) -> dict:
 
 
 def warnings(duplicates: dict | None) -> list[str]:
-    """Overall-status warnings (no IP addresses)."""
+    """Overall-status warning: one camera on several channels (no IP addresses)."""
     duplicates = duplicates if isinstance(duplicates, dict) else {}
-    found = []
     cameras = [group for group in duplicates.get("same_camera") or [] if isinstance(group, dict)]
-    if cameras:
-        listed = "; ".join(" = ".join(f"ch{c}" for c in group.get("channels", [])) for group in cameras[:5])
-        more = f" and {len(cameras) - 5} more" if len(cameras) > 5 else ""
-        found.append(f"Same camera on more than one channel: {listed}{more}. "
-                     "It is recorded twice; check whether another camera is missing.")
+    if not cameras:
+        return []
+    listed = "; ".join(" = ".join(f"ch{c}" for c in group.get("channels", [])) for group in cameras[:5])
+    more = f" and {len(cameras) - 5} more" if len(cameras) > 5 else ""
+    return [f"Same camera on more than one channel: {listed}{more}. "
+            "It is recorded twice; check whether another camera is missing."]
+
+
+def info(duplicates: dict | None) -> list[str]:
+    """Information only, never a warning: several cameras often share one
+    location name ("Warehouse 3" ch27-32), so this must not change NVR status."""
+    duplicates = duplicates if isinstance(duplicates, dict) else {}
     names = [group for group in duplicates.get("same_name") or [] if isinstance(group, dict)]
-    if names:
-        listed = "; ".join(f"“{str(group.get('name', ''))[:40]}” ("
-                           + ", ".join(f"ch{c}" for c in group.get("channels", [])) + ")" for group in names[:5])
-        more = f" and {len(names) - 5} more" if len(names) > 5 else ""
-        found.append(f"Channel names used more than once: {listed}{more}. Rename them on the NVR.")
-    return found
+    if not names:
+        return []
+    listed = "; ".join(f"“{str(group.get('name', ''))[:40]}” ("
+                       + ", ".join(f"ch{c}" for c in group.get("channels", [])) + ")" for group in names[:5])
+    more = f" and {len(names) - 5} more" if len(names) > 5 else ""
+    return [f"Channel names used more than once: {listed}{more}. Unique names make alerts and searches clearer."]
 
 
 def notes_by_channel(duplicates: dict | None) -> dict[str, list[str]]:

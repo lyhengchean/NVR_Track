@@ -120,7 +120,8 @@ def reason_lines(overall: dict) -> list[str]:
     nvr-07) and cut storage findings mid-sentence.
     """
     return ([f"Critical: {reason[:REASON_CHARS]}" for reason in overall.get("critical_reasons", [])[:REASON_LINES]]
-            + [f"Warning: {reason[:REASON_CHARS]}" for reason in overall.get("warnings", [])[:REASON_LINES]])
+            + [f"Warning: {reason[:REASON_CHARS]}" for reason in overall.get("warnings", [])[:REASON_LINES]]
+            + [f"Note: {reason[:REASON_CHARS]}" for reason in overall.get("info", [])[:REASON_LINES]])
 
 
 def now_local() -> datetime:

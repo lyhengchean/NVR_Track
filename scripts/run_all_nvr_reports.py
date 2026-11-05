@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 from app import notes as notes_store
 from app.camera_condition import classify, known_condition
 from app.config import InventoryError, load_inventory
-from app.duplicates import warnings as duplicate_warnings
+from app.duplicates import info as duplicate_info, warnings as duplicate_warnings
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -167,7 +167,7 @@ def camera_conditions(report: dict, notes: dict | None = None) -> dict:
     if storage.get("status") in {"WARNING", "CRITICAL"} and storage.get("message"):
         # Which disk and why; the per-NVR table shows only the status word.
         findings.append(f"Storage {str(storage['status']).lower()}: {' '.join(str(storage['message']).split())[:200]}")
-    findings += duplicate_warnings(report.get("duplicates"))
+    findings += duplicate_warnings(report.get("duplicates")) + duplicate_info(report.get("duplicates"))
     smart = storage.get("smart") or {}
     if smart.get("status") in {"WARNING", "CRITICAL"}:
         findings.append(f"Disk SMART {smart['status'].lower()}: {smart.get('message', '')}")

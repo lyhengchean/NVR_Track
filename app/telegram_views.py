@@ -320,7 +320,8 @@ def nvr_detail(data: dict, nvr: dict, show_ips: bool) -> str:
         lines.append(f"NVR clock offset: {offset:+d} s")
     findings = ([f"🔴 {esc(t)}" for t in nvr.get("critical_reasons", [])]
                 + [f"🟡 {esc(t)}" for t in nvr.get("warnings", [])]
-                + [f"⚪ {esc(t)}" for t in nvr.get("unknown_checks", [])])
+                + [f"⚪ {esc(t)}" for t in nvr.get("unknown_checks", [])]
+                + [f"ℹ️ {esc(t)}" for t in nvr.get("info", [])])
     if findings:
         lines += ["", "<b>Findings</b>", *capped(findings, 10)]
     return "\n".join(lines)

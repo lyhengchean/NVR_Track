@@ -1165,6 +1165,7 @@ function findingsPanel(nvr) {
   nvr.critical_reasons.forEach(t => ul.append(el("li", "c", "Critical: " + t)));
   nvr.warnings.forEach(t => ul.append(el("li", "w", "Warning: " + t)));
   nvr.unknown_checks.forEach(t => ul.append(el("li", "u", "Unverified: " + t)));
+  (nvr.info || []).forEach(t => ul.append(el("li", "", "Note: " + t)));
   if (Number.isInteger(nvr.configured_channels) && Number.isInteger(nvr.expected_channels) && nvr.configured_channels !== nvr.expected_channels)
     ul.append(el("li", "w", "Inventory mismatch: " + nvr.configured_channels + " configured, " + nvr.expected_channels + " expected."));
   if (!ul.children.length) ul.append(el("li", "", "No findings in this report."));
