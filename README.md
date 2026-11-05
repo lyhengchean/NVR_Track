@@ -572,6 +572,14 @@ informational *Short history*. It needs the recording calendar
 `NVR_RETENTION_WINDOW_DAYS`. `0` turns it off. After changing it:
 `docker compose up -d --force-recreate nvr-dashboard nvr-scanner nvr-telegram`.
 
+**Footage kept per NVR** (no setting, no extra NVR requests): the NVR card,
+Storage details, the email's per-NVR table and Telegram `/storage` and `/nvr`
+show how many days of video the NVR keeps — the median camera recording now
+with a fully verified calendar, and the fewest with its channels (a camera
+added recently also shows few days). `30+ days` means footage on the oldest
+calendar day, so at least the window. Cameras not recording now, or with a
+partial or old calendar, are left out; with none left it says *unknown*.
+
 ## Archiving old reports
 
 About 100 reports are saved per day and none were ever removed. To move old

@@ -787,6 +787,8 @@ function card(row) {
   live.append(lv(num(nvr.online_channels), "online"), lv(num(nvr.offline_channels), "offline"));
   if (num(nvr.unknown_channels)) live.append(lv(num(nvr.unknown_channels), "unknown"));
   const chans = el("span", "", (nvr.configured_channels ?? "—") + " of " + (nvr.expected_channels ?? "—") + " channels");
+  const kept = el("span", "kept", "Footage kept " + keptText(nvr.kept_days, true));
+  kept.title = keptTitle(nvr.kept_days);
   const when = el("span", "when" + (isStale(nvr) ? " stale" : ""), (nvr.last_run_failed ? "Last good report " : "Report ") + stamp(nvr.last_check));
   when.title = (nvr.last_check || "") + (isStale(nvr) ? " (stale)" : "");
   const btn = el("button", "expand", "Details");
@@ -799,7 +801,9 @@ function card(row) {
   scanBtn.dataset.nvr = nvr.id;
   scanBtn.title = "Scan " + nvrTitle(nvr) + " now";
   scanBtn.addEventListener("click", () => requestScan(nvr.id));
-  foot.append(alerts, live, chans, when, scanBtn, btn);
+  foot.append(alerts, live, chans);
+  if (nvr.channels.length) foot.append(kept);
+  foot.append(when, scanBtn, btn);
   head.append(foot);
   art.append(head);
   if (isOpen(row)) art.append(drawer(row));
@@ -1121,9 +1125,22 @@ function space(mb) {
   if (n >= 1e3) return (n / 1e3).toFixed(1) + " GB";
   return n + " MB";
 }
+// Days of footage kept: the median camera recording now (verified 30-day calendar).
+function keptText(k, short) {
+  if (!k || !k.cameras || k.typical === null || k.typical === undefined) return short ? "unknown" : "unknown (no verified calendar)";
+  const d = n => n >= k.window ? n + "+ days" : plural(n, "day");
+  return d(k.typical) + (!short && k.fewest < k.typical ? " (fewest " + k.fewest + ": " + k.fewest_channels.map(c => "ch" + c).join(", ") + ")" : "");
+}
+function keptTitle(k) {
+  if (!k || !k.cameras) return "No camera recording now has a verified 30-day calendar.";
+  return "Typical (median) days of footage on the " + plural(k.cameras, "camera") + " recording now with a verified calendar" +
+    (k.fewest < k.typical ? "; fewest " + k.fewest + " (" + k.fewest_channels.map(c => "ch" + c).join(", ") + "), possibly a camera added recently" : "") +
+    ". " + k.window + "+ means at least the " + k.window + " days the calendar covers.";
+}
 function storagePanel(nvr) {
   const frag = document.createDocumentFragment();
   frag.append(el("p", "note", nvr.storage_message || "No storage message in this report."));
+  if (nvr.channels.length) frag.append(el("p", "note", "Footage kept: " + keptText(nvr.kept_days, false) + ". " + keptTitle(nvr.kept_days)));
   if (nvr.smart && nvr.smart.status !== "NOT_CONFIGURED")
     frag.append(el("p", "note", "Disk SMART: " + label(nvr.smart.status) + (nvr.smart.message ? " — " + nvr.smart.message : "") +
       (nvr.smart.checked_at ? " (checked " + stamp(nvr.smart.checked_at) + (nvr.smart.from_cache ? ", cached" : "") + ")" : "")));

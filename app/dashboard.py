@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo
 
 from app import events as event_store
 from app import notes as notes_store
-from app.camera_condition import CONDITIONS, classify, known_condition
+from app.camera_condition import CONDITIONS, classify, kept_days, known_condition
 from app.duplicates import notes_by_channel
 from app.snapshots import STATUSES as PICTURE_STATUSES
 
@@ -402,6 +402,8 @@ def _public_report(report: dict, path: Path, notes: dict | None = None) -> dict:
         "channels": channels,
         "condition_counts": {code: sum(ch["condition"]["code"] == code for ch in channels)
                              for code in CONDITIONS},
+        # Days of footage kept (median / fewest camera recording now; app.camera_condition).
+        "kept_days": kept_days(channels),
         "disks": disks,
         "smart": smart,
         "uptime_seconds": _number(device_status.get("uptime_seconds"), 0, 10**10),
