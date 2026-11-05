@@ -36,7 +36,8 @@ from requests.exceptions import RequestException
 
 OK, BLACK, UNIFORM, FROZEN, MOVED = ("PICTURE_OK", "PICTURE_BLACK", "PICTURE_UNIFORM",
                                      "PICTURE_FROZEN", "PICTURE_VIEW_CHANGED")
-# The view differs once: re-checked at the next scan before it counts as moved.
+# The view differs: re-checked at later scans (NVR_SNAPSHOT_MOVED_SCANS in a row,
+# spread over NVR_SNAPSHOT_MOVED_MINUTES) before it counts as moved.
 # Not a problem and no alert (alerts keep their previous state).
 CHECKING = "PICTURE_VIEW_CHECKING"
 UNAVAILABLE, NOT_CHECKED, NOT_CONFIGURED = "PICTURE_UNAVAILABLE", "PICTURE_NOT_CHECKED", "PICTURE_NOT_CONFIGURED"
@@ -57,6 +58,18 @@ def moved_scans_needed() -> int:
         return min(max(int(os.environ.get("NVR_SNAPSHOT_MOVED_SCANS", "2")), 1), 6)
     except ValueError:
         return 2
+
+
+def moved_minutes() -> int:
+    """Minutes the view must have differed before it is "view changed" (0-720, default 90).
+
+    Scans in a row alone are not enough: manual and deploy scans minutes apart
+    would confirm a passing shadow or a parked truck.
+    """
+    try:
+        return min(max(int(os.environ.get("NVR_SNAPSHOT_MOVED_MINUTES", "90")), 0), 720)
+    except ValueError:
+        return 90
 
 
 def result(status: str, message: str, **extra) -> dict:
@@ -130,7 +143,8 @@ def judge(metrics: dict, sha: str, previous: dict | None, reset_after: str | Non
     "day@14" etc. (latest matching picture in that time-of-day slot). The view
     is the same when it is close to either; then both are updated, so they
     follow light and scene changes. Otherwise the camera is re-checked and is
-    "view changed" only after moved_scans_needed() scans in a row.
+    "view changed" only after moved_scans_needed() scans in a row, the last
+    at least moved_minutes() after the first that differed.
     """
     previous = previous if isinstance(previous, dict) else {}
     now = now or datetime.now(timezone.utc)
@@ -142,11 +156,20 @@ def judge(metrics: dict, sha: str, previous: dict | None, reset_after: str | Non
     count = previous.get("moved_scans")
     if not isinstance(count, int):
         count = moved_scans_needed() if (previous.get("distance") or 0) > MOVED_ABOVE else 0
+    # Already reported as "view changed"? Entries from before this field: the
+    # old rule reported at moved_scans_needed() scans in a row.
+    reported = previous.get("moved_reported")
+    if not isinstance(reported, bool):
+        reported = count >= moved_scans_needed()
+    since = previous.get("differs_since")
     if was_reset:
-        count = 0
+        count, reported, since = 0, False, None
     mode = metrics["mode"]
     band = _band_key(mode, now)
-    entry = {"sha": sha, "dhash": metrics["dhash"], "checked_at": stamp, "refs": refs, "moved_scans": count}
+    entry = {"sha": sha, "dhash": metrics["dhash"], "checked_at": stamp, "refs": refs, "moved_scans": count,
+             "moved_reported": reported}
+    if since and count:
+        entry["differs_since"] = since       # Kept through black, flat or frozen pictures.
     if metrics["brightness"] < BLACK_BELOW:
         return BLACK, f"Black picture (brightness {metrics['brightness']}).", entry
     if metrics["contrast"] < UNIFORM_BELOW:
@@ -161,20 +184,32 @@ def judge(metrics: dict, sha: str, previous: dict | None, reset_after: str | Non
     current = {"dhash": metrics["dhash"], "at": stamp}
     if not known:
         refs[mode] = refs[band] = current
-        entry["moved_scans"] = 0
+        entry.update(moved_scans=0, moved_reported=False)
+        entry.pop("differs_since", None)
         return OK, f"Picture OK ({mode}); saved as the reference view.", entry
     distance = min(hamming(metrics["dhash"], ref["dhash"]) for ref in known)
     entry["distance"] = distance
     if distance <= MOVED_ABOVE:
         refs[mode] = refs[band] = current  # Follow light, weather and scene changes.
-        entry["moved_scans"] = 0
+        entry.update(moved_scans=0, moved_reported=False)
+        entry.pop("differs_since", None)
         return OK, f"Picture OK ({mode}).", entry
+    needed, minutes = moved_scans_needed(), moved_minutes()
     entry["moved_scans"] = count + 1
-    if count + 1 >= moved_scans_needed():
+    # When the view first differed. Entries from before this field: the
+    # previous scan (later than the real start, so never confirmed too early).
+    entry["differs_since"] = (since or previous.get("checked_at") or stamp) if count > 0 else stamp
+    try:
+        waited = now - datetime.fromisoformat(entry["differs_since"]) >= timedelta(minutes=minutes)
+    except (TypeError, ValueError):
+        waited = False
+    # Once reported it stays reported while the view differs (no false "OK again").
+    if reported or (count + 1 >= needed and (needed == 1 or waited)):
+        entry["moved_reported"] = True
         return MOVED, (f"View still differs from the {mode} reference ({distance}/64) at the latest scans. "
                        "If the camera was re-aimed on purpose, mark it fixed to accept the new view."), entry
-    return CHECKING, (f"View differs from the {mode} reference ({distance}/64); checked again at the "
-                      "next scan before it counts as moved."), entry
+    return CHECKING, (f"View differs from the {mode} reference ({distance}/64); checked again at a later "
+                      f"scan (at least {minutes} min after the first) before it counts as moved."), entry
 
 
 def fetch(session: requests.Session, base: str, auth, stream: int) -> tuple[str, bytes | None]:
