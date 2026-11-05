@@ -912,18 +912,30 @@ class Bot:
 
 # ---------- service ----------
 
-def idle(reason: str) -> int:
+def beat(state_dir: Path) -> None:
+    """Heartbeat for the Docker healthcheck: the main loop is still turning."""
+    try:
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "heartbeat").touch()
+    except OSError:
+        pass
+
+
+def idle(reason: str, state_dir: Path | None = None) -> int:
     print(f"telegram: {reason} The bot is idle; set it in .env, then: "
           "docker compose up -d --force-recreate nvr-telegram", flush=True)
     while True:
-        time.sleep(3600)
+        if state_dir is not None:
+            beat(state_dir)  # Idle on purpose is healthy.
+        time.sleep(60)
 
 
 def main() -> int:
     settings = load_settings()
     if not settings["token"]:
         return idle("TELEGRAM_BOT_TOKEN is missing or not in the expected format."
-                    if not settings["token_set"] else "TELEGRAM_BOT_TOKEN has an unexpected format.")
+                    if not settings["token_set"] else "TELEGRAM_BOT_TOKEN has an unexpected format.",
+                    settings["state_dir"])
     if settings["access"] == "open":
         print("telegram: TELEGRAM_ACCESS=open - anyone on Telegram can read status; "
               "only TELEGRAM_ADMIN_USER_IDS can start scans", flush=True)
@@ -936,6 +948,7 @@ def main() -> int:
     api = TelegramAPI(settings["token"])
     bot = Bot(settings, api)
     while True:
+        beat(settings["state_dir"])
         try:
             me = api.call("getMe")
             bot.username = str(me.get("username") or "")
@@ -950,6 +963,7 @@ def main() -> int:
     offset = read_state(offset_path, {}).get("offset")
     next_check = 0.0
     while True:
+        beat(settings["state_dir"])
         try:
             updates = api.call("getUpdates", http_timeout=POLL_TIMEOUT_SECONDS + 10, offset=offset,
                                timeout=POLL_TIMEOUT_SECONDS,

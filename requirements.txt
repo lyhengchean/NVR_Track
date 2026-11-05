@@ -1,3 +1,5 @@
 requests==2.34.2
+# Pinned: the event listener reads the stream with urllib3's read1() and catches its errors.
+urllib3==2.8.0
 tzdata==2026.5
 pillow==11.3.0
