@@ -122,11 +122,13 @@ def main() -> int:
     if reply.status_code != 200:
         return 1
     try:
-        parsed = parse_search_response(reply.content, timestamp_timezone=local.tzinfo)
+        parsed = parse_search_response(reply.content, timestamp_timezone=local.tzinfo,
+                                       page_size=min(max(args.max_results, 1), 64))
     except ValueError as exc:
         print(f"Result: REJECTED by NVR_Track: {exc}")
         return 0
-    print(f"Result: accepted; {parsed['num_matches']} segment(s), status {parsed['search_status'] or '-'}")
+    total = f" of {parsed['total_matches']}" if parsed["total_matches"] not in (None, parsed["num_matches"]) else ""
+    print(f"Result: accepted; {parsed['num_matches']}{total} segment(s), status {parsed['search_status'] or '-'}")
     return 0
 
 

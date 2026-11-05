@@ -132,8 +132,12 @@ def parse_search_response(
     content: bytes,
     *,
     timestamp_timezone: tzinfo | None = None,
+    page_size: int | None = None,
 ) -> dict:
-    """Parse search metadata while preserving an absent totalMatches as None."""
+    """Parse search metadata while preserving an absent totalMatches as None.
+
+    ``page_size`` is the maxResults that was requested; see the MORE rule below.
+    """
     try:
         root = ET.fromstring(content)
     except ET.ParseError as exc:
@@ -196,9 +200,23 @@ def parse_search_response(
         })
 
     if num_matches != len(matches):
-        raise ValueError(
-            "numOfMatches differs from the number of returned match entries."
+        # Some firmware (nvr-01, a motion-recording camera with 12 segments in
+        # the hour) puts the count of ALL matches in numOfMatches on a page
+        # truncated at maxResults: MORE, numOfMatches 12, 10 entries. Accept
+        # exactly that shape (a full page, more reported than returned) as a
+        # page plus a total; every other mismatch stays invalid.
+        full_truncated_page = (
+            status_string == "MORE"
+            and page_size is not None
+            and len(matches) == page_size
+            and num_matches > len(matches)
         )
+        if not full_truncated_page:
+            raise ValueError(
+                "numOfMatches differs from the number of returned match entries."
+            )
+        total_matches = max(total_matches or 0, num_matches)
+        num_matches = len(matches)
 
     if total_matches is not None and total_matches < num_matches:
         raise ValueError("totalMatches is smaller than numOfMatches.")
@@ -514,6 +532,7 @@ def check_recording_evidence(
                 parsed = parse_search_response(
                     response.content,
                     timestamp_timezone=nvr_timezone,
+                    page_size=max_results,
                 )
             except ValueError as exc:
                 # Say which rule failed (fixed texts from parse_search_response,
