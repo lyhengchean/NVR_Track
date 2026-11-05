@@ -8,7 +8,13 @@ sent anywhere by this module. Enable per NVR with NVR_SNAPSHOT_NVR_IDS after
 scripts.probe_nvr_features shows pictures can be read.
 
 Day and night (infrared, grey) pictures keep separate reference views, so the
-nightly switch to IR is not taken for a moved camera. Marking a camera fixed
+nightly switch to IR is not taken for a moved camera. A view counts as the same
+when it is close to the latest matching picture (which follows sun, shade and
+changing material piles through the day) or to the matching picture taken at
+the same time of day before (so morning light is compared with morning). A
+picture that matches neither is re-checked: "view changed" only when it still
+differs at NVR_SNAPSHOT_MOVED_SCANS scans in a row (default 2). The picture
+from before the change is kept so people can compare. Marking a camera fixed
 (Telegram /fixed or the dashboard) accepts its current view as the new
 reference.
 """
@@ -22,6 +28,7 @@ import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 from requests.auth import HTTPDigestAuth
@@ -29,20 +36,33 @@ from requests.exceptions import RequestException
 
 OK, BLACK, UNIFORM, FROZEN, MOVED = ("PICTURE_OK", "PICTURE_BLACK", "PICTURE_UNIFORM",
                                      "PICTURE_FROZEN", "PICTURE_VIEW_CHANGED")
+# The view differs once: re-checked at the next scan before it counts as moved.
+# Not a problem and no alert (alerts keep their previous state).
+CHECKING = "PICTURE_VIEW_CHECKING"
 UNAVAILABLE, NOT_CHECKED, NOT_CONFIGURED = "PICTURE_UNAVAILABLE", "PICTURE_NOT_CHECKED", "PICTURE_NOT_CONFIGURED"
-STATUSES = {OK, BLACK, UNIFORM, FROZEN, MOVED, UNAVAILABLE, NOT_CHECKED, NOT_CONFIGURED}
+STATUSES = {OK, BLACK, UNIFORM, FROZEN, MOVED, CHECKING, UNAVAILABLE, NOT_CHECKED, NOT_CONFIGURED}
 BLACK_BELOW = 10          # Mean brightness 0-255.
 UNIFORM_BELOW = 3.5       # Standard deviation of brightness.
 MOVED_ABOVE = 24          # Differing bits of 64 in the difference hash.
 GREY_BELOW = 3.0          # Mean colour difference: IR night pictures are grey.
+BAND_HOURS = 2            # Same-time-of-day references: one per scan slot.
 MAX_BYTES = 5_000_000
 THUMB_SIZE = (640, 360)
+LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
+
+
+def moved_scans_needed() -> int:
+    """Scans in a row a view must differ before it is "view changed" (1-6)."""
+    try:
+        return min(max(int(os.environ.get("NVR_SNAPSHOT_MOVED_SCANS", "2")), 1), 6)
+    except ValueError:
+        return 2
 
 
 def result(status: str, message: str, **extra) -> dict:
     return {"status": status, "message": message, "checked_at": datetime.now(timezone.utc).isoformat(),
             "brightness": None, "contrast": None, "mode": None, "distance": None,
-            "has_image": False, **extra}
+            "has_image": False, "has_reference": False, **extra}
 
 
 def stream_id(channel_id: str, track_id: object) -> int | None:
@@ -78,39 +98,83 @@ def hamming(a: str, b: str) -> int:
     return bin(int(a, 16) ^ int(b, 16)).count("1")
 
 
-def judge(metrics: dict, sha: str, previous: dict | None, reset_after: str | None) -> tuple[str, str, dict]:
-    """(status, message, updated index entry) for one picture."""
-    previous = previous if isinstance(previous, dict) else {}
-    refs = dict(previous.get("refs") or {})
-    now = datetime.now(timezone.utc).isoformat()
-    mode = metrics["mode"]
-    ref = refs.get(mode)
-    if ref and reset_after:
+def _band_key(mode: str, when: datetime) -> str:
+    return f"{mode}@{when.astimezone(LOCAL_TZ).hour // BAND_HOURS * BAND_HOURS:02d}"
+
+
+def _drop_refs_before(refs: dict, reset_after: str | None) -> bool:
+    """Marked fixed: forget every reference saved before that moment."""
+    if not reset_after:
+        return False
+    try:
+        cutoff = datetime.fromisoformat(reset_after)
+    except (TypeError, ValueError):
+        return False
+    dropped = False
+    for key in list(refs):
         try:
-            if datetime.fromisoformat(reset_after) > datetime.fromisoformat(ref["at"]):
-                ref = None  # Marked fixed after this reference: accept the current view.
+            older = datetime.fromisoformat(refs[key]["at"]) < cutoff
         except (KeyError, TypeError, ValueError):
-            pass
-    entry = {"sha": sha, "dhash": metrics["dhash"], "checked_at": now, "refs": refs}
+            older = True
+        if older:
+            del refs[key]
+            dropped = True
+    return dropped
+
+
+def judge(metrics: dict, sha: str, previous: dict | None, reset_after: str | None,
+          now: datetime | None = None) -> tuple[str, str, dict]:
+    """(status, message, updated index entry) for one picture.
+
+    References per mode: "day"/"night" (latest matching picture) and
+    "day@14" etc. (latest matching picture in that time-of-day slot). The view
+    is the same when it is close to either; then both are updated, so they
+    follow light and scene changes. Otherwise the camera is re-checked and is
+    "view changed" only after moved_scans_needed() scans in a row.
+    """
+    previous = previous if isinstance(previous, dict) else {}
+    now = now or datetime.now(timezone.utc)
+    stamp = now.isoformat()
+    refs = {key: value for key, value in (previous.get("refs") or {}).items() if isinstance(value, dict)}
+    was_reset = _drop_refs_before(refs, reset_after)
+    # Scans in a row the view has differed. Index entries written before this
+    # rule kept no count: one that was "view changed" stays so (no alert flap).
+    count = previous.get("moved_scans")
+    if not isinstance(count, int):
+        count = moved_scans_needed() if (previous.get("distance") or 0) > MOVED_ABOVE else 0
+    if was_reset:
+        count = 0
+    mode = metrics["mode"]
+    band = _band_key(mode, now)
+    entry = {"sha": sha, "dhash": metrics["dhash"], "checked_at": stamp, "refs": refs, "moved_scans": count}
     if metrics["brightness"] < BLACK_BELOW:
         return BLACK, f"Black picture (brightness {metrics['brightness']}).", entry
     if metrics["contrast"] < UNIFORM_BELOW:
         return UNIFORM, f"Flat picture with no detail (contrast {metrics['contrast']}).", entry
     try:
-        recent = datetime.now(timezone.utc) - datetime.fromisoformat(previous["checked_at"]) < timedelta(hours=26)
+        recent = now - datetime.fromisoformat(previous["checked_at"]) < timedelta(hours=26)
     except (KeyError, TypeError, ValueError):
         recent = False
     if previous.get("sha") == sha and recent:
         return FROZEN, "Exactly the same picture as at the previous scan (frozen image).", entry
-    if ref is None:
-        refs[mode] = {"dhash": metrics["dhash"], "at": now}
+    known = [refs[key] for key in (mode, band) if key in refs]
+    current = {"dhash": metrics["dhash"], "at": stamp}
+    if not known:
+        refs[mode] = refs[band] = current
+        entry["moved_scans"] = 0
         return OK, f"Picture OK ({mode}); saved as the reference view.", entry
-    distance = hamming(metrics["dhash"], ref["dhash"])
+    distance = min(hamming(metrics["dhash"], ref["dhash"]) for ref in known)
     entry["distance"] = distance
-    if distance > MOVED_ABOVE:
-        return MOVED, (f"View differs from the {mode} reference ({distance}/64). If the camera was "
-                       "re-aimed on purpose, mark it fixed to accept the new view."), entry
-    return OK, f"Picture OK ({mode}).", entry
+    if distance <= MOVED_ABOVE:
+        refs[mode] = refs[band] = current  # Follow light, weather and scene changes.
+        entry["moved_scans"] = 0
+        return OK, f"Picture OK ({mode}).", entry
+    entry["moved_scans"] = count + 1
+    if count + 1 >= moved_scans_needed():
+        return MOVED, (f"View still differs from the {mode} reference ({distance}/64) at the latest scans. "
+                       "If the camera was re-aimed on purpose, mark it fixed to accept the new view."), entry
+    return CHECKING, (f"View differs from the {mode} reference ({distance}/64); checked again at the "
+                      "next scan before it counts as moved."), entry
 
 
 def fetch(session: requests.Session, base: str, auth, stream: int) -> tuple[str, bytes | None]:
@@ -190,18 +254,35 @@ def check_snapshots(*, ip: str, port: int, username: str, password: str, nvr_id:
                 ch["snapshot_result"] = result(UNAVAILABLE, "Picture could not be decoded.")
                 continue
             sha = hashlib.sha256(jpeg).hexdigest()
-            status, message, entry = judge(metrics, sha, index.get(cid), resets.get(cid))
+            previous = index.get(cid) if isinstance(index.get(cid), dict) else {}
+            status, message, entry = judge(metrics, sha, previous, resets.get(cid))
             index[cid] = entry
-            stored = False
+            differs = status in {CHECKING, MOVED}
+            stored, has_reference = False, False
             if keep_images:
+                latest, before = folder / f"{cid}.jpg", folder / f"{cid}.ref.jpg"
                 try:
-                    _write_atomic(folder / f"{cid}.jpg", thumbnail(jpeg))
+                    if differs and entry["moved_scans"] == 1 and latest.is_file():
+                        # Keep the picture from before the change, to compare with.
+                        _write_atomic(before, latest.read_bytes())
+                        entry["reference_at"] = previous.get("checked_at")
+                    elif differs:
+                        entry["reference_at"] = previous.get("reference_at")
+                    elif before.exists() and status == OK:
+                        before.unlink()
+                    has_reference = differs and before.is_file()
+                except OSError:
+                    has_reference = False
+                try:
+                    _write_atomic(latest, thumbnail(jpeg))
                     stored = True
                 except Exception:
                     stored = False
             ch["snapshot_result"] = result(status, message, brightness=metrics["brightness"],
                                            contrast=metrics["contrast"], mode=metrics["mode"],
-                                           distance=entry.get("distance"), has_image=stored)
+                                           distance=entry.get("distance"), has_image=stored,
+                                           has_reference=has_reference, checked_at=entry["checked_at"],
+                                           reference_at=entry.get("reference_at") if has_reference else None)
     try:
         _write_atomic(folder / "index.json", json.dumps(index).encode("utf-8"))
     except OSError:

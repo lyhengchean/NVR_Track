@@ -250,7 +250,10 @@ def _public_snapshot(value: object) -> dict:
             "brightness": _number(raw.get("brightness"), 0, 255),
             "contrast": _number(raw.get("contrast"), 0, 255),
             "mode": raw.get("mode") if raw.get("mode") in {"day", "night"} else None,
-            "has_image": raw.get("has_image") is True}
+            "has_image": raw.get("has_image") is True,
+            # Picture from before the view changed (app.snapshots), to compare with.
+            "has_reference": raw.get("has_reference") is True,
+            "reference_at": str(raw.get("reference_at") or "")[:40]}
 
 
 SMART_STATUSES = {"HEALTHY", "WARNING", "CRITICAL", "UNVERIFIED", "NOT_CONFIGURED"}
@@ -1015,13 +1018,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._send(code, "application/json; charset=utf-8", json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
     def _snapshot(self, query: str) -> None:
-        """Latest stored thumbnail of one camera (written by the reporter)."""
+        """Latest stored thumbnail of one camera (written by the reporter);
+        ref=1: the picture from before its view changed."""
         params = dict(part.partition("=")[::2] for part in query.split("&") if part)
         nvr_id, channel = params.get("nvr", ""), params.get("ch", "")
-        if not notes_store.valid_target(nvr_id, channel) or not channel:
+        if not notes_store.valid_target(nvr_id, channel) or not channel or params.get("ref", "0") not in {"0", "1"}:
             self._send(400, "text/plain; charset=utf-8", b"Bad request.\n")
             return
-        path = SNAPSHOT_DIR / nvr_id / f"{channel}.jpg"
+        path = SNAPSHOT_DIR / nvr_id / (f"{channel}.ref.jpg" if params.get("ref") == "1" else f"{channel}.jpg")
         try:
             body = path.read_bytes() if path.is_file() and not path.is_symlink() else None
         except OSError:

@@ -760,6 +760,20 @@ class Bot:
         except TelegramError as exc:
             print(f"telegram: photo to {chat_id} failed: {exc}", flush=True)
             self.send(chat_id, "The picture could not be sent.")
+            return
+        if not result.get("has_reference"):
+            return
+        try:  # The picture from before the view changed, to compare with.
+            before = (path.parent / f"{channel}.ref.jpg").read_bytes()
+        except OSError:
+            return
+        if before.startswith(b"\xff\xd8"):
+            try:
+                self.api.upload("sendPhoto", "photo", f"{nvr['id']}-ch{channel}-before.jpg", before, "image/jpeg",
+                                chat_id=chat_id, caption=f"Before the view changed · {views.when(result.get('reference_at'))}"
+                                "\nSame place? /fixed accepts the new view.", parse_mode="HTML")
+            except TelegramError as exc:
+                print(f"telegram: photo to {chat_id} failed: {exc}", flush=True)
 
     def uptime_result(self, start: datetime, end: datetime) -> dict:
         key = (start.isoformat(), end.isoformat()[:13])

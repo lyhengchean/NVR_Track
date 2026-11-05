@@ -289,6 +289,7 @@ footer{margin:30px 0 40px;font-size:12.5px;color:var(--muted);max-width:110ch}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
 .pill.PICTURE_OK{background:var(--ok-soft);color:var(--ok-text)}
 .pill.PICTURE_BLACK,.pill.PICTURE_UNIFORM,.pill.PICTURE_FROZEN,.pill.PICTURE_VIEW_CHANGED{background:var(--crit-soft);color:var(--crit-text)}
+.pill.PICTURE_VIEW_CHECKING{background:var(--warn-soft);color:var(--warn-text)}
 .note-line{display:block;margin-top:3px;font-size:12px;color:var(--muted)}
 .note-line.known{color:var(--ink-2);font-weight:600}
 .rowbtn{border:1px solid var(--line);background:var(--panel);border-radius:6px;padding:2px 9px;font-size:12px;color:var(--ink-2);cursor:pointer}
@@ -440,7 +441,7 @@ const LABELS = {
   RETENTION_STALE: "Previous scan", RETENTION_UNSUPPORTED: "Not supported", RETENTION_ERROR: "Query error",
   RETENTION_INCONCLUSIVE: "Inconclusive", RETENTION_UNVERIFIED: "Unverified track", RETENTION_NOT_CONFIGURED: "Not enabled",
   PICTURE_OK: "Picture OK", PICTURE_BLACK: "Black", PICTURE_UNIFORM: "Flat / covered", PICTURE_FROZEN: "Frozen",
-  PICTURE_VIEW_CHANGED: "View changed", PICTURE_UNAVAILABLE: "No picture", PICTURE_NOT_CHECKED: "Not checked",
+  PICTURE_VIEW_CHANGED: "View changed", PICTURE_VIEW_CHECKING: "View re-check", PICTURE_UNAVAILABLE: "No picture", PICTURE_NOT_CHECKED: "Not checked",
   PICTURE_NOT_CONFIGURED: "Not enabled", UNVERIFIED: "Unverified"
 };
 const STORAGE_LABEL = {HEALTHY: "Storage healthy", WARNING: "Storage warning", CRITICAL: "Storage critical", UNKNOWN: "Storage unknown"};
@@ -1058,6 +1059,13 @@ function openCameraDialog(nvr, ch, pictureFirst) {
     img.alt = "Latest picture from " + title;
     img.src = "/api/snapshot?nvr=" + encodeURIComponent(nvr.id) + "&ch=" + encodeURIComponent(ch.channel_id) + "&t=" + Date.now();
     box.append(img, el("div", "sub", label(ch.snapshot_result.status) + " · " + stamp(ch.snapshot_result.checked_at) + " · " + (ch.snapshot_result.message || "")));
+    if (ch.snapshot_result.has_reference) {
+      const ref = el("img");
+      ref.alt = "Picture from before the view changed, " + title;
+      ref.src = "/api/snapshot?nvr=" + encodeURIComponent(nvr.id) + "&ch=" + encodeURIComponent(ch.channel_id) + "&ref=1&t=" + Date.now();
+      box.append(el("label", "", "Before the view changed"), ref,
+        el("div", "sub", stamp(ch.snapshot_result.reference_at) + " · if both show the same place, mark it fixed to accept the view."));
+    }
   }
   const issue = ch ? ch.known_issue : nvr.nvr_known_issue;
   if (issue) box.append(el("p", "", "Known issue" + (issue.until ? " until " + issue.until : " until marked fixed") + ": " + issue.reason));
