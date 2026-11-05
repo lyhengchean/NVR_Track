@@ -108,6 +108,20 @@ def fixed_times(nvr_id: str) -> dict[str, str]:
     return times
 
 
+REASON_LINES = 10      # Per kind; an NVR has at most about nine warning types.
+REASON_CHARS = 300     # Storage findings run to about 230 characters.
+
+
+def reason_lines(overall: dict) -> list[str]:
+    """Every critical reason and warning, uncut, for the console and deploy_check.
+
+    Three lines of 160 characters hid a fourth warning (a moved camera on
+    nvr-07) and cut storage findings mid-sentence.
+    """
+    return ([f"Critical: {reason[:REASON_CHARS]}" for reason in overall.get("critical_reasons", [])[:REASON_LINES]]
+            + [f"Warning: {reason[:REASON_CHARS]}" for reason in overall.get("warnings", [])[:REASON_LINES]])
+
+
 def now_local() -> datetime:
     return datetime.now(TIMEZONE)
 
@@ -570,10 +584,8 @@ def main() -> int:
 
     print("\n========== NVR REPORT ==========")
     print(f"Overall status: {overall['status']}")
-    for reason in overall["critical_reasons"][:3]:
-        print(f"Critical: {reason[:160]}")
-    for reason in overall["warnings"][:3]:
-        print(f"Warning: {reason[:160]}")
+    for line in reason_lines(overall):
+        print(line)
     print(f"Device information: {device.status}")
     print(f"Channel inventory: {inventory.status}")
     print(f"Channel status: {channel_status_result.status}")
