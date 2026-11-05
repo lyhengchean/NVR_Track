@@ -569,6 +569,8 @@ def main() -> int:
 
     print("\n========== NVR REPORT ==========")
     print(f"Overall status: {overall['status']}")
+    for reason in overall["critical_reasons"][:3]:
+        print(f"Critical: {reason[:160]}")
     print(f"Device information: {device.status}")
     print(f"Channel inventory: {inventory.status}")
     print(f"Channel status: {channel_status_result.status}")

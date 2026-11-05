@@ -19,10 +19,18 @@ from requests.exceptions import RequestException
 HEALTHY, WARNING, CRITICAL = "HEALTHY", "WARNING", "CRITICAL"
 UNVERIFIED, NOT_CONFIGURED = "UNVERIFIED", "NOT_CONFIGURED"
 RANK = {CRITICAL: 0, WARNING: 1, UNVERIFIED: 2, HEALTHY: 3, NOT_CONFIGURED: 4}
-GOOD_VERDICTS = {"ok", "normal", "pass", "passed", "good"}
+# Verdict words. Hikvision's web page shows e.g. "Self-evaluation: Pass" and
+# "All-evaluation: Functional". Only an explicit failure word raises an alarm;
+# a word not listed here makes the disk UNVERIFIED (shown, never alerted).
+GOOD_VERDICTS = {"ok", "normal", "pass", "passed", "good", "functional", "healthy", "true"}
+BAD_VERDICTS = {"fail", "failed", "failing", "fault", "faulty", "error", "bad", "abnormal",
+                "not functional", "notfunctional", "false"}
+WARN_VERDICTS = {"warning", "warn", "caution", "degraded"}
 # SMART attributes whose raw value counts damaged sectors.
 SECTOR_ATTRIBUTES = {5: "reallocated sectors", 197: "pending sectors", 198: "uncorrectable sectors"}
 TEMP_WARNING, TEMP_CRITICAL = 55, 60
+# Bump when the classification changes: older cached results are then re-checked.
+RULES_VERSION = 2
 SECTOR_CRITICAL = 100
 
 
@@ -80,16 +88,22 @@ def classify_disk(parsed: dict) -> tuple[str, str, dict]:
              *sectors.values()]
     if all(value is None for value in known) and not parsed["attributes"]:
         return UNVERIFIED, "SMART fields were not recognised.", sectors
-    critical, warning = [], []
+    critical, warning, unrecognised = [], [], []
     for field, label in (("self_assessment", "self-assessment"), ("overall_assessment", "overall assessment")):
-        verdict = parsed.get(field)
-        if verdict and verdict not in GOOD_VERDICTS:
+        verdict = (parsed.get(field) or "").strip()
+        if not verdict or verdict in GOOD_VERDICTS:
+            continue
+        if verdict in BAD_VERDICTS:
             critical.append(f"SMART {label} {verdict}")
+        elif verdict in WARN_VERDICTS:
+            warning.append(f"SMART {label} {verdict}")
+        else:
+            unrecognised.append(f"{label} '{verdict[:20]}'")
     for label, raw in sectors.items():
         if raw:
             (critical if raw >= SECTOR_CRITICAL else warning).append(f"{raw} {label}")
     failing = sorted(a for a, v in parsed["attributes"].items()
-                     if v.get("status") and v["status"] not in GOOD_VERDICTS)
+                     if v.get("status") in BAD_VERDICTS | WARN_VERDICTS)
     if failing:
         warning.append("attributes not OK: " + ", ".join(str(a) for a in failing[:8]))
     temp = parsed.get("temperature_c")
@@ -101,6 +115,9 @@ def classify_disk(parsed: dict) -> tuple[str, str, dict]:
         return CRITICAL, "; ".join(critical + warning) + ". Replace the disk soon.", sectors
     if warning:
         return WARNING, "; ".join(warning) + ". Watch this disk.", sectors
+    if unrecognised:
+        return UNVERIFIED, ("Unrecognised SMART verdict: " + ", ".join(unrecognised)
+                            + (f"; {temp} °C" if temp is not None else "") + ". Not counted as a fault."), sectors
     return HEALTHY, "SMART OK" + (f", {temp} °C" if temp is not None else "") + ".", sectors
 
 
@@ -124,7 +141,7 @@ def check_smart(ip: str, port: int, username: str, password: str, disk_ids: list
                 deadline: float | None = None) -> dict:
     """Query each disk once, sequentially. Never raises."""
     result = {"status": UNVERIFIED, "checked_at": datetime.now(timezone.utc).isoformat(),
-              "from_cache": False, "disks": [], "message": ""}
+              "from_cache": False, "disks": [], "message": "", "rules": RULES_VERSION}
     if not disk_ids:
         result["message"] = "No installed SATA disks to check."
         return result
@@ -168,6 +185,8 @@ def cached(previous: dict | None, disk_ids: list[str], hours: int) -> dict | Non
     """Reuse a recent SMART result for the same disks (SMART changes slowly)."""
     if not isinstance(previous, dict) or previous.get("status") not in RANK:
         return None
+    if previous.get("rules") != RULES_VERSION:
+        return None  # Classified with older rules: check again.
     try:
         checked = datetime.fromisoformat(previous["checked_at"])
     except (KeyError, TypeError, ValueError):
