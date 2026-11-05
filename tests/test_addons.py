@@ -326,10 +326,12 @@ class SnapshotJudgeTests(unittest.TestCase):
         moved = snapshots.analyze(self._flipped())
         status, _, moved_entry = snapshots.judge(moved, "d", entry, None)
         self.assertEqual(status, "PICTURE_VIEW_CHECKING")                         # Re-checked first.
-        status, _, moved_entry = snapshots.judge(moved, "d2", moved_entry, None)
+        two_hours = datetime.now(timezone.utc) + timedelta(hours=2)                # Next scheduled scan.
+        status, _, moved_entry = snapshots.judge(moved, "d2", moved_entry, None, now=two_hours)
         self.assertEqual(status, "PICTURE_VIEW_CHANGED")
-        later = (datetime.now(timezone.utc) + timedelta(seconds=5)).isoformat()
-        self.assertEqual(snapshots.judge(moved, "e", moved_entry, later)[0], "PICTURE_OK")  # Marked fixed.
+        later = (two_hours + timedelta(seconds=5)).isoformat()
+        self.assertEqual(snapshots.judge(moved, "e", moved_entry, later, now=two_hours + timedelta(minutes=1))[0],
+                         "PICTURE_OK")                                         # Marked fixed.
 
     def _flipped(self):
         from PIL import Image

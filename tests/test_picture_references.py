@@ -103,7 +103,77 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(classify(cam)["code"], "OK")
 
 
+class SpacedRecheckTests(unittest.TestCase):
+    """Deploy and manual scans minutes apart must not confirm "view changed" (nvr-04, 05 Nov:
+    1 -> 3 picture problems between deploy scans at 15:22 and 15:35)."""
+
+    def setUp(self):
+        env = patch.dict("os.environ", {"NVR_SNAPSHOT_MOVED_SCANS": "2"})
+        env.start()
+        self.addCleanup(env.stop)
+        self.base = 0x0F0F_F0F0_3C3C_C3C3
+
+    def judge(self, entry, bits, when, sha):
+        return snapshots.judge(pic(bits), sha, entry, None, now=when)
+
+    def minute(self, hour, minute):
+        return datetime(2026, 11, 5, hour, minute, tzinfo=ICT).astimezone(timezone.utc)
+
+    def test_scans_minutes_apart_keep_rechecking_until_enough_time_passed(self):
+        moved = flip(self.base, 40)
+        _, _, entry = self.judge(None, self.base, self.minute(14, 0), "a")
+        statuses = []
+        for n, (hour, minute) in enumerate(((15, 22), (15, 35), (16, 0), (16, 52))):
+            status, message, entry = self.judge(entry, flip(moved, n % 2), self.minute(hour, minute), f"s{n}")
+            statuses.append(status)
+        self.assertEqual(statuses, ["PICTURE_VIEW_CHECKING"] * 3 + ["PICTURE_VIEW_CHANGED"])  # 90 min after 15:22.
+        self.assertEqual(entry["differs_since"], self.minute(15, 22).isoformat())
+        status, _, entry = self.judge(entry, flip(moved, 1), self.minute(16, 55), "t")
+        self.assertEqual(status, "PICTURE_VIEW_CHANGED")                            # Stays reported.
+
+    def test_a_frozen_picture_in_between_keeps_the_start_time(self):
+        _, _, entry = self.judge(None, self.base, self.minute(14, 0), "a")
+        _, _, entry = self.judge(entry, flip(self.base, 40), self.minute(15, 22), "b")
+        status, _, entry = self.judge(entry, flip(self.base, 40), self.minute(15, 35), "b")
+        self.assertEqual((status, entry["differs_since"]), ("PICTURE_FROZEN", self.minute(15, 22).isoformat()))
+        self.assertEqual(self.judge(entry, flip(self.base, 41), self.minute(17, 0), "c")[0], "PICTURE_VIEW_CHANGED")
+
+    def test_a_matching_picture_in_between_starts_over(self):
+        _, _, entry = self.judge(None, self.base, self.minute(8, 0), "a")
+        _, _, entry = self.judge(entry, flip(self.base, 40), self.minute(10, 0), "b")
+        status, _, entry = self.judge(entry, flip(self.base, 2), self.minute(10, 30), "c")
+        self.assertEqual((status, entry["moved_scans"], entry.get("differs_since")), ("PICTURE_OK", 0, None))
+        status, _, entry = self.judge(entry, flip(self.base, 40), self.minute(12, 0), "d")
+        self.assertEqual((status, entry["differs_since"]), ("PICTURE_VIEW_CHECKING", self.minute(12, 0).isoformat()))
+
+    def test_entries_written_before_this_rule(self):
+        refs = {"day": {"dhash": f"{self.base:016x}", "at": self.minute(14, 0).isoformat()}}
+        moved = flip(self.base, 40)
+        checking = {"sha": "x", "dhash": f"{moved:016x}", "checked_at": self.minute(15, 35).isoformat(),
+                    "refs": refs, "distance": 40, "moved_scans": 1}
+        self.assertEqual(self.judge(checking, moved, self.minute(16, 0), "y")[0], "PICTURE_VIEW_CHECKING")
+        self.assertEqual(self.judge(checking, moved, self.minute(18, 0), "y")[0], "PICTURE_VIEW_CHANGED")
+        reported = {**checking, "moved_scans": 2}                                   # Already "view changed".
+        self.assertEqual(self.judge(reported, moved, self.minute(15, 40), "y")[0], "PICTURE_VIEW_CHANGED")
+
+    def test_setting(self):
+        self.assertEqual(snapshots.moved_minutes(), 90)
+        for value, expected in (("0", 0), ("30", 30), ("5000", 720), ("-4", 0), ("x", 90)):
+            with patch.dict("os.environ", {"NVR_SNAPSHOT_MOVED_MINUTES": value}):
+                self.assertEqual(snapshots.moved_minutes(), expected)
+        with patch.dict("os.environ", {"NVR_SNAPSHOT_MOVED_MINUTES": "0"}):         # Scans in a row only.
+            _, _, entry = self.judge(None, self.base, self.minute(15, 0), "a")
+            _, _, entry = self.judge(entry, flip(self.base, 40), self.minute(15, 10), "b")
+            self.assertEqual(self.judge(entry, flip(self.base, 41), self.minute(15, 20), "c")[0],
+                             "PICTURE_VIEW_CHANGED")
+
+
 class StoredPictureTests(unittest.TestCase):
+    def setUp(self):
+        env = patch.dict("os.environ", {"NVR_SNAPSHOT_MOVED_MINUTES": "0"})  # Scans here are instant.
+        env.start()
+        self.addCleanup(env.stop)
+
     def test_picture_from_before_the_change_is_kept_then_dropped(self):
         from PIL import Image
         normal = jpeg("scene")
