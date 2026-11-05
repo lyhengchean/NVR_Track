@@ -645,6 +645,15 @@ the NVR warnings and as a one-off Telegram alert. `GET /ISAPI/System/status`
 reads the NVR's uptime; a boot after the previous report is reported as a
 restart. Turn the status read off with `NVR_DEVICE_STATUS=false`.
 
+**Cameras recorded by more than one NVR** (no setting, no NVR requests). The
+same camera IP and input on channels of different NVRs is shown as
+information, never a warning (a central NVR often records key cameras on
+purpose): "Also recorded by nvr-04 ch19" in the camera's Why column and
+Telegram `/camera` (with its name there if it differs), a Note in each NVR's
+findings and the email, and a list in the deploy check. Addresses an NVR's
+built-in PoE switch hands out (192.168.254.x, 169.254.x) repeat on every NVR
+and are never compared.
+
 **Unstable connection** (on by default, no extra NVR requests). A camera
 whose live state (online/offline, as the NVR reports it at each scan) changed
 `NVR_FLAP_CHANGES` times (default 4) within `NVR_FLAP_HOURS` (default 24) is

@@ -180,6 +180,11 @@ for nvr in data["nvrs"]:
     print(f"  {nvr['id']:7} {nvr['overall_status']:9} {nvr['storage_status']:9} {rows:>3}/{expected!s:<3}  {kept:7} {text}")
     if not isinstance(expected, int) or rows < expected:
         problems += 1
+fleet = data.get("fleet_duplicates") or []
+print()
+print(f"  Cameras recorded by more than one NVR: {len(fleet)}")
+for group in fleet[:10]:
+    print("    " + " = ".join(f"{c['nvr']} ch{c['channel_id']} {c['name']}".strip() for c in group["cameras"]))
 print()
 print(f"CHECK total_nvrs={s.get('total_nvrs')}")
 print(f"CHECK incomplete_nvrs={problems}")

@@ -18,6 +18,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app import notes as notes_store
+from app.duplicates import fleet_info, find_fleet_duplicates
 from app.flapping import warning as flap_warning
 from app.camera_condition import classify, kept_days, kept_text, known_condition
 from app.config import InventoryError, load_inventory
@@ -492,6 +493,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     summary = []
+    fleet_channels: list[tuple[str, list]] = []
     execution_errors = 0
     run_started_at = datetime.now(timezone.utc).isoformat()
 
@@ -604,6 +606,13 @@ def main(argv: list[str] | None = None) -> int:
             "online_missing_expected": report.get("per_camera_recording", {}).get("online_missing_expected", 0),
             **camera_conditions(report, notes_store.load()),
         })
+        fleet_channels.append((nvr.id, (report.get("channel_inventory") or {}).get("channels") or []))
+
+    # Cameras recorded by more than one NVR (information in each NVR's findings).
+    fleet_duplicates = find_fleet_duplicates(fleet_channels)
+    for item in summary:
+        if item.get("overall") != "ERROR":
+            item.setdefault("findings", []).extend(fleet_info(fleet_duplicates, str(item["id"])))
 
     # Always publish an attempt record, even if one NVR saved no JSON report.
     # Leave historical reports untouched and never include private inventory.

@@ -1,4 +1,5 @@
-"""Channels that show the same camera, or share a name, on one NVR.
+"""Channels that show the same camera, or share a name, on one NVR; and
+cameras recorded by more than one NVR.
 
 Pure functions over the channel list a report already holds; no NVR request.
 Two channels with the same camera IP and camera input record one picture
@@ -83,3 +84,77 @@ def notes_by_channel(duplicates: dict | None) -> dict[str, list[str]]:
                 if others:
                     notes.setdefault(cid, []).append(f"{text} {', '.join(others[:5])}")
     return notes
+
+
+# ---------- across NVRs ----------
+
+# Addresses an NVR's built-in PoE switch gives its cameras repeat on every
+# NVR, so equal addresses there are different cameras: never compared.
+UNCOMPARABLE_PREFIXES = ("192.168.254.", "169.254.")
+
+
+def find_fleet_duplicates(nvrs) -> list[dict]:
+    """Cameras (same IP and input) recorded by more than one NVR.
+
+    nvrs: iterable of (nvr_id, channel rows with channel_id, name, camera_ip,
+    source_input). Returns [{'cameras': [{'nvr', 'channel_id', 'name'}]}].
+    """
+    seen: dict[tuple, list[dict]] = {}
+    for nvr_id, channels in nvrs:
+        for ch in channels or []:
+            if not isinstance(ch, dict):
+                continue
+            cid = str(ch.get("channel_id") or "")
+            ip = str(ch.get("camera_ip") or "").strip()
+            if not cid or ip in NO_ADDRESS or ip.startswith(UNCOMPARABLE_PREFIXES):
+                continue
+            source = ch.get("source_input") if isinstance(ch.get("source_input"), int) else None
+            seen.setdefault((ip, source), []).append(
+                {"nvr": str(nvr_id), "channel_id": cid, "name": " ".join(str(ch.get("name") or "").split())[:80]})
+    groups = []
+    for cameras in seen.values():
+        if len({c["nvr"] for c in cameras}) > 1:
+            cameras.sort(key=lambda c: (c["nvr"], _order(c["channel_id"])))
+            groups.append({"cameras": cameras})
+    groups.sort(key=lambda g: (g["cameras"][0]["nvr"], _order(g["cameras"][0]["channel_id"])))
+    return groups[:MAX_GROUPS]
+
+
+def fleet_notes(groups: list[dict]) -> dict[tuple[str, str], list[str]]:
+    """Per (nvr, channel): 'Also recorded by nvr-04 ch19' (+ its name there if different)."""
+    notes: dict[tuple[str, str], list[str]] = {}
+    for group in groups or []:
+        cameras = group.get("cameras") or []
+        for camera in cameras:
+            others = []
+            for other in cameras:
+                if other is camera or other["nvr"] == camera["nvr"]:
+                    continue
+                named = (f" (named “{other['name'][:40]}” there)"
+                         if other["name"] and other["name"].casefold() != camera["name"].casefold() else "")
+                others.append(f"{other['nvr']} ch{other['channel_id']}{named}")
+            if others:
+                notes.setdefault((camera["nvr"], camera["channel_id"]), []).append(
+                    "Also recorded by " + ", ".join(others[:4]))
+    return notes
+
+
+def fleet_info(groups: list[dict], nvr_id: str) -> list[str]:
+    """Information line for one NVR (never a warning: often a central NVR on purpose)."""
+    parts = []
+    for group in groups or []:
+        cameras = group.get("cameras") or []
+        mine = [c for c in cameras if c["nvr"] == nvr_id]
+        others = [f"{c['nvr']} ch{c['channel_id']}" for c in cameras if c["nvr"] != nvr_id]
+        if mine and others:
+            parts.append(f"ch{mine[0]['channel_id']} = " + ", ".join(others[:4]))
+    if not parts:
+        return []
+    more = f" and {len(parts) - 5} more" if len(parts) > 5 else ""
+    return [f"Cameras also recorded by another NVR: {'; '.join(parts[:5])}{more}. "
+            "Fine if intended; it uses disk space on both."]
+
+
+def fleet_text(groups: list[dict]) -> list[str]:
+    """One line per camera recorded by several NVRs (no IP addresses)."""
+    return [" = ".join(f"{c['nvr']} ch{c['channel_id']}" for c in g.get("cameras") or []) for g in groups or []]
