@@ -735,9 +735,14 @@ def read_dashboard_data() -> dict:
              if nvr["per_camera_recording"]["enabled"]),
             default=None,
         ),
+        # Offline cameras with stored footage, recent or older (filter "Offline, footage stored").
         "offline_with_evidence": sum(ch["reported_status"] == "OFFLINE"
                                      and (ch["recording_result"]["status"] in EVIDENCE_STATUSES
                                           or ch["historical_recording_result"]["status"] == "HISTORICAL_RECORDING_FOUND")
+                                     for ch in all_channels),
+        # Offline but recorded in the search window: the "Offline, still recording" condition.
+        "offline_recording_now": sum(ch["reported_status"] == "OFFLINE"
+                                     and ch["recording_result"]["status"] in EVIDENCE_STATUSES
                                      for ch in all_channels),
         "storage_warnings": sum(nvr["storage_status"] == "WARNING" for nvr in current_nvrs),
         "smart_problems": sum(nvr["smart"]["status"] in {"WARNING", "CRITICAL"} for nvr in current_nvrs),

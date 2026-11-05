@@ -445,6 +445,19 @@ class AddonBotTests(Fixture):
         merged, opened, resolved = views.compare(previous, {}, [], {"nvr-01"}, ["cam:nvr-01:5:"])
         self.assertEqual((merged, resolved), ({}, []))
 
+    def test_several_channels_at_once(self):
+        self.report(channels=[channel(1), channel(2, "NO_RECENT_RECORDING_EVIDENCE", live="OFFLINE"),
+                              channel(3, "NO_RECENT_RECORDING_EVIDENCE", live="OFFLINE")])
+        replies = [p["text"] for p in self.message(111, "/known nvr-01 2,ch3 - Cameras removed")]
+        self.assertEqual(len(replies), 2)
+        self.assertTrue(all("until /fixed" in r for r in replies))
+        listing = self.message(222, "/known")[0]["text"]
+        self.assertIn("ch2", listing)
+        self.assertIn("ch3", listing)
+        self.assertIn("no channel 9", self.message(111, "/known nvr-01 2,9 - x")[0]["text"])
+        self.assertEqual(len(self.message(111, "/fixed nvr-01 2,3")), 2)
+        self.assertEqual(notes.active_issues(notes.load()), [])
+
     def test_whole_nvr_known_issue_and_notes_permissions(self):
         self.report(channels=[channel(1)])
         self.alerts()
