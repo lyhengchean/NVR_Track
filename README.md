@@ -603,7 +603,7 @@ someone marks it fixed; if it is still broken then, the alert comes again.
 Marking fixed also accepts the camera's current view as its reference
 picture. Notes (who, when, what) are kept per camera.
 - Dashboard: **Notes…** on a camera row, or *NVR known issue / note…* in Findings.
-- Telegram: `/known` (list), `/known nvr-01 5 7d Cable cut` (admins; `all`
+- Telegram: `/known` (list), `/known nvr-01 5 7d Cable cut` (admins; `1,3,12` for several cameras, `all`
   instead of 5 for the whole NVR; `3d`, `2w`, `2026-11-20` or `-` for until
   fixed), `/fixed nvr-01 5 spliced`, `/note nvr-01 5 Replaced cable`
   (admins, or everyone with `TELEGRAM_NOTES_BY=users`), `/notes nvr-01 [5]`.

@@ -668,7 +668,7 @@ class Bot:
         if needs_admin and who != "admin":
             self.send(chat_id, "Only administrators can do that.")
             return
-        usage = {"known": "/known nvr-01 5 7d Cable cut (or all instead of 5; until: 3d, 2w, 2026-11-20 or -)",
+        usage = {"known": "/known nvr-01 5 7d Cable cut (5 can be 1,3,12 or all; until: 3d, 2w, 2026-11-20 or -)",
                  "fixed": "/fixed nvr-01 5 [what was done]", "note": "/note nvr-01 5 Replaced the cable",
                  "notes": "/notes nvr-01 [5]", "snapshot": "/snapshot nvr-01 5"}[command]
         nvr = views.find_nvr(data, tokens[0]) if tokens else None
@@ -677,14 +677,29 @@ class Bot:
             return
         channel = None
         rest = tokens[1:]
-        if rest and (rest[0].lower() == "all" or rest[0].lower().lstrip("ch").isdigit()):
+        channels: list[str | None] = [None]
+        many = re.fullmatch(r"(?:ch)?\d{1,4}(?:,(?:ch)?\d{1,4})+", rest[0].lower()) if rest else None
+        if many and command in {"known", "fixed", "note"}:
+            # Several cameras at once: /known nvr-04 1,3,12 - Removed cameras
+            channels = list(dict.fromkeys(str(int(c.lstrip("ch"))) for c in rest[0].lower().split(",")))[:64]
+            channel = channels[0]
+            rest = rest[1:]
+        elif rest and (rest[0].lower() == "all" or rest[0].lower().lstrip("ch").isdigit()):
             channel = None if rest[0].lower() == "all" else str(int(rest[0].lower().lstrip("ch")))
+            channels = [channel]
             rest = rest[1:]
         elif command in {"known", "fixed", "note", "snapshot"}:
-            self.send(chat_id, "Which camera (channel number, or all)? Usage: " + views.esc(usage))
+            self.send(chat_id, "Which camera (channel number, 1,3,12, or all)? Usage: " + views.esc(usage))
             return
-        if channel is not None and not any(str(ch["channel_id"]) == channel for ch in nvr["channels"]):
-            self.send(chat_id, f"{views.nvr_title(nvr)} has no channel {views.esc(channel)} in its latest report.")
+        present = {str(ch["channel_id"]) for ch in nvr["channels"]}
+        missing = [c for c in channels if c is not None and c not in present]
+        if missing:
+            self.send(chat_id, f"{views.nvr_title(nvr)} has no channel {views.esc(', '.join(missing))} "
+                      "in its latest report.")
+            return
+        if len(channels) > 1:
+            for one in channels:
+                self.addon_command(chat_id, command, " ".join([nvr["id"], one, *rest]), who, by)
             return
         where = views.nvr_title(nvr) + (f" · ch{channel}" if channel else " (whole NVR)")
         if command == "notes":

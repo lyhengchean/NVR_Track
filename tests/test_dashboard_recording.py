@@ -49,6 +49,7 @@ class DashboardTests(unittest.TestCase):
         with patch.object(dashboard,'REPORTS_DIR',self.root):
             data = dashboard.read_dashboard_data()
         self.assertEqual(data['summary']['offline_with_evidence'],1)
+        self.assertEqual(data['summary']['offline_recording_now'],0)   # Older footage only.
         self.assertEqual(data['summary']['historical_evidence'],1)
 
     def test_old_reports_do_not_inherit_nvr_wide_recording_success(self):

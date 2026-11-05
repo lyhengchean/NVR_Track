@@ -377,7 +377,7 @@ footer{margin:30px 0 40px;font-size:12.5px;color:var(--muted);max-width:110ch}
         <option value="">All conditions</option><option value="NO_FOOTAGE_30">No footage 30+ days</option><option value="NOT_RECORDING">Stopped recording</option><option value="CHECK_FAILED">Check failed</option><option value="GAPS">Gaps</option><option value="BELOW_RETENTION">Below required days</option><option value="BAD_PICTURE">Picture problem</option><option value="OFFLINE_RECORDING">Offline, still recording</option><option value="SHORT_HISTORY">Short history</option><option value="KNOWN_ISSUE">Known issue</option><option value="NO_RECENT_EVENTS">No recent events</option><option value="NOT_MONITORED">Not monitored</option><option value="OK">OK</option>
       </select>
       <select id="recording-filter" class="control" aria-label="Recording check result">
-        <option value="">All recording results</option><option value="EVIDENCE">Recorded in window</option><option value="NO_RECENT_RECORDING_EVIDENCE">No recent evidence</option><option value="OFFLINE_EVIDENCE">Offline, footage found</option><option value="FAILED">Failed or unverified</option><option value="NOT_CHECKED">Not checked or not enabled</option>
+        <option value="">All recording results</option><option value="EVIDENCE">Recorded in window</option><option value="NO_RECENT_RECORDING_EVIDENCE">No recent evidence</option><option value="OFFLINE_EVIDENCE">Offline, footage stored (recent or older)</option><option value="FAILED">Failed or unverified</option><option value="NOT_CHECKED">Not checked or not enabled</option>
       </select>
       <select id="storage-filter" class="control" aria-label="Storage health">
         <option value="">All storage</option><option value="CRITICAL">Storage critical</option><option value="WARNING">Storage warning</option><option value="HEALTHY">Storage healthy</option><option value="UNKNOWN">Storage unknown</option>
@@ -691,7 +691,8 @@ function renderFacts() {
   group("Recording in " + windowText(s.window_minutes), [
     ["Footage found", num(s.recording_evidence), "ok", true],
     ["No recent evidence", num(s.recording_no_evidence), "crit", true],
-    ["Offline, footage found", num(s.offline_with_evidence), "info", true],
+    ["Offline, still recording", num(s.offline_recording_now ?? s.offline_with_evidence), "info", true],
+    ["Offline, footage stored (incl. older)", num(s.offline_with_evidence), "info"],
     ["Failed or unverified checks", failedChecks, "violet", true],
     ["Not checked or not enabled", num(s.recording_not_checked), ""],
     ["Historical pending (no recent)", num(s.historical_pending_no_recent), "warn"],
