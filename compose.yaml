@@ -70,6 +70,13 @@ services:
 
     restart: unless-stopped
 
+    healthcheck:
+      test: ["CMD", "python", "-m", "scripts.healthcheck", "dashboard"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
   # Scheduled scans (NVR_SCAN_TIMES) and the dashboard's "Scan" requests.
   # Runs the same read-only reporters as nvr-report / nvr-report-all.
   nvr-scanner:
@@ -94,6 +101,13 @@ services:
       - ./state/snapshots:/app/state/snapshots
 
     restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "python", "-m", "scripts.healthcheck", "heartbeat", "/app/state/scan/status.json", "120"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   # Telegram bot: status commands, alerts and scan requests from any phone.
   # Connects out to api.telegram.org only (no port, no firewall change).
@@ -140,6 +154,13 @@ services:
 
     restart: unless-stopped
 
+    healthcheck:
+      test: ["CMD", "python", "-m", "scripts.healthcheck", "heartbeat", "/app/state/telegram/heartbeat", "600"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
   # Real-time NVR events (video loss, tampering, disk/network faults, illegal
   # logins). One read-only alertStream GET per NVR in NVR_EVENT_NVR_IDS;
   # writes state/events only. Idle when NVR_EVENT_NVR_IDS is empty.
@@ -162,3 +183,10 @@ services:
       - ./state/events:/app/state/events
 
     restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "python", "-m", "scripts.healthcheck", "heartbeat", "/app/state/events/status.json", "180"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

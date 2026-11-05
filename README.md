@@ -308,6 +308,17 @@ cron line, the last email result, `.env` permissions, Git ignores and the
 server's packet loss. It ends with `RESULT: n PASS, n WARN, n FAIL` and saves
 the log to `/root/nvr-track-check-<time>.txt`.
 
+**Container health.** `nvr-dashboard`, `nvr-scanner`, `nvr-telegram` and
+`nvr-events` have Docker healthchecks (`scripts/healthcheck.py`, local only:
+no NVR, Telegram or mail contact). The dashboard must answer HTTP (401 without
+login is normal); the others must have written their heartbeat recently
+(scanner `state/scan/status.json` 120 s, bot `state/telegram/heartbeat`
+600 s, events `state/events/status.json` 180 s; an idle bot or listener still
+beats). `docker compose ps` shows `(healthy)` / `(unhealthy)`, and the deploy
+check reports each one. Docker does not restart an unhealthy container by
+itself; look at `docker compose logs --tail 50 <service>`. `urllib3` is pinned
+in `requirements.txt` because the event listener depends on its stream API.
+
 ## Reading the dashboard
 
 Each camera gets one **Condition**, built from results already in the report

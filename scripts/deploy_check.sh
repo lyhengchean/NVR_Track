@@ -201,7 +201,24 @@ fi
 [ "${UNVERIFIED:-1}" = "0" ] && pass "No unverified or failed recording checks" \
     || warn "$UNVERIFIED camera recording checks unverified/failed (usually network loss)"
 
-section "7. Automatic scans and email (nvr-scanner)"
+section "7. Container health, automatic scans and email"
+# Docker healthchecks (scripts/healthcheck.py; local only). A new container
+# is "starting" until its first check, about a minute after it started.
+for svc in $SERVICES; do
+    CID=$(docker compose ps -q "$svc" 2>/dev/null)
+    HEALTH=""
+    for _ in $(seq 1 18); do
+        HEALTH=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$CID" 2>/dev/null)
+        [ "$HEALTH" = "starting" ] || break
+        sleep 5
+    done
+    case "$HEALTH" in
+        healthy) pass "$svc healthcheck: healthy" ;;
+        starting) warn "$svc healthcheck still starting; check later: docker compose ps" ;;
+        none) warn "$svc has no healthcheck; recreate it: docker compose up -d --force-recreate $svc" ;;
+        *) fail "$svc healthcheck: ${HEALTH:-unknown} ($(docker inspect -f '{{range .State.Health.Log}}{{.Output}}{{end}}' "$CID" 2>/dev/null | grep . | tail -1))" ;;
+    esac
+done
 SCAN=$(docker compose exec -T nvr-dashboard python - 2>/dev/null <<'PY'
 from app.dashboard import read_scan_status
 s = read_scan_status()

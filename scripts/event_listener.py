@@ -137,9 +137,12 @@ def main() -> int:
     if not nvrs:
         print("events: no NVR in NVR_EVENT_NVR_IDS; idle. Run scripts.probe_nvr_features first, "
               "then set it in .env and recreate nvr-events.", flush=True)
-        events.write_status({})
         while True:
-            time.sleep(3600)
+            try:
+                events.write_status({})  # Heartbeat for the Docker healthcheck.
+            except OSError:
+                pass
+            time.sleep(60)
     try:
         repeat = int(os.environ.get("NVR_EVENT_REPEAT_MINUTES", "30"))
         repeat = repeat if 1 <= repeat <= 1440 else 30
