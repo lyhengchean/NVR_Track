@@ -21,6 +21,7 @@ from app.isapi import (
 from app import notes as notes_store
 from app import smart as smart_check
 from app import snapshots as snapshot_check
+from app import flapping
 from app.duplicates import find_duplicates
 from app.inventory_changes import inventory_changes, recent_reports, restart_info
 from app.recording import check_recording_evidence
@@ -446,6 +447,11 @@ def main() -> int:
     previous_reports = list(recent_reports(report_dir, configured_nvr.id, limit=6))
     changes = inventory_changes(previous_reports, channel_rows if inventory_ok else None)
     duplicates = find_duplicates(channel_rows if inventory_ok else None)
+    # Cameras that keep going offline and online (from live states at each scan).
+    flap_settings = flapping.settings()
+    if inventory_ok:
+        flapping.track(channel_rows, previous_reports, datetime.now(timezone.utc), flap_settings["hours"])
+    flap = flapping.summary(channel_rows if inventory_ok else None, flap_settings["changes"], flap_settings["hours"])
     device_status = None
     if os.environ.get("NVR_DEVICE_STATUS", "true").strip().lower() == "true":
         device_status = get_device_status(configured_nvr.ip, username, password, http_port)
@@ -493,6 +499,7 @@ def main() -> int:
         inventory_changes=changes,
         storage_message=storage.message,
         duplicates=duplicates,
+        flapping=flap,
     )
 
     completed_at = now_local()
@@ -570,6 +577,7 @@ def main() -> int:
         "restart": restart,
         "inventory_changes": changes,
         "duplicates": duplicates,
+        "flapping": flap,
         "snapshots": snapshots,
         "recording": recording,
         "per_camera_recording": per_camera_summary,

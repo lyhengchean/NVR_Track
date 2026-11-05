@@ -765,7 +765,8 @@ function card(row) {
   const items = [
     [num(counts.NO_FOOTAGE_30), "no footage for 30+ days", true], [num(counts.NOT_RECORDING), "stopped recording", true],
     [num(counts.CHECK_FAILED), "not checked", false], [num(counts.GAPS), "with missing days", false],
-    [num(counts.KNOWN_ISSUE), "with a known issue", false], [num(counts.NO_RECENT_EVENTS), "with no recent events", false]
+    [num(counts.KNOWN_ISSUE), "with a known issue", false], [num(counts.NO_RECENT_EVENTS), "with no recent events", false],
+    [nvr.channels.filter(ch => ch.unstable).length, "with an unstable connection", false]
   ].filter(([n]) => n > 0);
   // "All recorded" only when every camera really has footage in the window.
   const recorded = nvr.channels.filter(ch => EVIDENCE.has(ch.recording_result.status)).length;
@@ -971,6 +972,8 @@ function cameraPanel(row) {
     }
     const box = el("span", "", parts.filter(Boolean).join(" "));
     for (const note of ch.duplicate_notes || []) box.append(el("span", "note-line known", note));
+    if (ch.unstable) box.append(el("span", "note-line known", "Unstable connection: " + plural(ch.unstable.changes, "online/offline change") +
+      " in " + ch.unstable.hours + " h (last " + stamp(ch.unstable.last_change) + ")"));
     if (ch.known_issue && cond(ch).code !== "KNOWN_ISSUE")
       box.append(el("span", "note-line known", "Known issue" + (ch.known_issue.until ? " until " + ch.known_issue.until : "") + ": " + ch.known_issue.reason));
     for (const n of (ch.notes || []).slice(0, full ? 3 : 1))

@@ -212,18 +212,23 @@ def problems_text(data: dict, nvr_id: str | None = None) -> str:
             continue
         rows = sorted((ch for ch in nvr["channels"] if ch["condition"]["code"] in PROBLEMS),
                       key=lambda ch: (ch["condition"]["rank"], _channel_number(ch)))
+        unstable = [ch for ch in nvr["channels"] if ch.get("unstable") and ch not in rows
+                    and ch["condition"]["code"] != "KNOWN_ISSUE"]
         header = f"{HEALTH_ICON.get(nvr['overall_status'], '⚪')} <b>{nvr_title(nvr)}</b>"
         if nvr.get("last_run_failed"):
             header += " · ⛔ latest scan failed, last known results"
         notes = [f"   🔴 {esc(reason)}" for reason in nvr.get("critical_reasons", [])[:3]]
-        if not rows and not notes:
+        if not rows and not notes and not unstable:
             continue
         lines = [header, *notes]
         for ch in rows:
             cond = ch["condition"]
             lines.append(f"{CONDITION_ICON[cond['code']]} {camera_title(ch)} — {esc(cond['label'])}"
-                         + (f" · last video {last_video(ch)}" if cond["code"] in {"NOT_RECORDING", "NO_FOOTAGE_30"} else ""))
-        total += len(rows)
+                         + (f" · last video {last_video(ch)}" if cond["code"] in {"NOT_RECORDING", "NO_FOOTAGE_30"} else "")
+                         + (" · 〰️ unstable" if ch.get("unstable") else ""))
+        for ch in unstable:
+            lines.append(f"〰️ {camera_title(ch)} — Unstable connection: {unstable_text(ch['unstable'])}")
+        total += len(rows) + len(unstable)
         blocks.append("\n".join(capped(lines, hint=" (see the dashboard)")))
     known = []
     for nvr in data.get("nvrs") or []:
@@ -239,6 +244,11 @@ def problems_text(data: dict, nvr_id: str | None = None) -> str:
         return "✅ No camera needs action" + (f" on {esc(nvr_id)}." if nvr_id else ".") + tail
     title = f"<b>Cameras needing action</b> ({total})"
     return title + "\n\n" + "\n\n".join(blocks) + tail
+
+
+def unstable_text(unstable: dict) -> str:
+    return (f"{plural(unstable['changes'], 'online/offline change')} in {unstable['hours']} h "
+            f"(last {when(unstable.get('last_change'))})")
 
 
 def issue_text(issue: dict | None) -> str:
@@ -377,6 +387,8 @@ def camera_search(data: dict, query: str, show_ips: bool, limit: int = 12) -> st
             block.append(f"🔕 Known issue: {issue_text(ch['known_issue'])}")
         for note in (ch.get("duplicate_notes") or [])[:2]:
             block.append(f"⚠️ {esc(note)}")
+        if ch.get("unstable"):
+            block.append(f"〰️ Unstable connection: {unstable_text(ch['unstable'])}")
         for note in (ch.get("notes") or [])[:2]:
             block.append(f"📝 {when(note.get('at'))} {esc(note.get('text'))}"
                          + (f" ({esc(note['by'])})" if note.get("by") else ""))
@@ -637,7 +649,16 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120) -> tuple[dict, li
                 muted.append(key + "pic")
             elif picture != "PICTURE_OK":
                 unknown.append(key + "pic")
-            if ch["reported_status"] == "OFFLINE":
+            unstable = ch.get("unstable")
+            if unstable:
+                # One alert instead of "went offline" / "back online" at every scan.
+                state[key + "flap"] = _entry(
+                    "warning", f"〰️ Unstable connection: {camera}\n   {unstable_text(unstable)}; now "
+                    f"{esc(LIVE_LABEL.get(ch['reported_status'], ch['reported_status'])).lower()}. "
+                    "Offline alerts for it are paused meanwhile.",
+                    f"✅ No longer going offline and online: {camera}")
+                muted.append(key + "off")
+            elif ch["reported_status"] == "OFFLINE":
                 state[key + "off"] = _entry("warning", f"📴 Went offline: {camera}", f"✅ Back online: {camera}")
             elif ch["reported_status"] != "ONLINE":
                 unknown.append(key + "off")

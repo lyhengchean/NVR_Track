@@ -645,6 +645,16 @@ the NVR warnings and as a one-off Telegram alert. `GET /ISAPI/System/status`
 reads the NVR's uptime; a boot after the previous report is reported as a
 restart. Turn the status read off with `NVR_DEVICE_STATUS=false`.
 
+**Unstable connection** (on by default, no extra NVR requests). A camera
+whose live state (online/offline, as the NVR reports it at each scan) changed
+`NVR_FLAP_CHANGES` times (default 4) within `NVR_FLAP_HOURS` (default 24) is
+*unstable*: an NVR warning ("check cable, PoE switch port or power"), a note
+in the camera's Why column, a count on the NVR card, a line in the email and
+Telegram `/problems`, and one Telegram alert. While it lasts, that camera's
+"Went offline" / "Back online" alerts are paused; "No longer going offline
+and online" follows when the changes drop below the limit. Drop-outs between
+two scans are not seen, so the count never overstates.
+
 **Uptime report** (on by default). Online % and recording % per camera and
 NVR, plus cameras that keep dropping on and off, from saved reports only.
 Failed or disabled checks are left out, never counted either way.

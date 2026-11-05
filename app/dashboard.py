@@ -335,6 +335,16 @@ def _public_report(report: dict, path: Path, notes: dict | None = None) -> dict:
     duplicate_notes = notes_by_channel(report.get("duplicates"))
     for channel in channels:
         channel["duplicate_notes"] = [str(note)[:80] for note in duplicate_notes.get(channel["channel_id"], [])][:4]
+    # Keeps going offline and online (app.flapping); None when not unstable.
+    flap = _as_dict(report.get("flapping"))
+    flap_hours = flap.get("hours") if type(flap.get("hours")) is int and 1 <= flap["hours"] <= 168 else None
+    unstable = {str(c.get("channel_id")): c for c in flap.get("cameras") or [] if isinstance(c, dict)}
+    for channel in channels:
+        found = unstable.get(channel["channel_id"])
+        channel["unstable"] = ({"changes": found["changes"], "hours": flap_hours,
+                                "last_change": str(found.get("last_change") or "")[:40]}
+                               if found and flap_hours and type(found.get("changes")) is int
+                               and 0 < found["changes"] <= 1000 else None)
     nvr_id = str(nvr.get("id", path.name.split("_")[0]))
     if notes is not None:
         notes_store.overlay(nvr_id, channels, notes, known_condition())

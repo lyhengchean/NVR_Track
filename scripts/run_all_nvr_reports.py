@@ -18,6 +18,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from app import notes as notes_store
+from app.flapping import warning as flap_warning
 from app.camera_condition import classify, kept_days, kept_text, known_condition
 from app.config import InventoryError, load_inventory
 from app.duplicates import info as duplicate_info, warnings as duplicate_warnings
@@ -174,6 +175,9 @@ def camera_conditions(report: dict, notes: dict | None = None) -> dict:
         # Which disk and why; the per-NVR table shows only the status word.
         findings.append(f"Storage {str(storage['status']).lower()}: {' '.join(str(storage['message']).split())[:200]}")
     findings += duplicate_warnings(report.get("duplicates")) + duplicate_info(report.get("duplicates"))
+    unstable = flap_warning(report.get("flapping"))
+    if unstable:
+        findings.append(unstable)
     smart = storage.get("smart") or {}
     if smart.get("status") in {"WARNING", "CRITICAL"}:
         findings.append(f"Disk SMART {smart['status'].lower()}: {smart.get('message', '')}")

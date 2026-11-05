@@ -5,6 +5,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from app.duplicates import info as duplicate_info, warnings as duplicate_warnings
+from app.flapping import warning as flap_warning
 
 LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
 
@@ -33,6 +34,7 @@ def determine_overall_status(
     inventory_changes: dict | None = None,
     storage_message: str = "",
     duplicates: dict | None = None,
+    flapping: dict | None = None,
 ) -> dict[str, Any]:
     critical: list[str] = []
     warnings: list[str] = []
@@ -139,6 +141,9 @@ def determine_overall_status(
                  if any(c.get("type") == k for c in changes)]
         warnings.append("Camera list changed since the previous report: " + ", ".join(parts) + ".")
     warnings += duplicate_warnings(duplicates)
+    unstable = flap_warning(flapping)
+    if unstable:
+        warnings.append(unstable)
 
     if critical:
         overall = "CRITICAL"
