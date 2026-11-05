@@ -111,6 +111,24 @@ def calendar_facts(retention: dict) -> dict:
     }
 
 
+def retention_shortfall(channel: dict) -> dict | None:
+    """Does the camera keep fewer days than NVR_REQUIRED_RETENTION_DAYS?
+
+    Judged on its own, with the same rule as classify(), because there a gap,
+    a picture problem or "offline, still recording" takes precedence and hides
+    it. An alert about kept days must not be "resolved" by that. None: the
+    rule is off, or it cannot be known now (no recent footage, no calendar).
+    """
+    required = required_retention_days()
+    if not required or _dict(channel.get("recording_result")).get("status") not in EVIDENCE:
+        return None
+    cal = calendar_facts(channel.get("retention_result"))
+    if not cal["known"]:
+        return None
+    return {"below": cal["history_days"] < cal["window"] and cal["history_days"] < required,
+            "history_days": cal["history_days"], "required": required}
+
+
 def classify(channel: dict) -> dict:
     """Return code, label, severity, rank and a short reason for one camera."""
     recording = _dict(channel.get("recording_result"))

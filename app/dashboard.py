@@ -750,6 +750,11 @@ def read_dashboard_data() -> dict:
         "event_streams_down": sum(bool(nvr["event_stream"]) and not nvr["event_stream"]["connected"]
                                   for nvr in nvrs),
         "known_issues": len(notes_store.active_issues(notes)),
+        # Known-issue cameras without recent footage: handled, but still not
+        # recording, so the headline must never claim "every camera records".
+        "known_not_recording": sum(ch["condition"]["code"] == "KNOWN_ISSUE"
+                                   and ch["recording_result"]["status"] not in EVIDENCE_STATUSES
+                                   for ch in all_channels),
         "camera_changes": sum(len(nvr["inventory_changes"]["changes"]) for nvr in current_nvrs),
         "restarts": sum(nvr["restart"]["detected"] for nvr in current_nvrs),
         "storage_critical": sum(nvr["storage_status"] == "CRITICAL" for nvr in current_nvrs),

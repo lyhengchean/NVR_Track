@@ -455,15 +455,30 @@ class AddonBotTests(Fixture):
     def test_several_channels_at_once(self):
         self.report(channels=[channel(1), channel(2, "NO_RECENT_RECORDING_EVIDENCE", live="OFFLINE"),
                               channel(3, "NO_RECENT_RECORDING_EVIDENCE", live="OFFLINE")])
+        # One reply for all of them (a message per camera hit Telegram's flood limits).
         replies = [p["text"] for p in self.message(111, "/known nvr-01 2,ch3 - Cameras removed")]
-        self.assertEqual(len(replies), 2)
-        self.assertTrue(all("until /fixed" in r for r in replies))
+        self.assertEqual(len(replies), 1)
+        self.assertIn("ch2, ch3", replies[0])
+        self.assertIn("until /fixed", replies[0])
         listing = self.message(222, "/known")[0]["text"]
         self.assertIn("ch2", listing)
         self.assertIn("ch3", listing)
+        self.assertEqual({i["reason"] for i in notes.active_issues(notes.load())}, {"Cameras removed"})
         self.assertIn("no channel 9", self.message(111, "/known nvr-01 2,9 - x")[0]["text"])
-        self.assertEqual(len(self.message(111, "/fixed nvr-01 2,3")), 2)
+        fixed = self.message(111, "/fixed nvr-01 2,3,1")
+        self.assertEqual(len(fixed), 1)
+        self.assertIn("2 of 3 had a known issue", fixed[0]["text"])
         self.assertEqual(notes.active_issues(notes.load()), [])
+        noted = self.message(111, "/note nvr-01 1,2 Cleaned lenses")
+        self.assertEqual((len(noted), "Note saved for" in noted[0]["text"]), (1, True))
+        self.assertEqual(sum(n["text"] == "Cleaned lenses" for n in notes.load()["log"]), 2)
+
+    def test_uptime_with_an_invalid_month_answers_with_usage(self):
+        self.report(channels=[channel(1)])
+        for text in ("/uptime 2026-13", "/uptime 2026-00", "/uptime 1999-05"):
+            sent = self.message(222, text)
+            self.assertEqual(len(sent), 1, text)
+            self.assertIn("/uptime 2026-10", sent[0]["text"])
 
     def test_whole_nvr_known_issue_and_notes_permissions(self):
         self.report(channels=[channel(1)])

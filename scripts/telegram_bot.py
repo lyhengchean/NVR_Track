@@ -697,11 +697,11 @@ class Bot:
             self.send(chat_id, f"{views.nvr_title(nvr)} has no channel {views.esc(', '.join(missing))} "
                       "in its latest report.")
             return
-        if len(channels) > 1:
-            for one in channels:
-                self.addon_command(chat_id, command, " ".join([nvr["id"], one, *rest]), who, by)
-            return
-        where = views.nvr_title(nvr) + (f" · ch{channel}" if channel else " (whole NVR)")
+        # Several cameras get one reply: a message per camera ran into
+        # Telegram's flood limits (about 20 messages a minute in a group).
+        several = len(channels) > 1
+        where = views.nvr_title(nvr) + (" · " + ", ".join(f"ch{one}" for one in channels) if channel
+                                        else " (whole NVR)")
         if command == "notes":
             self.send(chat_id, views.notes_text(data, nvr, channel))
         elif command == "snapshot":
@@ -712,22 +712,28 @@ class Bot:
                 rest = rest[1:]
             elif rest:
                 until = notes_store.parse_until("7d")
-            notes_store.add_known_issue(nvr["id"], channel, " ".join(rest), until, by)
+            for one in channels:
+                notes_store.add_known_issue(nvr["id"], one, " ".join(rest), until, by)
             self.cached_data = None
             self.send(chat_id, f"🔕 Known issue saved for {where}. Alerts are paused "
-                      + (f"until {until.isoformat()}." if until else "until /fixed.") + " It shows as Known issue "
-                      "on the dashboard and in the email.")
+                      + (f"until {until.isoformat()}." if until else "until /fixed.")
+                      + f" {'They show' if several else 'It shows'} as Known issue on the dashboard and in the email.")
         elif command == "fixed":
-            removed = notes_store.clear_known_issue(nvr["id"], channel, by, " ".join(rest))
+            removed = sum(notes_store.clear_known_issue(nvr["id"], one, by, " ".join(rest)) for one in channels)
             self.cached_data = None
-            self.send(chat_id, (f"✅ {where} marked fixed. Alerts are active again"
-                                if removed else f"📝 Noted as fixed for {where} (there was no known issue)")
-                      + "; its current picture becomes the reference view.")
+            if several:
+                self.send(chat_id, f"✅ {where} marked fixed ({removed} of {len(channels)} had a known issue). "
+                          "Alerts are active again; their current pictures become the reference views.")
+            else:
+                self.send(chat_id, (f"✅ {where} marked fixed. Alerts are active again"
+                                    if removed else f"📝 Noted as fixed for {where} (there was no known issue)")
+                          + "; its current picture becomes the reference view.")
         elif command == "note":
             if not rest:
                 self.send(chat_id, "Write the note after the camera. Usage: " + views.esc(usage))
                 return
-            notes_store.add_note(nvr["id"], channel, " ".join(rest), by)
+            for one in channels:
+                notes_store.add_note(nvr["id"], one, " ".join(rest), by)
             self.cached_data = None
             self.send(chat_id, f"📝 Note saved for {where}.")
 
@@ -770,6 +776,9 @@ class Bot:
         if result is None:
             text = args.strip()
             if re.fullmatch(r"\d{4}-\d{2}", text):
+                if not (2000 <= int(text[:4]) <= 2100 and 1 <= int(text[5:]) <= 12):
+                    self.send(chat_id, "Use /uptime 30 (last 30 days) or /uptime 2026-10 (a month).")
+                    return
                 start = datetime(int(text[:4]), int(text[5:]), 1, tzinfo=views.LOCAL_TZ)
                 end = (start + timedelta(days=32)).replace(day=1)
                 period = text
@@ -795,8 +804,7 @@ class Bot:
         path = self.state_dir / "events_position.json"
         position = read_state(path, None)
         if not isinstance(position, dict):
-            _, position = event_store.read_new({})  # First start: skip old events.
-            write_state(path, position)
+            write_state(path, event_store.end_position())  # First start: skip all old events.
             return
         lines, new_position = event_store.read_new(position)
         if not lines:

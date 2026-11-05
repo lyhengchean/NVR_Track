@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -39,6 +40,7 @@ TZ = ZoneInfo("Asia/Phnom_Penh")
 
 POLL_SECONDS = 2
 HEARTBEAT_SECONDS = 10
+RUN_TIMEOUT_MARGIN_SECONDS = 300
 CATCH_UP_MINUTES = 30        # run a slot missed by a short restart, never older ones
 REQUEST_MAX_AGE_MINUTES = 60  # a request left while the service was down is dropped
 DEVICE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
@@ -199,6 +201,23 @@ def command_for(job: dict, nvrs: list) -> list[str]:
     return [sys.executable, "-m", "scripts.run_nvr_report", "--ip", nvr.ip, "--http-port", str(nvr.http_port)]
 
 
+def kill_tree(process: subprocess.Popen) -> None:
+    """Stop the reporter and every process it started.
+
+    The fleet runner starts one reporter per NVR. Killing only the runner left
+    that reporter running, still holding its NVR lock, so the next scan of
+    that NVR failed with a lock conflict. The run gets its own process group.
+    """
+    killpg = getattr(os, "killpg", None)  # Not on the Windows development copy.
+    if killpg is not None:
+        try:
+            killpg(process.pid, signal.SIGKILL)
+            return
+        except OSError:
+            pass
+    process.kill()
+
+
 def summarize_output(job: dict, output: str, returncode: int | None) -> dict:
     """Fixed codes only, parsed from the reporters' own summary lines."""
     if returncode is None:
@@ -253,10 +272,16 @@ class Service:
         print(f"{started.astimezone(TZ):%Y-%m-%d %H:%M} {job['trigger']} scan of {label}"
               f"{' with email' if job['email'] else ''} started", flush=True)
 
-        timeout = report_timeout_seconds() * total + 300
+        timeout = report_timeout_seconds() * total + RUN_TIMEOUT_MARGIN_SECONDS
+        # Own process group (POSIX), so a timeout also stops the per-NVR reporter.
         process = subprocess.Popen(command_for(job, nvrs), cwd=ROOT, stdout=subprocess.PIPE,
-                                   stderr=subprocess.DEVNULL, text=True)
-        killer = threading.Timer(timeout, process.kill)
+                                   stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+        fired = threading.Event()
+
+        def stop() -> None:
+            fired.set()
+            kill_tree(process)
+        killer = threading.Timer(timeout, stop)
         killer.start()
         lines = []
         try:
@@ -268,8 +293,8 @@ class Service:
                     self.publish(current=current)
             returncode = process.wait()
         finally:
-            timed_out = not killer.is_alive()
             killer.cancel()
+            timed_out = fired.is_set()
         outcome = summarize_output(job, "".join(lines), None if timed_out else returncode)
         finished = datetime.now(timezone.utc)
         last = {key: job[key] for key in ("id", "target", "trigger", "email", "requested_at")}

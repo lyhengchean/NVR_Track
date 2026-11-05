@@ -132,11 +132,13 @@ def camera_conditions(report: dict, notes: dict | None = None) -> dict:
     """Condition counts, cameras that need action and add-on findings, from one saved report.
 
     Cameras with an active known issue (app.notes) are listed separately and
-    not counted as needing action.
+    not counted as needing action. The list holds the same conditions as the
+    dashboard's "Problems only", so failed or unverified checks are never
+    left out of the email.
     """
     channels = report.get("channel_inventory", {}).get("channels", [])
-    counts = {"no_footage_30": 0, "stopped_recording": 0, "gaps": 0, "below_retention": 0,
-              "bad_picture": 0, "known_issues": 0}
+    counts = {"no_footage_30": 0, "stopped_recording": 0, "check_failed": 0, "gaps": 0,
+              "below_retention": 0, "bad_picture": 0, "offline_recording": 0, "known_issues": 0}
     attention, known = [], []
     rows = []
     for channel in channels if isinstance(channels, list) else []:
@@ -154,8 +156,8 @@ def camera_conditions(report: dict, notes: dict | None = None) -> dict:
             known.append(entry)
             continue
         key = {"NO_FOOTAGE_30": "no_footage_30", "NOT_RECORDING": "stopped_recording",
-               "GAPS": "gaps", "BELOW_RETENTION": "below_retention",
-               "BAD_PICTURE": "bad_picture"}.get(condition["code"])
+               "CHECK_FAILED": "check_failed", "GAPS": "gaps", "BELOW_RETENTION": "below_retention",
+               "BAD_PICTURE": "bad_picture", "OFFLINE_RECORDING": "offline_recording"}.get(condition["code"])
         if key:
             counts[key] += 1
             attention.append(entry)
@@ -230,6 +232,9 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     below_retention = sum(int(row.get("below_retention", 0) or 0) for row in summary)
     bad_picture = sum(int(row.get("bad_picture", 0) or 0) for row in summary)
     known_issues = sum(int(row.get("known_issues", 0) or 0) for row in summary)
+    # Every camera whose check failed or is unverified, not only search errors.
+    check_failed = sum(int(row.get("check_failed", 0) or 0) for row in summary)
+    offline_recording = sum(int(row.get("offline_recording", 0) or 0) for row in summary)
 
     failures = counts["ERROR"]
     successful = len(summary) - failures
@@ -243,7 +248,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         "<tr><th>NVR</th><th>IP address</th><th>Overall</th>"
         "<th>Storage</th><th>Online</th><th>Offline</th><th>Recording now</th>"
         "<th>Stopped recording</th><th>No footage 30+ days</th><th>Gaps</th>"
-        "<th>Online but not recording</th><th>Check errors</th></tr>"
+        "<th>Online but not recording</th><th>Checks failed</th></tr>"
     )
     rows = []
 
@@ -269,7 +274,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
             item.get("no_footage_30", 0) if status != "ERROR" else "—",
             item.get("gaps", 0) if status != "ERROR" else "—",
             item.get("online_missing_expected", 0) if status != "ERROR" else "—",
-            item.get("recording_errors", 0) if status != "ERROR" else "—",
+            item.get("check_failed", 0) if status != "ERROR" else "—",
         ]
         escaped = [escape(str(value)) for value in cells]
         escaped[2] = (
@@ -341,9 +346,11 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         <td>No footage 30+ days</td><td>{no_footage_30}</td></tr>
     <tr><td>Cameras with gaps</td><td>{gaps}</td>
         <td>Online but not recording</td><td>{online_missing_expected}</td></tr>
-    <tr><td>Recording search errors</td><td>{recording_errors}</td>
+    <tr><td>Checks failed or unverified</td><td>{check_failed}</td>
         <td>Below required days</td><td>{below_retention}</td></tr>
     <tr><td>Picture problems</td><td>{bad_picture}</td>
+        <td>Offline, still recording</td><td>{offline_recording}</td></tr>
+    <tr><td>Recording search errors</td><td>{recording_errors}</td>
         <td>Known issues (paused)</td><td>{known_issues}</td></tr>
   </table>
   <h3>Per-NVR results</h3>
@@ -371,8 +378,10 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         f"Recording evidence: {evidence}; no recent evidence: {missing_evidence}; "
         f"online missing expected: {online_missing_expected}; search errors: {recording_errors}",
         f"Stopped recording: {stopped_recording}; no footage 30+ days: {no_footage_30}; "
+        f"checks failed or unverified: {check_failed}; "
         f"cameras with gaps: {gaps}; below required days: {below_retention}; "
-        f"picture problems: {bad_picture}; known issues (paused): {known_issues}",
+        f"picture problems: {bad_picture}; offline, still recording: {offline_recording}; "
+        f"known issues (paused): {known_issues}",
         "",
     ]
 
@@ -384,6 +393,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
             f"recording_now={item.get('recording_evidence', 0)} | "
             f"stopped={item.get('stopped_recording', 0)} | "
             f"no_footage_30d={item.get('no_footage_30', 0)} | gaps={item.get('gaps', 0)}"
+            f" | check_failed={item.get('check_failed', 0)}"
             f" | online_missing_expected={item.get('online_missing_expected', 0)}"
         )
     if attention_text:
