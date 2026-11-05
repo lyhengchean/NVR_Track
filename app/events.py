@@ -209,6 +209,22 @@ def recent_events(hours: int = 24, limit: int = 500, directory: Path | None = No
     return rows[:limit]
 
 
+def end_position(directory: Path | None = None) -> dict:
+    """Position after the last complete line, so a reader starting now skips
+    every older event (read_new() reads at most 2 MB per call)."""
+    path = (directory or events_dir()) / "events.jsonl"
+    try:
+        stat = path.stat()
+        start = max(0, stat.st_size - MAX_DOCUMENT)
+        with path.open("rb") as handle:
+            handle.seek(start)
+            tail = handle.read(stat.st_size - start)  # Not past the size just read.
+    except OSError:
+        return {}
+    cut = tail.rfind(b"\n")
+    return {"inode": stat.st_ino, "offset": start + cut + 1 if cut >= 0 else start}
+
+
 def read_new(position: dict, directory: Path | None = None) -> tuple[list[dict], dict]:
     """Lines appended since `position` ({'inode', 'offset'}); handles rotation."""
     path = (directory or events_dir()) / "events.jsonl"

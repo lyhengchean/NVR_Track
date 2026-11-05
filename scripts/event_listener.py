@@ -18,6 +18,7 @@ from pathlib import Path
 import requests
 from requests.auth import HTTPDigestAuth
 from requests.exceptions import RequestException
+from urllib3.exceptions import HTTPError as Urllib3Error
 
 from app import events
 from app.config import InventoryError, load_inventory
@@ -26,6 +27,26 @@ ROOT = Path(__file__).resolve().parent.parent
 INVENTORY_PATH = ROOT / "config" / "nvrs.local.json"
 READ_TIMEOUT = 90          # Hikvision sends a heartbeat about every 10 s.
 BACKOFF = (10, 30, 60, 120, 300)
+CHUNK = 4096
+
+
+def stream_chunks(response, size: int = CHUNK):
+    """Yield stream data as soon as it arrives.
+
+    response.iter_content(4096) waits until 4096 bytes are buffered; on an
+    alert stream that carries a small heartbeat every ~10 s that held an
+    event back for a minute or more. read1() returns whatever has arrived.
+    Raw reads raise urllib3 errors (not requests ones); the caller catches them.
+    """
+    read1 = getattr(response.raw, "read1", None)
+    if read1 is None:  # urllib3 1.x
+        yield from response.iter_content(size)
+        return
+    while True:
+        data = read1(size, decode_content=True)
+        if not data:
+            return
+        yield data
 
 
 def credentials(nvr) -> tuple[str, str]:
@@ -63,12 +84,12 @@ class Listener:
                             raise ConnectionError(f"HTTP_{response.status_code}")
                         self.mark(connected=True, since=now(), last_error=None)
                         failures = 0
-                        for chunk in response.iter_content(4096):
+                        for chunk in stream_chunks(response):
                             self.state["last_seen"] = now()
                             for event in parser.feed(chunk):
                                 self.handle(event)
                 raise ConnectionError("STREAM_CLOSED")
-            except (RequestException, ConnectionError) as exc:
+            except (RequestException, Urllib3Error, OSError) as exc:
                 code = str(exc) if isinstance(exc, ConnectionError) and str(exc).isupper() else type(exc).__name__
                 if self.state["connected"]:
                     print(f"events: {self.nvr.id} disconnected ({code})", flush=True)

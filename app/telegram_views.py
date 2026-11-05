@@ -10,6 +10,8 @@ from datetime import datetime
 from html import escape
 from zoneinfo import ZoneInfo
 
+from app.camera_condition import EVIDENCE, required_retention_days, retention_shortfall
+
 LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
 MESSAGE_LIMIT = 3900          # Telegram allows 4096 characters per message.
 LIST_LIMIT = 40               # Lines per list before "and N more".
@@ -143,12 +145,16 @@ def fleet_status(data: dict) -> str:
     c = s.get("condition_counts") or {}
     stopped = c.get("NOT_RECORDING", 0) + c.get("NO_FOOTAGE_30", 0)
     failed = c.get("CHECK_FAILED", 0)
+    known_stopped = s.get("known_not_recording", 0)
     if not data.get("nvrs"):
         headline = "No saved reports yet"
     elif stopped:
         headline = f"🔴 {plural(stopped, 'camera is', 'cameras are')} not recording"
     elif failed:
         headline = f"🟣 {plural(failed, 'camera', 'cameras')} could not be checked"
+    elif known_stopped:
+        # Known issues are handled, but those cameras are still not recording.
+        headline = "✅ No camera needs action"
     else:
         headline = "✅ No monitored camera has stopped recording"
     lines = [
@@ -176,6 +182,9 @@ def fleet_status(data: dict) -> str:
               if c.get(code)]
     if counts:
         lines.append("<b>Cameras needing a look</b> " + " · ".join(counts))
+    if known_stopped:
+        lines.append(f"🔕 {plural(known_stopped, 'camera with a known issue is', 'cameras with a known issue are')}"
+                     " not recording (alerts paused, /known)")
     stale = s.get("stale_reports", 0) - s.get("latest_run_failed", 0)
     if stale > 0:
         lines.append(f"⚠️ {plural(stale, 'NVR report is', 'NVR reports are')} out of date"
@@ -578,6 +587,7 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120) -> tuple[dict, li
         if not nvr["channels"]:
             unknown.append(f"cam:{nid}:")
         failed_checks = 0
+        retention_rule = bool(required_retention_days())
         for ch in nvr["channels"]:
             key = f"cam:{nid}:{ch['channel_id']}:"
             if ch.get("known_issue"):
@@ -587,15 +597,25 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120) -> tuple[dict, li
             camera = f"<b>{title}</b> · {camera_title(ch)}"
             if code in {"CHECK_FAILED", "NOT_MONITORED"}:
                 failed_checks += code == "CHECK_FAILED"
-                unknown += [key + "rec", key + "ret"]
+                unknown.append(key + "rec")
             elif code in {"NOT_RECORDING", "NO_FOOTAGE_30"}:
                 state[key + "rec"] = _entry(
                     "critical", f"{CONDITION_ICON[code]} {esc(ch['condition']['label'])}: {camera}\n"
                     f"   {esc(ch['condition']['detail'])}",
                     f"✅ Recording again: {camera}")
-            elif code == "BELOW_RETENTION":
+            elif (ch.get("recording_result") or {}).get("status") not in EVIDENCE:
+                unknown.append(key + "rec")  # E.g. a quiet event camera: no footage, so not "recording again".
+            # Kept days are judged on their own: a gap or picture problem shown
+            # instead must not "resolve" a below-required-days alert.
+            shortfall = retention_shortfall(ch)
+            if not retention_rule:
+                muted.append(key + "ret")  # Rule switched off: drop silently.
+            elif shortfall is None:
+                unknown.append(key + "ret")
+            elif shortfall["below"]:
                 state[key + "ret"] = _entry(
-                    "warning", f"🟠 Below required days: {camera}\n   {esc(ch['condition']['detail'])}",
+                    "warning", f"🟠 Below required days: {camera}\n   Footage kept for only "
+                    f"{shortfall['history_days']} days; {shortfall['required']} days are required.",
                     f"✅ Keeps the required days again: {camera}")
             picture = (ch.get("snapshot_result") or {}).get("status")
             if picture in BAD_PICTURES:

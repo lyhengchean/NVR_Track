@@ -603,12 +603,14 @@ function renderHero() {
   const total = CONDITIONS.reduce((sum, [code]) => sum + num(c[code]), 0);
   const stopped = num(c.NOT_RECORDING) + num(c.NO_FOOTAGE_30);
   const failed = num(c.CHECK_FAILED), unmonitored = num(c.NOT_MONITORED), quiet = num(c.NO_RECENT_EVENTS);
+  const knownStopped = num(s.known_not_recording);
   const headline = $("headline");
   let text, good = false;
   if (!state.nvrs.length) text = "No saved reports yet";
   else if (stopped) text = plural(stopped, "camera is", "cameras are") + " not recording";
   else if (failed) text = plural(failed, "camera", "cameras") + " could not be checked";
-  else if (total > unmonitored) { text = quiet ? "No monitored camera has stopped recording" : "Every monitored camera is recording"; good = true; }
+  // Known-issue cameras may still be dark: never claim that every camera records.
+  else if (total > unmonitored) { text = knownStopped ? "No camera needs action" : quiet ? "No monitored camera has stopped recording" : "Every monitored camera is recording"; good = true; }
   else text = "No cameras are monitored yet";
   headline.textContent = text;
   headline.className = "headline " + (good ? "good" : "bad");
@@ -617,6 +619,7 @@ function renderHero() {
   if (num(c.GAPS)) parts.push(plural(num(c.GAPS), "camera has", "cameras have") + " missing days in the 30-day calendar.");
   if (quiet) parts.push(plural(quiet, "event-recording camera", "event-recording cameras") + " had no events in " + windowText(s.window_minutes) + ", which is normal for a quiet area.");
   if (stopped && failed) parts.push(plural(failed, "check") + " could not be completed.");
+  if (knownStopped) parts.push(plural(knownStopped, "camera with a known issue is", "cameras with a known issue are") + " not recording (alerts paused).");
   if (unmonitored) parts.push(plural(unmonitored, "camera is", "cameras are") + " on NVRs without per-camera checks.");
   if (num(s.cameras_without_result)) parts.push(plural(num(s.cameras_without_result), "expected camera has", "expected cameras have") + " no result because the NVR was unreachable.");
   if (!state.nvrs.length) parts.push("Run the reporter once, then refresh: docker compose run --rm nvr-report-all");
@@ -760,15 +763,19 @@ function card(row) {
   const alerts = el("span", "alerts");
   const items = [
     [num(counts.NO_FOOTAGE_30), "no footage for 30+ days", true], [num(counts.NOT_RECORDING), "stopped recording", true],
-    [num(counts.CHECK_FAILED), "not checked", false], [num(counts.GAPS), "with missing days", false]
+    [num(counts.CHECK_FAILED), "not checked", false], [num(counts.GAPS), "with missing days", false],
+    [num(counts.KNOWN_ISSUE), "with a known issue", false], [num(counts.NO_RECENT_EVENTS), "with no recent events", false]
   ].filter(([n]) => n > 0);
+  // "All recorded" only when every camera really has footage in the window.
+  const recorded = nvr.channels.filter(ch => EVIDENCE.has(ch.recording_result.status)).length;
   if (items.length) {
     items.forEach(([n, text, bad], i) => {
       if (i) alerts.append(", ");
       alerts.append(el("span", bad ? "bad" : "", plural(n, "camera") + " " + text));
     });
   } else if (nvr.channels.length && !num(counts.NOT_MONITORED)) {
-    alerts.append("All cameras recorded in " + windowText(nvr.per_camera_recording?.window_minutes));
+    alerts.append((recorded === nvr.channels.length ? "All cameras" : recorded + " of " + nvr.channels.length + " cameras")
+      + " recorded in " + windowText(nvr.per_camera_recording?.window_minutes));
   } else if (num(counts.NOT_MONITORED)) {
     alerts.append("Per-camera checks are not enabled for this NVR");
   } else {
