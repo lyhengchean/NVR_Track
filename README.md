@@ -515,6 +515,8 @@ unknown groups are ignored.
 | `TELEGRAM_ALERT_CHAT_IDS` | People or groups that get alerts and the daily summary (members have user rights) |
 | `TELEGRAM_BLOCKED_USER_IDS` | People refused in every mode |
 | `TELEGRAM_DIGEST_TIME` | Daily summary time, default `08:30`; empty turns it off |
+| `TELEGRAM_KNOWN_REMINDER` | Weekly list of open known issues to the alert chats, default `mon 09:00`; `off` turns it off. No message when none are open |
+| `NVR_KNOWN_REMINDER_DAYS` | Known issues open this many days are marked ⏳ in the reminder and *(review)* in the email (default 7) |
 | `TELEGRAM_SHOW_IPS` | `true` to include IP addresses; default `false` |
 | `NVR_CLOCK_DRIFT_WARN_SECONDS` | Alert when an NVR clock is off by more than this (default 120) |
 | `TELEGRAM_HTTPS_PROXY` | Only if the server reaches the internet through a proxy |
@@ -608,6 +610,13 @@ picture. Notes (who, when, what) are kept per camera.
   fixed), `/fixed nvr-01 5 spliced`, `/note nvr-01 5 Replaced cable`
   (admins, or everyone with `TELEGRAM_NOTES_BY=users`), `/notes nvr-01 [5]`.
   A single camera result from `/camera` has buttons for these.
+- Reminders so known issues are not forgotten: every Monday 09:00
+  (`TELEGRAM_KNOWN_REMINDER`) the alert chats get the open known issues with
+  their age and what the latest scan says (⏳ open `NVR_KNOWN_REMINDER_DAYS`+
+  days; ✅ the latest up-to-date scan found no problem, close it with `/fixed`).
+  The daily email shows each known issue's age, marks old ones *(review)*, and
+  lists known-issue cameras whose latest scan found no problem. `/fixed` also
+  closes the known issue of a camera that is no longer in the NVR's list.
 - Stored in `state/notes/notes.json` (back it up with the project).
 
 **Camera list changes and NVR restarts** (on by default). Each report is

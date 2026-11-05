@@ -34,6 +34,7 @@ from app.dashboard import read_dashboard_data, read_scan_status, request_scan
 ROOT = Path(__file__).resolve().parent.parent
 TOKEN_PATTERN = re.compile(r"^\d{5,15}:[A-Za-z0-9_-]{30,64}$")
 TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 POLL_TIMEOUT_SECONDS = 25
 OLD_MESSAGE_SECONDS = 15 * 60        # Commands sent while the bot was down are skipped.
 UNKNOWN_REPLY_SECONDS = 10 * 60      # At most one "not authorized" reply per user.
@@ -124,7 +125,23 @@ def load_settings(env: dict | None = None) -> dict:
         # Latest camera pictures for admins (/snapshot), or off.
         "snapshots": "off" if env.get("TELEGRAM_SNAPSHOTS", "admins").strip().lower() == "off" else "admins",
         "state_dir": Path(env.get("TELEGRAM_STATE_DIR", str(ROOT / "state" / "telegram"))),
+        # Weekly list of open known issues: (weekday 0=Mon, "HH", "MM") or None (off).
+        "known_reminder": weekly_time(env.get("TELEGRAM_KNOWN_REMINDER", "mon 09:00")),
+        "known_stale_days": notes_store.stale_days(env),
     }
+
+
+def weekly_time(text: str) -> tuple[int, str, str] | None:
+    """'mon 09:00' -> (0, '09', '00'); 'off' or empty -> None."""
+    value = " ".join(str(text or "").lower().split())
+    if value in {"", "off", "false", "no"}:
+        return None
+    day, _, clock = value.partition(" ")
+    match = TIME.match(clock)
+    if day[:3] not in WEEKDAYS or not match:
+        print(f"telegram: TELEGRAM_KNOWN_REMINDER {value[:20]!r} is not like 'mon 09:00'; reminder off", flush=True)
+        return None
+    return WEEKDAYS.index(day[:3]), match[1], match[2]
 
 
 def role(settings: dict, user_id: int | None, chat_id: int | None,
@@ -648,6 +665,26 @@ class Bot:
             self.send(chat_id, "☀️ <b>Daily summary</b> (if this stops arriving, the monitor itself is down)\n\n"
                       + views.fleet_status(data), menu_keyboard(False))
 
+    def check_known_reminder(self) -> None:
+        """Once a week, list the known issues that are still open (none open: no message)."""
+        if not self.settings.get("known_reminder"):
+            return
+        weekday, hour, minute = self.settings["known_reminder"]
+        now = datetime.now(views.LOCAL_TZ)
+        due = now.replace(hour=int(hour), minute=int(minute), second=0, microsecond=0)
+        if now.weekday() != weekday or not due <= now < due + timedelta(hours=DIGEST_LATEST_HOURS):
+            return
+        path = self.state_dir / "known_reminder.json"
+        if read_state(path, {}).get("date") == now.date().isoformat():
+            return
+        write_state(path, {"date": now.date().isoformat()})
+        text = views.known_reminder(self.fresh_data(), notes_store.active_issues(notes_store.load(), now.date()),
+                                    self.settings["known_stale_days"], now.date())
+        if text is None:
+            return
+        for chat_id in self.recipients():
+            self.send(chat_id, text, menu_keyboard(False))
+
     # ----- add-ons: known issues, notes, events, uptime, snapshots -----
 
     def addon_command(self, chat_id: int, command: str, args: str, who: str, by: str) -> None:
@@ -661,7 +698,7 @@ class Bot:
             self.send_uptime(chat_id, args)
             return
         if command == "known" and not tokens:
-            self.send(chat_id, views.known_list(data))
+            self.send(chat_id, views.known_list(data, notes_store.active_issues(notes_store.load())))
             return
         needs_admin = command in {"known", "fixed", "snapshot"} or (
             command == "note" and self.settings["notes_by"] == "admins")
@@ -692,6 +729,10 @@ class Bot:
             self.send(chat_id, "Which camera (channel number, 1,3,12, or all)? Usage: " + views.esc(usage))
             return
         present = {str(ch["channel_id"]) for ch in nvr["channels"]}
+        if command == "fixed":
+            # A removed camera's known issue can still be closed.
+            present |= {str(i.get("channel")) for i in notes_store.active_issues(notes_store.load())
+                        if i.get("nvr") == nvr["id"] and i.get("channel") is not None}
         missing = [c for c in channels if c is not None and c not in present]
         if missing:
             self.send(chat_id, f"{views.nvr_title(nvr)} has no channel {views.esc(', '.join(missing))} "
@@ -862,7 +903,7 @@ class Bot:
 
     def periodic(self) -> None:
         for task in (self.check_alerts, self.check_events, self.check_pending_scans, self.check_digest,
-                     self.check_monthly_uptime):
+                     self.check_known_reminder, self.check_monthly_uptime):
             try:
                 task()
             except Exception as exc:  # One failing task must not stop the bot.

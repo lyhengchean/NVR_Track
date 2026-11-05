@@ -6,11 +6,12 @@ dashboard does. Every device- or inventory-provided string is HTML-escaped.
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from html import escape
 from zoneinfo import ZoneInfo
 
-from app.camera_condition import EVIDENCE, required_retention_days, retention_shortfall
+from app.camera_condition import CONDITIONS, EVIDENCE, required_retention_days, retention_shortfall
+from app.notes import age_days
 
 LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
 MESSAGE_LIMIT = 3900          # Telegram allows 4096 characters per message.
@@ -721,18 +722,121 @@ def notes_text(data: dict, nvr: dict, channel: str | None) -> str:
         + f" {esc(n.get('text'))}" + (f" ({esc(n['by'])})" if n.get("by") else "") for n in rows], 20))
 
 
-def known_list(data: dict) -> str:
+def age_text(issue: dict | None, today: date | None = None) -> str:
+    """'open 12 days' / 'set today'; empty when the start date is unknown."""
+    days = age_days(issue, today)
+    if days is None:
+        return ""
+    return "set today" if days == 0 else f"open {plural(days, 'day')}"
+
+
+def known_list(data: dict, issues: list[dict] | None = None) -> str:
+    """Open known issues; issues (app.notes.active_issues) adds cameras no longer in a report."""
     lines = []
     for nvr in data.get("nvrs") or []:
         if nvr.get("nvr_known_issue"):
-            lines.append(f"🔕 {nvr_title(nvr)} (whole NVR) — {issue_text(nvr['nvr_known_issue'])}")
+            age = age_text(nvr["nvr_known_issue"])
+            lines.append(f"🔕 {nvr_title(nvr)} (whole NVR) — {issue_text(nvr['nvr_known_issue'])}"
+                         + (f" · {age}" if age else ""))
         for ch in nvr["channels"]:
             if ch.get("known_issue") and not ch["known_issue"].get("whole_nvr"):
-                lines.append(f"🔕 {nvr_title(nvr)} · {camera_title(ch)} — {issue_text(ch['known_issue'])}")
+                age = age_text(ch["known_issue"])
+                lines.append(f"🔕 {nvr_title(nvr)} · {camera_title(ch)} — {issue_text(ch['known_issue'])}"
+                             + (f" · {age}" if age else ""))
+    shown = {(nvr["id"], str(ch.get("channel_id"))) for nvr in data.get("nvrs") or [] for ch in nvr["channels"]}
+    for item in issues or []:
+        if item.get("channel") is not None and (item.get("nvr"), str(item["channel"])) not in shown:
+            age = age_text(item)
+            lines.append(f"🔕 {esc(item.get('nvr'))} · ch{esc(item['channel'])} (not in the latest scan) — "
+                         f"{issue_text(item)}" + (f" · {age}" if age else ""))
     if not lines:
         return ("No known issues. Admins: /known nvr-01 5 7d Cable cut — pauses alerts for that camera; "
                 "/fixed nvr-01 5 resumes them.")
     return f"<b>Known issues, alerts paused</b> ({len(lines)})\n" + "\n".join(capped(lines, 50))
+
+
+def _known_state(nvr: dict | None, channel_id: str | None) -> tuple[str, bool]:
+    """What the latest scan says about a known-issue camera (or whole NVR).
+
+    Returns (text, looks_fine). looks_fine is True only when the latest,
+    up-to-date scan found no problem; anything unknown or old stays False.
+    """
+    if nvr is None:
+        return "No scan result for this NVR.", False
+    old = " (scan result out of date)" if nvr.get("stale") else ""
+    if channel_id is None:
+        problems = sum((ch.get("condition") or {}).get("code") == "KNOWN_ISSUE" for ch in nvr.get("channels") or [])
+        status = str(nvr.get("overall_status") or "UNKNOWN")
+        fine = problems == 0 and status == "HEALTHY" and not old
+        return (f"Latest scan: NVR {HEALTH_LABEL.get(status, status).lower()}, "
+                f"{plural(problems, 'camera problem')}{old}."), fine
+    row = next((ch for ch in nvr.get("channels") or [] if str(ch.get("channel_id")) == channel_id), None)
+    if row is None:
+        return f"Not in the latest scan (camera removed?){old}.", False
+    condition = row.get("condition") or {}
+    code = condition.get("code")
+    if code == "KNOWN_ISSUE":
+        original = CONDITIONS.get(condition.get("original"), (condition.get("original") or "problem",))[0]
+        return f"Still: {esc(original)}{old}.", False
+    if code == "OK":
+        return f"Latest scan found no problem{old}.", not old
+    return f"Latest scan: {esc(condition.get('label') or 'unknown')}{old}.", False
+
+
+def known_reminder(data: dict, issues: list[dict], stale_days: int, today: date | None = None) -> str | None:
+    """Weekly list of open known issues (alerts are paused for them); None when there are none.
+
+    issues are app.notes.active_issues(); data is the dashboard data used for
+    names and the latest condition. ⏳ marks issues open stale_days or longer,
+    ✅ those where the latest up-to-date scan found no problem (close with /fixed).
+    """
+    if not issues:
+        return None
+    nvrs = {nvr["id"]: nvr for nvr in data.get("nvrs") or []}
+
+    def order(item):
+        channel = item.get("channel")
+        return (str(item.get("nvr")), -1 if channel is None else int(channel) if str(channel).isdigit() else 10**6)
+
+    groups: dict[str, list[str]] = {}
+    old_count = fine_count = 0
+    for item in sorted(issues, key=order):
+        nvr_id, channel = str(item.get("nvr")), item.get("channel")
+        channel = None if channel is None else str(channel)
+        nvr = nvrs.get(nvr_id)
+        row = next((ch for ch in (nvr or {}).get("channels") or [] if str(ch.get("channel_id")) == channel), None)
+        target = "Whole NVR" if channel is None else (camera_title(row) if row else f"ch{esc(channel)}")
+        state, fine = _known_state(nvr, channel)
+        days = age_days(item, today)
+        old = days is not None and days >= stale_days
+        old_count += old
+        fine_count += fine
+        mark = "✅" if fine else "⏳" if old else "•"
+        until = f"until {esc(item['until'])}" if item.get("until") else "until marked fixed"
+        facts = [age_text(item, today), until] + ([esc(item["by"])] if item.get("by") else [])
+        line = f"{mark} {target} — {esc(item.get('reason') or 'Known issue')} · " + " · ".join(f for f in facts if f)
+        if fine:
+            state += f" Repaired? /fixed {esc(nvr_id)} {esc(channel or 'all')}"
+        groups.setdefault(nvr_id, []).append(f"{line}\n    {state}")
+    lines = [f"🔕 <b>Known issues still open</b> ({len(issues)}) · weekly reminder",
+             "Alerts stay paused for these until the end date or /fixed."]
+    if old_count:
+        lines.append(f"⏳ {plural(old_count, 'issue')} open {stale_days}+ days: "
+                     f"check someone is still on {'it' if old_count == 1 else 'them'}.")
+    if fine_count:
+        lines.append(f"✅ {plural(fine_count, 'issue')} where the latest scan found no problem: "
+                     "close with /fixed if repaired, so alerts resume.")
+    shown = 0
+    for nvr_id, rows in groups.items():
+        if shown >= LIST_LIMIT:
+            break
+        nvr = nvrs.get(nvr_id)
+        lines += ["", f"<b>{nvr_title(nvr) if nvr else esc(nvr_id)}</b>"]
+        lines += rows[:LIST_LIMIT - shown]
+        shown += min(len(rows), LIST_LIMIT - shown)
+    if shown < len(issues):
+        lines.append(f"… and {len(issues) - shown} more: /known")
+    return "\n".join(lines)
 
 
 def uptime_text(result: dict, title: str) -> str:

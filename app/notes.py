@@ -183,6 +183,33 @@ def active_issues(data: dict, today: date | None = None) -> list[dict]:
     return active
 
 
+def stale_days(env: dict | None = None) -> int:
+    """NVR_KNOWN_REMINDER_DAYS: a known issue open this long is flagged for review (default 7)."""
+    env = os.environ if env is None else env
+    try:
+        days = int(str(env.get("NVR_KNOWN_REMINDER_DAYS", "7")).strip())
+    except ValueError:
+        return 7
+    return days if 1 <= days <= MAX_DAYS else 7
+
+
+def opened_on(item: dict | None) -> date | None:
+    """Local date the known issue was set; None when the stamp is missing or invalid."""
+    try:
+        moment = datetime.fromisoformat(str((item or {}).get("created_at") or ""))
+    except ValueError:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.astimezone(LOCAL_TZ).date()
+
+
+def age_days(item: dict | None, today: date | None = None) -> int | None:
+    """Whole days the known issue has been open (0 = set today); None when unknown."""
+    start = opened_on(item)
+    return None if start is None else max(((today or today_local()) - start).days, 0)
+
+
 def issue_for(issues: list[dict], nvr_id: str, channel: str | None) -> dict | None:
     """The camera's own known issue, else one for its whole NVR."""
     own = next((i for i in issues if i["nvr"] == nvr_id and channel is not None
