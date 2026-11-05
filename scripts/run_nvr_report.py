@@ -473,6 +473,7 @@ def main() -> int:
         picture_problems=picture_problems,
         restart=restart,
         inventory_changes=changes,
+        storage_message=storage.message,
     )
 
     completed_at = now_local()
@@ -571,6 +572,8 @@ def main() -> int:
     print(f"Overall status: {overall['status']}")
     for reason in overall["critical_reasons"][:3]:
         print(f"Critical: {reason[:160]}")
+    for reason in overall["warnings"][:3]:
+        print(f"Warning: {reason[:160]}")
     print(f"Device information: {device.status}")
     print(f"Channel inventory: {inventory.status}")
     print(f"Channel status: {channel_status_result.status}")

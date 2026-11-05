@@ -36,6 +36,16 @@ class OverallStatusTests(unittest.TestCase):
         self.assertEqual(result["status"], "CRITICAL")
         self.assertTrue(any("expected disks missing" in item for item in result["critical_reasons"]))
 
+    def test_storage_reasons_name_the_disk_from_the_storage_check(self):
+        inputs = healthy_inputs()
+        inputs.update(storage_status="CRITICAL", storage_message="NVR reports abnormal HDD states:\n 8 (error).")
+        result = determine_overall_status(**inputs)
+        self.assertEqual(result["critical_reasons"],
+                         ["Storage needs urgent review: NVR reports abnormal HDD states: 8 (error)."])
+        inputs.update(storage_status="WARNING", storage_message="Zero free space on writable HDD IDs: 1")
+        self.assertIn("Storage warning: Zero free space on writable HDD IDs: 1",
+                      determine_overall_status(**inputs)["warnings"])
+
     def test_storage_warning_has_actionable_explanation(self):
         inputs = healthy_inputs()
         inputs["storage_status"] = "WARNING"

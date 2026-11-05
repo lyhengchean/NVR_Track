@@ -29,13 +29,18 @@ def determine_overall_status(
     picture_problems: int = 0,
     restart: dict | None = None,
     inventory_changes: dict | None = None,
+    storage_message: str = "",
 ) -> dict[str, Any]:
     critical: list[str] = []
     warnings: list[str] = []
     unknown: list[str] = []
+    # The storage check's own finding (e.g. "HDD 8 (error)"), so alerts and the
+    # email say which disk instead of a generic sentence.
+    storage_detail = " ".join(str(storage_message or "").split())[:200]
 
     if storage_status == "CRITICAL":
-        critical.append("Storage needs urgent review: abnormal disks, expected disks missing, or no operational storage.")
+        critical.append(f"Storage needs urgent review: {storage_detail}" if storage_detail else
+                        "Storage needs urgent review: abnormal disks, expected disks missing, or no operational storage.")
 
     if device_info_status in {
         "AUTHENTICATION_FAILED",
@@ -75,7 +80,8 @@ def determine_overall_status(
         )
 
     if storage_status == "WARNING":
-        warnings.append("Storage warning: review disk detection, free space, and overwrite/quota policy.")
+        warnings.append(f"Storage warning: {storage_detail}" if storage_detail else
+                        "Storage warning: review disk detection, free space, and overwrite/quota policy.")
     elif storage_status not in {"HEALTHY", "CRITICAL", "WARNING"}:
         unknown.append(f"Storage status not verified: {storage_status}.")
 
