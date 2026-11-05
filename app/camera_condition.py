@@ -218,14 +218,16 @@ def kept_days(channels: list[dict]) -> dict:
         if cal["known"] and cal["history_days"] > 0 and type(cal["window"]) is int and cal["window"] > 0:
             found.append((min(cal["history_days"], cal["window"]), cal["window"], str(channel.get("channel_id", ""))))
     if not found:
-        return {"cameras": 0, "window": None, "typical": None, "fewest": None, "fewest_channels": [], "full": 0}
+        return {"cameras": 0, "window": None, "typical": None, "fewest": None, "fewest_channels": [],
+                "fewest_count": 0, "full": 0}
     values = sorted(days for days, _, _ in found)
     fewest = values[0]
     channels_fewest = sorted((cid for days, _, cid in found if days == fewest),
                              key=lambda cid: int(cid) if cid.isdigit() else 10**6)
     return {"cameras": len(found), "window": max(window for _, window, _ in found),
             "typical": values[(len(values) - 1) // 2], "fewest": fewest,
-            "fewest_channels": channels_fewest[:5], "full": sum(days >= window for days, window, _ in found)}
+            "fewest_channels": channels_fewest[:5], "fewest_count": len(channels_fewest),
+            "full": sum(days >= window for days, window, _ in found)}
 
 
 def kept_text(kept: dict | None) -> str:
@@ -238,5 +240,7 @@ def kept_text(kept: dict | None) -> str:
         return f"{n}+ days" if n >= kept["window"] else ("1 day" if n == 1 else f"{n} days")
     text = days(kept["typical"])
     if kept["fewest"] < kept["typical"]:
-        text += f" (fewest {kept['fewest']}: " + ", ".join(f"ch{c}" for c in kept["fewest_channels"]) + ")"
+        more = (kept.get("fewest_count") or 0) - len(kept["fewest_channels"])
+        text += (f" (fewest {kept['fewest']}: " + ", ".join(f"ch{c}" for c in kept["fewest_channels"])
+                 + (f" +{more} more" if more > 0 else "") + ")")
     return text
