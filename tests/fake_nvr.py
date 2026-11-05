@@ -36,6 +36,7 @@ class FakeNVR:
         self.camera_ips: dict[str, str] = {}   # Channel -> camera IP (default 192.0.2.<channel>).
         self.source_inputs: dict[str, int] = {}  # Channel -> srcInputPort (default 1).
         self.recording = {"1", "2", "3"}       # Channels with footage now.
+        self.search_replies: dict[str, str] = {}  # Channel -> raw CMSearchResult XML to return instead.
         self.uptime = 10 * 86400
         self.smart_raw_reallocated = {"1": 0, "2": 8}
         self.pictures = {"1": "scene", "2": "scene", "3": "black"}
@@ -73,6 +74,8 @@ class FakeNVR:
         channel = str(track // 100)
         window_end = datetime.strptime(end, "%Y-%m-%dT%H:%M:%SZ")
         window_start = datetime.strptime(start, "%Y-%m-%dT%H:%M:%SZ")
+        if channel in self.search_replies:
+            return self.search_replies[channel]
         if channel not in self.recording:
             return ("<CMSearchResult><responseStatus>false</responseStatus>"
                     "<responseStatusStrg>NO MATCHES</responseStatusStrg><numOfMatches>0</numOfMatches></CMSearchResult>")
