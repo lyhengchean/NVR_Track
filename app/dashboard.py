@@ -12,9 +12,10 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from zoneinfo import ZoneInfo
 
+from app import custom_reports
 from app import events as event_store
 from app import live as live_store
 from app import notes as notes_store
@@ -55,6 +56,9 @@ def _content_security_policy(page: str) -> str:
 
 
 CSP = _content_security_policy(HTML)
+# Report builder page (app.custom_reports): its own inline script and style.
+BUILDER_HTML = (Path(__file__).with_name("report_builder.html").read_text(encoding="utf-8"))
+BUILDER_CSP = _content_security_policy(BUILDER_HTML)
 
 # <id>_<YYYYmmddTHHMMSS[ffffff]+hhmm>.json, as written by run_nvr_report.
 REPORT_NAME = re.compile(
@@ -1000,6 +1004,27 @@ def save_note(body: dict, by: str) -> tuple[int, dict]:
     return 200, {"ok": True}
 
 
+def custom_report_action(body: dict) -> tuple[int, dict]:
+    """Report builder: preview a query, save it under a name, or delete a saved one."""
+    action = body.get("action")
+    if action == "delete":
+        if not custom_reports.delete_saved(str(body.get("id") or "")):
+            return 404, {"error": "No such saved report."}
+        return 200, {"ok": True, "saved": custom_reports.list_saved()}
+    if action not in {"preview", "save"}:
+        return 400, {"error": "Unknown action."}
+    spec, error = custom_reports.normalize(body.get("spec"))
+    if error:
+        return 400, {"error": error}
+    result = custom_reports.build(spec, REPORTS_DIR)
+    if action == "preview":
+        return 200, {**result, "rows": result["rows"][:custom_reports.PREVIEW_ROWS], "spec": spec}
+    item, error = custom_reports.save(str(body.get("name") or ""), spec, result)
+    if error:
+        return 400, {"error": error}
+    return 200, {"ok": True, "item": item, "saved": custom_reports.list_saved()}
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "NVRDashboard"
     sys_version = ""
@@ -1008,7 +1033,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         # Do not log request headers or credentials.
         super().log_message(fmt, *args)
 
-    def _send(self, code: int, content_type: str, body: bytes) -> None:
+    def _send(self, code: int, content_type: str, body: bytes, csp: str = CSP) -> None:
         self.send_response(code)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
@@ -1016,7 +1041,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", CSP)
+        self.send_header("Content-Security-Policy", csp)
         self.end_headers()
         self.wfile.write(body)
 
@@ -1096,7 +1121,49 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._monthly_pdf(urlsplit(self.path).query)
             return
 
+        if path == "/reports":
+            self._send(200, "text/html; charset=utf-8", BUILDER_HTML.encode("utf-8"), BUILDER_CSP)
+            return
+
+        if path == "/api/custom-reports":
+            try:
+                data = custom_reports.options(REPORTS_DIR)
+                data["saved"] = custom_reports.list_saved()
+                self._json(200, data)
+            except Exception:
+                self._json(500, {"error": "Report options could not be read."})
+            return
+
+        if path == "/api/custom-reports/download":
+            self._custom_download(urlsplit(self.path).query)
+            return
+
         self._send(404, "text/plain; charset=utf-8", b"Not found.\n")
+
+    def _custom_download(self, query: str) -> None:
+        """A saved custom report as CSV or PDF: ?id=<12 hex>&format=csv|pdf."""
+        params = dict(part.partition("=")[::2] for part in query.split("&") if part)
+        fmt = params.get("format", "csv")
+        doc = custom_reports.load_saved(params.get("id", "")) if fmt in {"csv", "pdf"} else None
+        if doc is None:
+            self._send(404, "text/plain; charset=utf-8", b"No such saved report.\n")
+            return
+        try:
+            body = custom_reports.to_csv(doc) if fmt == "csv" else custom_reports.to_pdf(doc)
+        except Exception:
+            self._send(500, "text/plain; charset=utf-8", b"The file could not be made.\n")
+            return
+        stem = custom_reports.file_stem(doc["name"])
+        utf8 = quote(doc["name"][:80] + "." + fmt, safe="")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv; charset=utf-8" if fmt == "csv" else "application/pdf")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Disposition", f'attachment; filename="{stem}.{fmt}"; filename*=UTF-8\'\'{utf8}')
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _json(self, code: int, data: dict) -> None:
         self._send(code, "application/json; charset=utf-8", json.dumps(data, ensure_ascii=False).encode("utf-8"))
@@ -1148,7 +1215,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._unauthorized()
             return
         route = urlsplit(self.path).path
-        if route not in {"/api/scan", "/api/notes"}:
+        if route not in {"/api/scan", "/api/notes", "/api/custom-reports"}:
             self._send(404, "text/plain; charset=utf-8", b"Not found.\n")
             return
         # Cross-site protection: browsers cannot send this header or a JSON
@@ -1168,6 +1235,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 raise ValueError
         except (ValueError, UnicodeDecodeError):
             self._json(400, {"error": "Invalid request."})
+            return
+        if route == "/api/custom-reports":
+            try:
+                code, data = custom_report_action(body)
+            except OSError:
+                code, data = 503, {"error": "The report could not be saved."}
+            except Exception:
+                code, data = 500, {"error": "The report could not be made."}
+            self._json(code, data)
             return
         if route == "/api/notes":
             try:

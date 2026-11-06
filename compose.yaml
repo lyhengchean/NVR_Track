@@ -58,6 +58,7 @@ services:
       EVENTS_DIR: /app/state/events
       SNAPSHOT_DIR: /app/state/snapshots
       LIVE_DIR: /app/state/live
+      CUSTOM_REPORTS_DIR: /app/state/custom_reports
 
     ports:
       - "${DASHBOARD_BIND_IP:-127.0.0.1}:8080:8080"
@@ -71,6 +72,8 @@ services:
       - ./state/events:/app/state/events:ro
       - ./state/snapshots:/app/state/snapshots:ro
       - ./state/live:/app/state/live:ro
+      # Reports saved in the report builder (/reports); downloads come from here.
+      - ./state/custom_reports:/app/state/custom_reports
 
     restart: unless-stopped
 
