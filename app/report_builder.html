@@ -1,0 +1,614 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0e1a2b">
+<title>Report builder · NVR Track</title>
+<style>
+:root{
+  --bg:#eef2f6;--panel:#fff;--panel-2:#f6f8fb;--ink:#0e1a2b;--ink-2:#2c3b50;--muted:#5d6d82;--line:#d9e1ea;--line-2:#e8edf3;
+  --accent:#3b82f6;--accent-ink:#1d4ed8;--accent-soft:#e3edff;--focus:#93c5fd;
+  --ok-soft:#e3f6eb;--warn-soft:#fff4d6;--crit-soft:#fde7e8;--ok-text:#116b38;--warn-text:#8a5a00;--crit-text:#a3191f;
+  --code-bg:#0e1a2b;--code-ink:#d8e3f2;--code-key:#8ab4ff;--code-str:#7ee2a6;
+  --shadow:0 1px 2px rgba(14,26,43,.06),0 8px 24px -12px rgba(14,26,43,.18);
+  --font:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,"Ubuntu","Noto Sans","Noto Sans Khmer",sans-serif;
+  --mono:"Cascadia Mono","SF Mono",ui-monospace,"Ubuntu Mono",Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0a111d;--panel:#101a2a;--panel-2:#0d1624;--ink:#e6edf6;--ink-2:#c3cfdd;--muted:#8fa0b6;--line:#22314a;--line-2:#1a2639;
+  --accent:#3b82f6;--accent-ink:#8ab4ff;--accent-soft:#16284a;--focus:#3b82f6;
+  --ok-soft:#0f2d1e;--warn-soft:#33270a;--crit-soft:#3a1418;--ok-text:#7ee2a6;--warn-text:#f6cf6b;--crit-text:#ff9da1;
+  --code-bg:#070d17;--code-ink:#c3cfdd;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#0a111d;--panel:#101a2a;--panel-2:#0d1624;--ink:#e6edf6;--ink-2:#c3cfdd;--muted:#8fa0b6;--line:#22314a;--line-2:#1a2639;
+  --accent:#3b82f6;--accent-ink:#8ab4ff;--accent-soft:#16284a;--focus:#3b82f6;
+  --ok-soft:#0f2d1e;--warn-soft:#33270a;--crit-soft:#3a1418;--ok-text:#7ee2a6;--warn-text:#f6cf6b;--crit-text:#ff9da1;
+  --code-bg:#070d17;--code-ink:#c3cfdd;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7);color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;min-width:320px;background:var(--bg);color:var(--ink);font:14px/1.5 var(--font);font-feature-settings:"tnum" 1;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+a{color:var(--accent-ink)}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:6px}
+.wrap{max-width:1680px;margin:0 auto;padding:0 28px}
+.topbar{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--panel) 88%,transparent);backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--line)}
+.topbar .wrap{display:flex;align-items:center;gap:14px;min-height:60px}
+.brand{display:flex;align-items:center;gap:12px;margin-right:auto;min-width:0}
+.mark{display:grid;grid-template-columns:repeat(3,7px);gap:2px;padding:6px;border-radius:9px;background:#0e1a2b;box-shadow:inset 0 0 0 1px rgba(255,255,255,.1)}
+.mark i{width:7px;height:7px;border-radius:2px;background:#2fb86a}
+.mark i:nth-child(5){background:#f2555a}.mark i:nth-child(7){background:#f0b429}.mark i:nth-child(3){background:#3d4c63}
+.brand h1{font-size:17px;line-height:1.1;margin:0;font-weight:680;letter-spacing:-.01em;white-space:nowrap}
+.brand p{margin:1px 0 0;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);font-weight:600;font-size:13px;white-space:nowrap;text-decoration:none;color:var(--ink)}
+.btn:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:var(--panel-2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:#2f6fe0}
+.btn[disabled]{opacity:.6;cursor:progress}
+.btn svg{width:16px;height:16px;flex:none}
+.btn.icon{width:36px;padding:0}
+.btn.sm{height:28px;padding:0 10px;font-size:12px;border-radius:7px}
+.btn.danger{color:var(--crit-text)}
+.control{width:100%;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--panel);padding:0 10px;font-size:13px;min-width:0}
+.control:hover{border-color:color-mix(in srgb,var(--muted) 60%,var(--line))}
+.linkbtn{border:0;background:none;color:var(--accent-ink);font-weight:600;font-size:12.5px;padding:2px 4px}
+.linkbtn:hover{text-decoration:underline}
+
+.layout{display:grid;grid-template-columns:minmax(380px,460px) minmax(0,1fr);gap:20px;align-items:start;padding-top:22px;padding-bottom:40px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow)}
+.builder{position:sticky;top:76px;max-height:calc(100vh - 92px);overflow:auto;padding:4px 18px 18px}
+.step{padding:14px 0;border-bottom:1px solid var(--line-2)}
+.step:last-of-type{border-bottom:0}
+.step h2{display:flex;align-items:center;gap:9px;margin:0 0 10px;font-size:13px;font-weight:680;letter-spacing:.01em}
+.step h2 .n{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);font-size:11.5px;font-weight:700}
+.step h2 .aside{margin-left:auto;font-weight:500;color:var(--muted);font-size:12px}
+.datasets{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ds{position:relative;display:block;padding:9px 11px 10px;border:1px solid var(--line);border-radius:9px;background:var(--panel);cursor:pointer;text-align:left}
+.ds input{position:absolute;opacity:0;pointer-events:none}
+.ds b{display:block;font-size:13px;font-weight:650}
+.ds span{display:block;font-size:11.5px;line-height:1.35;color:var(--muted);margin-top:2px}
+.ds:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
+.ds:has(input:checked){border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.ds:has(input:checked) b{color:var(--accent-ink)}
+.ds:has(input:focus-visible){outline:3px solid var(--focus);outline-offset:2px}
+.ds .tag{position:absolute;top:8px;right:9px;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:12.5px;cursor:pointer;user-select:none;white-space:nowrap}
+.chip input{accent-color:var(--accent);margin:0}
+.chip:has(input:checked){border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+.chip small{color:var(--muted);font-weight:400}
+.dates{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.dates.single{grid-template-columns:1fr}
+.dates label{font-size:11.5px;color:var(--muted);font-weight:600}
+.quick{display:flex;flex-wrap:wrap;gap:6px}
+.quick button{height:26px;padding:0 9px;border:1px dashed var(--line);border-radius:7px;background:none;font-size:12px;color:var(--ink-2)}
+.quick button:hover{border-style:solid;border-color:var(--accent);color:var(--accent-ink)}
+.cond{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr) minmax(0,1.25fr) 30px;gap:6px;margin-bottom:6px}
+.cond .x{border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--muted);font-size:16px;line-height:1}
+.cond .x:hover{color:var(--crit-text);border-color:var(--crit-text)}
+.row2{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,.8fr);gap:6px}
+.hint{font-size:12px;color:var(--muted);margin:6px 0 0}
+.run{display:flex;gap:8px;margin-top:12px}
+.run .btn.primary{flex:1}
+
+.query{margin:0;padding:12px 14px;border-radius:10px;background:var(--code-bg);color:var(--code-ink);font:12px/1.6 var(--mono);white-space:pre-wrap;word-break:break-word}
+.query .k{color:var(--code-key);font-weight:700}
+.query .s{color:var(--code-str)}
+.right{display:grid;grid-template-columns:minmax(0,1fr);gap:20px;min-width:0}
+.panel-head{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line-2);flex-wrap:wrap}
+.panel-head h2{margin:0;font-size:15px;font-weight:680}
+.panel-head .meta{color:var(--muted);font-size:12.5px}
+.panel-body{padding:14px 18px}
+.tablewrap{overflow:auto;max-height:56vh;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:7px 10px;text-align:left;border-bottom:1px solid var(--line-2);white-space:nowrap;max-width:340px;overflow:hidden;text-overflow:ellipsis}
+th{position:sticky;top:0;background:var(--panel-2);font-weight:650;color:var(--ink-2);z-index:1;cursor:pointer}
+th:hover{color:var(--accent-ink)}
+th .dir{color:var(--accent-ink);font-size:10px;margin-left:4px}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+th.num{text-align:right}
+tr:hover td{background:var(--panel-2)}
+td.blank{color:var(--muted)}
+.pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11.5px;font-weight:620;background:var(--panel-2);color:var(--ink-2)}
+.pill.bad{background:var(--crit-soft);color:var(--crit-text)}
+.pill.warn{background:var(--warn-soft);color:var(--warn-text)}
+.pill.good{background:var(--ok-soft);color:var(--ok-text)}
+.empty{padding:34px 18px;text-align:center;color:var(--muted)}
+.empty b{display:block;color:var(--ink);font-size:14px;margin-bottom:4px}
+.savebar{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.savebar .control{flex:1;min-width:220px}
+.msg{font-size:12.5px;margin:8px 0 0;min-height:18px}
+.msg.err{color:var(--crit-text)}
+.msg.ok{color:var(--ok-text)}
+.saved{list-style:none;margin:0;padding:0}
+.saved li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 16px;padding:12px 18px;border-bottom:1px solid var(--line-2);align-items:center}
+.saved li:last-child{border-bottom:0}
+.saved .name{font-weight:650;font-size:13.5px;overflow:hidden;text-overflow:ellipsis}
+.saved .sub{font-size:12px;color:var(--muted)}
+.saved .q{font:11.5px/1.45 var(--mono);color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.saved .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (max-width:1100px){.layout{grid-template-columns:minmax(0,1fr)}.builder{position:static;max-height:none}}
+@media (max-width:560px){.wrap{padding:0 14px}.datasets{grid-template-columns:1fr}.brand p{display:none}.cond{grid-template-columns:1fr 1fr}.cond .x{height:36px}.row2{grid-template-columns:1fr 1fr}.saved li{grid-template-columns:minmax(0,1fr)}.saved .acts{justify-content:flex-start}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div><h1>Report builder</h1><p>Query the saved reports, save under any name, download later</p></div>
+    </div>
+    <a class="btn" href="/">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+      Dashboard
+    </a>
+    <button type="button" class="btn icon" id="theme" title="Theme: follow system" aria-label="Change colour theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="wrap layout">
+  <form class="card builder" id="builder" autocomplete="off">
+    <section class="step">
+      <h2><span class="n">1</span>Report on</h2>
+      <div class="datasets" id="datasets" role="radiogroup" aria-label="Data set"></div>
+    </section>
+    <section class="step">
+      <h2><span class="n">2</span>NVRs<span class="aside" id="nvr-count"></span></h2>
+      <div class="chips" id="nvrs"></div>
+    </section>
+    <section class="step">
+      <h2><span class="n">3</span><span id="date-title">Dates</span><span class="aside" id="oldest"></span></h2>
+      <div class="dates" id="dates">
+        <div id="from-box"><label for="date-from">From</label><input type="date" class="control" id="date-from"></div>
+        <div><label for="date-to" id="to-label">To</label><input type="date" class="control" id="date-to"></div>
+      </div>
+      <div class="quick" id="quick"></div>
+    </section>
+    <section class="step">
+      <h2><span class="n">4</span>Columns<span class="aside"><button type="button" class="linkbtn" id="cols-default">Default</button><button type="button" class="linkbtn" id="cols-all">All</button></span></h2>
+      <div class="chips" id="columns"></div>
+    </section>
+    <section class="step">
+      <h2><span class="n">5</span>Only rows where</h2>
+      <div id="conditions"></div>
+      <button type="button" class="linkbtn" id="add-cond">+ Add condition</button>
+      <p class="hint" id="cond-hint">No conditions: every row is included.</p>
+    </section>
+    <section class="step">
+      <h2><span class="n">6</span>Sort and limit</h2>
+      <div class="row2">
+        <select class="control" id="sort-col" aria-label="Sort by"></select>
+        <select class="control" id="sort-dir" aria-label="Sort direction"><option value="0">Ascending</option><option value="1">Descending</option></select>
+        <input type="number" class="control" id="limit" min="1" step="1" placeholder="All rows" aria-label="Row limit">
+      </div>
+    </section>
+    <section class="step">
+      <pre class="query" id="query" aria-label="Query"></pre>
+      <div class="run">
+        <button type="submit" class="btn primary" id="run">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg>
+          Run query
+        </button>
+        <button type="button" class="btn" id="reset" title="Start again">Reset</button>
+      </div>
+    </section>
+  </form>
+
+  <div class="right">
+    <section class="card" aria-labelledby="preview-title">
+      <div class="panel-head">
+        <h2 id="preview-title">Preview</h2>
+        <span class="meta" id="preview-meta">Run a query to see the rows.</span>
+      </div>
+      <div class="panel-body">
+        <div id="result"><div class="empty"><b>Nothing run yet</b>Pick what to report on, the NVRs and the dates, then <em>Run query</em>.</div></div>
+        <div class="savebar">
+          <input type="text" class="control" id="save-name" maxlength="80" placeholder="Name this report, e.g. Offline cameras – October" aria-label="Report name">
+          <button type="button" class="btn primary" id="save">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h8V4"/><path d="M8 20v-6h8v6"/></svg>
+            Save on server
+          </button>
+        </div>
+        <p class="msg" id="msg" role="status"></p>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="saved-title">
+      <div class="panel-head">
+        <h2 id="saved-title">Saved reports</h2>
+        <span class="meta" id="saved-meta"></span>
+      </div>
+      <ul class="saved" id="saved"></ul>
+    </section>
+  </div>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined && text !== null) n.textContent = String(text); return n; }
+const S = {opts: null, ds: null, nvrs: new Set(), cols: [], conds: [], result: null, ranSpec: "", busy: false};
+const KIND_OPS = {
+  text: ["contains", "not_contains", "is", "is_not", "empty", "not_empty"],
+  enum: ["is", "is_not", "empty", "not_empty"],
+  number: ["gt", "ge", "lt", "le", "is", "is_not", "empty", "not_empty"],
+  percent: ["lt", "le", "gt", "ge", "is", "empty", "not_empty"],
+  time: ["ge", "le", "gt", "lt", "is", "contains", "empty", "not_empty"],
+};
+const TIME_OPS = {ge: "on or after", le: "on or before", gt: "after", lt: "before", is: "on day"};
+
+async function api(body) {
+  const res = await fetch("/api/custom-reports", {method: "POST", credentials: "same-origin",
+    headers: {"Content-Type": "application/json", "X-NVR-Track": "custom-reports"}, body: JSON.stringify(body)});
+  let data = {};
+  try { data = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error(data.error || ("Request failed (" + res.status + ")."));
+  return data;
+}
+function dataset() { return S.opts.datasets.find(d => d.key === S.ds); }
+function column(key) { return dataset().columns.find(c => c.key === key); }
+function iso(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+function day(text) { const [y, m, d] = text.split("-").map(Number); return new Date(y, m - 1, d); }
+function shift(text, days) { const d = day(text); d.setDate(d.getDate() + days); return iso(d); }
+
+// ---------- builder ----------
+function renderDatasets() {
+  const box = $("datasets");
+  box.replaceChildren();
+  for (const d of S.opts.datasets) {
+    const label = el("label", "ds");
+    const input = el("input");
+    input.type = "radio"; input.name = "dataset"; input.value = d.key; input.checked = d.key === S.ds;
+    input.addEventListener("change", () => chooseDataset(d.key));
+    label.append(input, el("b", "", d.label), el("span", "", d.help), el("p", "tag", d.mode === "as_of" ? "on a date" : "period"));
+    box.append(label);
+  }
+}
+function chooseDataset(key, keep) {
+  S.ds = key;
+  const d = dataset();
+  if (!keep) {
+    S.cols = d.columns.filter(c => c.default).map(c => c.key);
+    S.conds = [];
+    $("sort-col").dataset.value = d.sort.column;
+    $("sort-dir").value = d.sort.desc ? "1" : "0";
+  }
+  renderDatasets(); renderDates(); renderColumns(); renderConditions(); renderSort(); renderQuery();
+}
+function renderNvrs() {
+  const box = $("nvrs");
+  box.replaceChildren();
+  const all = el("label", "chip");
+  const a = el("input"); a.type = "checkbox"; a.checked = S.nvrs.size === 0;
+  a.addEventListener("change", () => { S.nvrs.clear(); renderNvrs(); renderQuery(); });
+  all.append(a, "All NVRs");
+  box.append(all);
+  for (const n of S.opts.nvrs) {
+    const chip = el("label", "chip");
+    const input = el("input"); input.type = "checkbox"; input.checked = S.nvrs.has(n.id);
+    input.addEventListener("change", () => { input.checked ? S.nvrs.add(n.id) : S.nvrs.delete(n.id); renderNvrs(); renderQuery(); });
+    chip.title = n.name ? n.name + " (" + n.id + ")" : n.id;
+    chip.append(input, n.id.replace(/^nvr-/i, "NVR "));
+    if (n.name) chip.append(el("small", "", n.name.length > 14 ? n.name.slice(0, 13) + "…" : n.name));
+    box.append(chip);
+  }
+  $("nvr-count").textContent = S.nvrs.size ? S.nvrs.size + " of " + S.opts.nvrs.length : "all " + S.opts.nvrs.length;
+}
+function renderDates() {
+  const single = dataset().mode === "as_of";
+  $("dates").classList.toggle("single", single);
+  $("from-box").hidden = single;
+  $("date-title").textContent = single ? "On date" : "Dates";
+  $("to-label").textContent = single ? "State on" : "To";
+  for (const id of ["date-from", "date-to"]) { $(id).max = S.opts.today; if (S.opts.oldest) $(id).min = S.opts.oldest; }
+  $("oldest").textContent = S.opts.oldest ? "reports since " + S.opts.oldest : "";
+  const t = S.opts.today, first = t.slice(0, 8) + "01", lastEnd = shift(first, -1), lastFirst = lastEnd.slice(0, 8) + "01";
+  const choices = single
+    ? [["Today", t, t], ["Yesterday", shift(t, -1), shift(t, -1)], ["End of last month", lastEnd, lastEnd], ["7 days ago", shift(t, -7), shift(t, -7)]]
+    : [["Today", t, t], ["Yesterday", shift(t, -1), shift(t, -1)], ["Last 7 days", shift(t, -6), t], ["Last 30 days", shift(t, -29), t],
+       ["This month", first, t], ["Last month", lastFirst, lastEnd]];
+  const box = $("quick");
+  box.replaceChildren();
+  for (const [label, from, to] of choices) {
+    const b = el("button", "", label); b.type = "button";
+    b.addEventListener("click", () => { $("date-from").value = from; $("date-to").value = to; renderQuery(); });
+    box.append(b);
+  }
+}
+function renderColumns() {
+  const box = $("columns");
+  box.replaceChildren();
+  for (const c of dataset().columns) {
+    const chip = el("label", "chip");
+    const input = el("input"); input.type = "checkbox"; input.checked = S.cols.includes(c.key);
+    input.addEventListener("change", () => {
+      const order = dataset().columns.map(x => x.key);
+      S.cols = input.checked ? order.filter(k => k === c.key || S.cols.includes(k)) : S.cols.filter(k => k !== c.key);
+      renderQuery();
+    });
+    chip.append(input, c.label);
+    box.append(chip);
+  }
+}
+function opLabel(kind, op) { return kind === "time" && TIME_OPS[op] ? TIME_OPS[op] : S.opts.ops[op]; }
+function renderConditions() {
+  const box = $("conditions");
+  box.replaceChildren();
+  S.conds.forEach((cond, i) => {
+    const row = el("div", "cond");
+    const colSel = el("select", "control"); colSel.setAttribute("aria-label", "Column");
+    for (const c of dataset().columns) { const o = el("option", "", c.label); o.value = c.key; o.selected = c.key === cond.column; colSel.append(o); }
+    const kind = column(cond.column).kind;
+    if (!KIND_OPS[kind].includes(cond.op)) cond.op = KIND_OPS[kind][0];
+    const opSel = el("select", "control"); opSel.setAttribute("aria-label", "Comparison");
+    for (const op of KIND_OPS[kind]) { const o = el("option", "", opLabel(kind, op)); o.value = op; o.selected = op === cond.op; opSel.append(o); }
+    let value;
+    const noValue = cond.op === "empty" || cond.op === "not_empty";
+    if (kind === "enum" && !noValue) {
+      value = el("select", "control");
+      const values = column(cond.column).values;
+      if (!values.includes(cond.value)) cond.value = values[0] || "";
+      for (const v of values) { const o = el("option", "", v); o.value = v; o.selected = v === cond.value; value.append(o); }
+    } else {
+      value = el("input", "control");
+      value.type = (kind === "number" || kind === "percent") ? "number" : "text";
+      if (value.type === "number") value.step = "any";
+      value.placeholder = noValue ? "—" : kind === "time" ? "2026-11-05" : kind === "percent" ? "e.g. 95" : "value";
+      value.value = noValue ? "" : cond.value;
+      value.disabled = noValue;
+    }
+    value.setAttribute("aria-label", "Value");
+    const x = el("button", "x", "×"); x.type = "button"; x.title = "Remove condition"; x.setAttribute("aria-label", "Remove condition");
+    colSel.addEventListener("change", () => { cond.column = colSel.value; cond.value = ""; renderConditions(); renderQuery(); });
+    opSel.addEventListener("change", () => { cond.op = opSel.value; renderConditions(); renderQuery(); });
+    value.addEventListener("input", () => { cond.value = value.value; renderQuery(); });
+    value.addEventListener("change", () => { cond.value = value.value; renderQuery(); });
+    x.addEventListener("click", () => { S.conds.splice(i, 1); renderConditions(); renderQuery(); });
+    row.append(colSel, opSel, value, x);
+    box.append(row);
+  });
+  $("add-cond").hidden = S.conds.length >= S.opts.limits.max_conditions;
+  $("cond-hint").textContent = S.conds.length ? "All conditions must match (AND). A date alone means the whole day." : "No conditions: every row is included.";
+}
+function renderSort() {
+  const sel = $("sort-col");
+  const want = sel.dataset.value || dataset().sort.column;
+  sel.replaceChildren();
+  for (const c of dataset().columns) { const o = el("option", "", c.label); o.value = c.key; o.selected = c.key === want; sel.append(o); }
+}
+function spec() {
+  const d = dataset();
+  const limit = parseInt($("limit").value, 10);
+  return {dataset: S.ds, nvrs: [...S.nvrs].sort(), date_from: d.mode === "as_of" ? $("date-to").value : $("date-from").value,
+          date_to: $("date-to").value, columns: [...S.cols], conditions: S.conds.map(c => ({...c})),
+          sort: {column: $("sort-col").value, desc: $("sort-dir").value === "1"}, limit: Number.isFinite(limit) && limit > 0 ? limit : null};
+}
+function renderQuery() {
+  const s = spec(), d = dataset(), pre = $("query");
+  pre.replaceChildren();
+  const k = t => pre.append(el("span", "k", t));
+  const s_ = t => pre.append(el("span", "s", t));
+  const t = x => pre.append(document.createTextNode(x));
+  k("SELECT "); t(s.columns.length ? s.columns.map(key => column(key).label).join(", ") : "(no columns)");
+  t("\n"); k("FROM "); t(d.label);
+  t("\n"); if (d.mode === "as_of") { k("ON "); s_(s.date_to || "?"); } else { k("FROM "); s_(s.date_from || "?"); k(" TO "); s_(s.date_to || "?"); }
+  const where = [];
+  if (s.nvrs.length) where.push(["NVR", "IN", "(" + s.nvrs.join(", ") + ")"]);
+  for (const c of s.conditions) {
+    const col = column(c.column);
+    const plain = col.kind === "number" || col.kind === "percent";
+    where.push([col.label, opLabel(col.kind, c.op), (c.op === "empty" || c.op === "not_empty") ? "" : plain ? c.value : '"' + c.value + '"']);
+  }
+  where.forEach((w, i) => { t("\n"); k(i ? "  AND " : "WHERE "); t(w[0] + " " + w[1] + " "); s_(w[2]); });
+  t("\n"); k("ORDER BY "); t(column(s.sort.column).label + " " + (s.sort.desc ? "DESC" : "ASC"));
+  if (s.limit) { t("\n"); k("LIMIT "); t(String(s.limit)); }
+  const changed = S.result && JSON.stringify(s) !== S.ranSpec;
+  $("preview-meta").classList.toggle("stale", Boolean(changed));
+  if (changed) $("preview-meta").textContent = "The query changed — run it again to update the preview.";
+}
+
+// ---------- results ----------
+function cellClass(kind, value) {
+  if (value === null || value === undefined || value === "") return "blank";
+  return (kind === "number" || kind === "percent") ? "num" : "";
+}
+const BAD = new Set(["Offline", "Stopped recording", "No footage 30+ days", "Critical", "No footage in window", "Yes", "error", "smartfailed", "offline", "unformatted"]);
+const WARN = new Set(["Warning", "Check failed", "Gaps", "Not verified", "Unknown", "Picture problem", "Below required days", "Offline, still recording"]);
+const GOOD = new Set(["Online", "OK", "Recorded", "Healthy", "No", "ok"]);
+function renderCell(td, kind, value) {
+  if (value === null || value === undefined || value === "") { td.textContent = "—"; return; }
+  if (kind === "percent") { td.textContent = Number(value).toFixed(1) + "%"; return; }
+  if (kind === "enum" || (kind === "text" && typeof value === "string" && value.length < 14 && (BAD.has(value) || GOOD.has(value)))) {
+    const cls = BAD.has(value) ? "bad" : WARN.has(value) ? "warn" : GOOD.has(value) ? "good" : "";
+    td.append(el("span", "pill " + cls, value)); return;
+  }
+  td.textContent = String(value);
+  if (String(value).length > 40) td.title = String(value);
+}
+function renderResult() {
+  const r = S.result, box = $("result");
+  box.replaceChildren();
+  if (!r) return;
+  const shown = r.rows.length;
+  const meta = [r.total + (r.total === 1 ? " row" : " rows") + (r.truncated ? " (limited)" : "")];
+  if (shown < Math.min(r.total, S.opts.limits.max_rows)) meta.push("showing first " + shown);
+  if (r.meta && r.meta.first) meta.push(r.meta.first + " → " + r.meta.last);
+  if (r.meta && r.meta.source) meta.push(r.meta.source);
+  $("preview-meta").textContent = meta.join(" · ");
+  if (!r.total) {
+    const e = el("div", "empty"); e.append(el("b", "", "No rows match"), "Try more NVRs, other dates or fewer conditions."); box.append(e); return;
+  }
+  const wrap = el("div", "tablewrap"), table = el("table"), thead = el("thead"), tr = el("tr");
+  const sortCol = $("sort-col").value, desc = $("sort-dir").value === "1";
+  for (const c of r.columns) {
+    const th = el("th", (c.kind === "number" || c.kind === "percent") ? "num" : "", c.label);
+    th.scope = "col"; th.title = "Sort by " + c.label;
+    if (c.key === sortCol) th.append(el("span", "dir", desc ? "▼" : "▲"));
+    th.addEventListener("click", () => {
+      if ($("sort-col").value === c.key) $("sort-dir").value = desc ? "0" : "1";
+      else { $("sort-col").value = c.key; $("sort-dir").value = (c.kind === "number" || c.kind === "percent" || c.kind === "time") ? "1" : "0"; }
+      $("sort-col").dataset.value = $("sort-col").value;
+      renderQuery(); run();
+    });
+    tr.append(th);
+  }
+  thead.append(tr);
+  const tbody = el("tbody");
+  for (const row of r.rows) {
+    const line = el("tr");
+    r.columns.forEach((c, i) => { const td = el("td", cellClass(c.kind, row[i])); renderCell(td, c.kind, row[i]); line.append(td); });
+    tbody.append(line);
+  }
+  table.append(thead, tbody); wrap.append(table); box.append(wrap);
+}
+function say(text, kind) { const m = $("msg"); m.textContent = text || ""; m.className = "msg" + (kind ? " " + kind : ""); }
+function busy(button, on, label) {
+  S.busy = on; button.disabled = on;
+  if (on) { button.dataset.label = button.innerHTML; button.replaceChildren(el("span", "spinner"), label); }
+  else if (button.dataset.label) { button.innerHTML = button.dataset.label; }
+}
+async function run() {
+  if (S.busy) return;
+  say("");
+  const s = spec();
+  busy($("run"), true, "Running…");
+  $("preview-meta").textContent = "Reading saved reports… (a long period takes a while the first time)";
+  try {
+    const r = await api({action: "preview", spec: s});
+    S.result = r; S.ranSpec = JSON.stringify(s);
+    renderResult();
+    if (!$("save-name").value) $("save-name").placeholder = suggestName();
+  } catch (e) { say(e.message, "err"); $("preview-meta").textContent = "Not run."; }
+  finally { busy($("run"), false); }
+}
+function suggestName() {
+  const s = spec(), d = dataset();
+  return d.label + (s.nvrs.length ? " – " + s.nvrs.join(", ") : "") + " – " + (d.mode === "as_of" ? s.date_to : s.date_from + " to " + s.date_to);
+}
+async function save() {
+  if (S.busy) return;
+  const name = $("save-name").value.trim() || suggestName();
+  busy($("save"), true, "Saving…");
+  say("");
+  try {
+    const r = await api({action: "save", name, spec: spec()});
+    renderSaved(r.saved);
+    say("Saved “" + r.item.name + "” (" + r.item.rows + " rows). Download it any time from Saved reports.", "ok");
+    $("save-name").value = "";
+  } catch (e) { say(e.message, "err"); }
+  finally { busy($("save"), false); }
+}
+
+// ---------- saved ----------
+function stampText(value) {
+  const d = new Date(value);
+  return Number.isNaN(d.valueOf()) ? "" : d.toLocaleString("en-GB", {timeZone: "Asia/Phnom_Penh", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false});
+}
+function renderSaved(list) {
+  S.saved = list || [];
+  const box = $("saved");
+  box.replaceChildren();
+  $("saved-meta").textContent = S.saved.length ? S.saved.length + " on the server" : "";
+  if (!S.saved.length) { const li = el("li"); li.append(el("div", "empty", "No saved reports yet. Run a query, give it a name and save it.")); box.append(li); return; }
+  for (const item of S.saved) {
+    const li = el("li"), info = el("div");
+    info.style.minWidth = "0";
+    const when = item.mode === "as_of" ? "on " + item.date_to : item.date_from + " → " + item.date_to;
+    info.append(el("div", "name", item.name), el("div", "sub", item.dataset_label + " · " + when + " · " + item.rows + (item.rows === 1 ? " row" : " rows") + " · saved " + stampText(item.created_at)));
+    const q = el("div", "q", item.query); q.title = item.query; info.append(q);
+    const acts = el("div", "acts");
+    for (const fmt of ["csv", "pdf"]) {
+      const a = el("a", "btn sm", fmt.toUpperCase());
+      a.href = "/api/custom-reports/download?id=" + encodeURIComponent(item.id) + "&format=" + fmt;
+      a.title = fmt === "csv" ? "Download for Excel (all rows, any language)" : "Download as PDF (Latin letters; first " + S.opts.limits.pdf_rows + " rows)";
+      acts.append(a);
+    }
+    const open = el("button", "btn sm", "Use query"); open.type = "button"; open.title = "Load this query into the builder to run it again or change it";
+    open.addEventListener("click", () => loadSpec(item.spec));
+    const del = el("button", "btn sm danger", "Delete"); del.type = "button";
+    del.addEventListener("click", () => {
+      if (del.dataset.armed) { remove(item.id); return; }
+      del.dataset.armed = "1"; del.textContent = "Delete — sure?";
+      setTimeout(() => { if (del.isConnected) { delete del.dataset.armed; del.textContent = "Delete"; } }, 4000);
+    });
+    acts.append(open, del);
+    li.append(info, acts);
+    box.append(li);
+  }
+}
+async function remove(id) {
+  try { const r = await api({action: "delete", id}); renderSaved(r.saved); say("Deleted.", "ok"); }
+  catch (e) { say(e.message, "err"); }
+}
+function loadSpec(s) {
+  if (!s || !S.opts.datasets.some(d => d.key === s.dataset)) return;
+  S.ds = s.dataset; S.nvrs = new Set(s.nvrs || []);
+  S.cols = [...(s.columns || [])]; S.conds = (s.conditions || []).map(c => ({...c}));
+  $("sort-col").dataset.value = (s.sort || {}).column || "";
+  $("sort-dir").value = (s.sort || {}).desc ? "1" : "0";
+  $("limit").value = s.limit || "";
+  chooseDataset(s.dataset, true);
+  $("date-from").value = s.date_from || S.opts.today; $("date-to").value = s.date_to || S.opts.today;
+  renderNvrs(); renderQuery();
+  window.scrollTo({top: 0, behavior: "smooth"});
+  run();
+}
+
+// ---------- start ----------
+$("builder").addEventListener("submit", e => { e.preventDefault(); run(); });
+$("save").addEventListener("click", save);
+$("save-name").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save(); } });
+$("add-cond").addEventListener("click", () => {
+  const first = dataset().columns.find(c => c.kind === "enum") || dataset().columns[0];
+  S.conds.push({column: first.key, op: KIND_OPS[first.kind][0], value: ""});
+  renderConditions(); renderQuery();
+});
+$("cols-default").addEventListener("click", () => { S.cols = dataset().columns.filter(c => c.default).map(c => c.key); renderColumns(); renderQuery(); });
+$("cols-all").addEventListener("click", () => { S.cols = dataset().columns.map(c => c.key); renderColumns(); renderQuery(); });
+for (const id of ["date-from", "date-to", "sort-dir", "limit"]) $(id).addEventListener("input", renderQuery);
+$("sort-col").addEventListener("change", () => { $("sort-col").dataset.value = $("sort-col").value; renderQuery(); });
+$("reset").addEventListener("click", () => { S.nvrs.clear(); $("limit").value = ""; $("date-to").value = S.opts.today; $("date-from").value = shift(S.opts.today, -6); renderNvrs(); chooseDataset(S.ds); });
+
+const THEMES = ["auto", "light", "dark"];
+function applyTheme(mode) {
+  if (mode === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", mode);
+  $("theme").title = "Theme: " + (mode === "auto" ? "follow system" : mode);
+}
+let theme = "auto";
+try { theme = THEMES.includes(localStorage.getItem("nvrtrack.theme")) ? localStorage.getItem("nvrtrack.theme") : "auto"; } catch (e) {}
+applyTheme(theme);
+$("theme").addEventListener("click", () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  applyTheme(theme);
+  try { localStorage.setItem("nvrtrack.theme", theme); } catch (e) {}
+});
+
+(async function start() {
+  try {
+    const res = await fetch("/api/custom-reports", {credentials: "same-origin"});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Could not load.");
+    S.opts = data;
+    S.ds = data.datasets[0].key;
+    $("date-to").value = data.today; $("date-from").value = shift(data.today, -6);
+    renderNvrs(); chooseDataset(S.ds); renderSaved(data.saved);
+  } catch (e) {
+    $("result").replaceChildren(el("div", "empty", "The report builder could not load: " + e.message));
+  }
+})();
+</script>
+</body>
+</html>

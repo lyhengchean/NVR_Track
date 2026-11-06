@@ -375,6 +375,30 @@ Keyboard: `/` focuses search, `Esc` clears it, `R` reloads reports. The theme
 button cycles system, light and dark. The page is served with a strict
 Content-Security-Policy; all device-provided text is rendered as plain text.
 
+### Report builder (`/reports`)
+
+**Reports** in the dashboard header opens a query builder over data NVR Track
+already has (`app/custom_reports.py`; no NVR is contacted):
+
+1. **Report on** — *Cameras* or *Disks* on a date (today = what the dashboard
+   shows now, an earlier day = the newest scan up to that day), or over a
+   period: *Camera uptime* (online %, recording %, scans offline, offline/online
+   changes, last seen offline), *NVR health* (reachable %, healthy/warning/critical
+   scans, restarts, cameras offline), *Scan log* (one row per scan),
+   *Real-time events*, *Camera changes*, *Repair notes*.
+2. **NVRs**, 3. **dates** (at most 366 days), 4. **columns**,
+5. **only rows where** (up to 6 conditions, all must match: `=`, `≠`,
+   contains, `>`, `<`, empty …; a date alone means the whole day),
+6. **sort and limit**.
+
+The query is shown like SQL. **Run query** previews the first 200 rows;
+**Save on server** stores the full result (up to 50,000 rows) under any name in
+`state/custom_reports/` (included in the deploy backup). Saved reports can be
+downloaded any time as **CSV** (UTF-8, opens in Excel, Khmer names kept) or
+**PDF** (landscape table, first 3,000 rows, Latin letters), loaded back with
+**Use query**, or deleted. Percentages follow the uptime rules: failed or
+disabled checks are left out, never counted as recording or online.
+
 ## NVR display names
 
 Each NVR's `id` (`nvr-01` … `nvr-12`) is the technical key: it selects the

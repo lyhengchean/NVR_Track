@@ -59,6 +59,7 @@ button{cursor:pointer}
 .pulse.stale{background:var(--gaps);box-shadow:0 0 0 4px color-mix(in srgb,var(--gaps) 22%,transparent)}
 .pulse.error{background:var(--stopped);box-shadow:0 0 0 4px color-mix(in srgb,var(--stopped) 22%,transparent)}
 .btn{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;border-radius:8px;border:1px solid var(--line);background:var(--panel);font-weight:600;font-size:13px;white-space:nowrap}
+a.btn{color:var(--ink);text-decoration:none}
 .btn:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line));background:var(--panel-2)}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
 .btn.primary:hover{background:#2f6fe0}
@@ -342,6 +343,10 @@ footer{margin:30px 0 40px;font-size:12.5px;color:var(--muted);max-width:110ch}
         <p class="scan-meta" id="scan-meta"></p>
       </div>
     </div>
+    <a class="btn" id="reports-link" href="/reports" title="Build, save and download your own reports" aria-label="Reports">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h7M9 17h5"/></svg>
+      <span class="label">Reports</span>
+    </a>
     <button type="button" class="btn primary" id="refresh" title="Reload the latest saved reports (R)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
       <span class="label">Refresh</span>
