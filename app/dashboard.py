@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from app import events as event_store
+from app import live as live_store
 from app import notes as notes_store
 from app.camera_condition import CONDITIONS, classify, kept_days, known_condition
 from app.duplicates import fleet_info, fleet_notes, find_fleet_duplicates, notes_by_channel
@@ -426,6 +427,8 @@ def _public_report(report: dict, path: Path, notes: dict | None = None) -> dict:
         "snapshots_enabled": _as_dict(report.get("snapshots")).get("enabled") is True,
         "nvr_notes": [notes_store.public_note(n) for n in reversed(notes.get("log", []))
                       if n["nvr"] == nvr_id and n.get("channel") is None][:5] if notes is not None else [],
+        # Live check between scans (nvr-live); None when not enabled for this NVR.
+        "live": _public_live(report.get("live")),
         "nvr_known_issue": notes_store.public_issue(notes_store.issue_for(
             notes_store.active_issues(notes), nvr_id, None)) if notes is not None else None,
     }
@@ -646,6 +649,25 @@ def _latest_check(values: list[str]) -> str | None:
     return best[1] if best else None
 
 
+def _with_live(report: dict, live_ids: set, entries: dict) -> dict:
+    nvr_id = str(_as_dict(report.get("nvr")).get("id") or "")
+    entry = entries.get(nvr_id) if nvr_id in live_ids else None
+    return live_store.overlay(report, entry) if entry else report
+
+
+def _public_live(raw: object) -> dict | None:
+    if not isinstance(raw, dict):
+        return None
+    return {"checked_at": str(raw.get("checked_at") or "")[:40], "fresh": raw.get("fresh") is True,
+            "newer": raw.get("newer") is True,
+            "reachable": raw.get("reachable") if raw.get("reachable") in {True, False} else None,
+            "error": str(raw.get("error") or "")[:40] or None,
+            "failures": raw["failures"] if type(raw.get("failures")) is int and 0 <= raw["failures"] <= 10**6 else 0,
+            "down_since": str(raw.get("down_since") or "")[:40] or None,
+            "channels_ok": raw.get("channels_ok") is True, "storage_ok": raw.get("storage_ok") is True,
+            "channels_used": raw.get("channels_used") is True, "storage_used": raw.get("storage_used") is True}
+
+
 def read_dashboard_data() -> dict:
     """Read saved reports and annotate newer failed fleet attempts."""
     latest: dict[str, tuple[int, dict, Path]] = {}
@@ -673,8 +695,11 @@ def read_dashboard_data() -> dict:
         consider(path)
 
     notes = notes_store.load()
+    # Newer camera and disk states from nvr-live (app.live) over the saved reports.
+    live_service, live_entries = live_store.read_all()
+    live_ids = set(live_service.get("nvrs") or [])
     nvrs = [
-        _public_report(report, path, notes)
+        _public_report(_with_live(report, live_ids, live_entries), path, notes)
         for _, report, path in latest.values()
     ]
     failed, run_started, manifest_errors = _read_fleet_run_state()
@@ -805,6 +830,8 @@ def read_dashboard_data() -> dict:
         "events_24h": len(events),
         "event_streams_down": sum(bool(nvr["event_stream"]) and not nvr["event_stream"]["connected"]
                                   for nvr in nvrs),
+        "live_unreachable": sum(bool(nvr["live"]) and nvr["live"]["reachable"] is False
+                                and nvr["live"]["failures"] >= live_store.DOWN_AFTER_FAILURES for nvr in nvrs),
         "known_issues": len(notes_store.active_issues(notes)),
         # Known-issue cameras without recent footage: handled, but still not
         # recording, so the headline must never claim "every camera records".
@@ -825,6 +852,10 @@ def read_dashboard_data() -> dict:
         "monthly_reports": monthly_reports(),
         "report_errors": report_errors,
         "scan": scan,
+        # nvr-live service (app.live): enabled NVRs and whether it is running.
+        "live": {"nvrs": sorted(live_ids), "alive": live_store.service_alive(live_service),
+                 "interval_seconds": live_service.get("interval_seconds")
+                 if type(live_service.get("interval_seconds")) is int else None},
     }
 
 

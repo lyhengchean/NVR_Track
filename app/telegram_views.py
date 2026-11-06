@@ -13,7 +13,10 @@ from zoneinfo import ZoneInfo
 from app.camera_condition import (CONDITIONS, EVIDENCE, kept_text, required_retention_days,
                                   retention_shortfall)
 from app.events import reason_text
+from app.live import DOWN_AFTER_FAILURES, DOWN_REASON
 from app.notes import age_days
+from app.reporting import STORAGE_CRITICAL
+from app.storage import ABSENT_DISK_STATES, CRITICAL_DISK_STATES, NORMAL_DISK_STATES
 
 LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
 MESSAGE_LIMIT = 3900          # Telegram allows 4096 characters per message.
@@ -291,6 +294,15 @@ def nvr_detail(data: dict, nvr: dict, show_ips: bool) -> str:
         lines.append(" · ".join(meta))
     lines.append(f"Report {when(nvr.get('last_check'))}"
                  + (" · ⚠️ out of date" if nvr.get("stale") else ""))
+    live = nvr.get("live")
+    if live:
+        if live.get("reachable") is False and (live.get("failures") or 0) >= DOWN_AFTER_FAILURES:
+            lines.append(f"⛔ Not reachable since {when(live.get('down_since'))}")
+        elif not live.get("fresh"):
+            lines.append(f"⚠️ Live check stopped (last {when(live.get('checked_at'))})")
+        else:
+            lines.append(f"Live check {when(live.get('checked_at'))}"
+                         + ("" if live.get("reachable") is True else " · could not be read"))
     if nvr.get("last_run_failed"):
         lines.append(f"⛔ Latest scan failed ({esc(nvr.get('last_run_failure_code'))}); "
                      "results below are the last known ones.")
@@ -518,7 +530,8 @@ def _entry(severity: str, text: str, resolved: str, value: str = "", event: bool
 
 
 NVR_PREFIXES = ("nvr:{0}:", "cam:{0}:", "storage:{0}", "clock:{0}", "checks:{0}", "smart:{0}",
-                "events:{0}:", "change:{0}:", "restart:{0}:")
+                "events:{0}:", "change:{0}:", "restart:{0}:", "disk:{0}:", "live:{0}:")
+LIVE_REASON = {"TIMEOUT": "no answer", "CONNECTION_ERROR": "connection refused or network down"}
 
 
 def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: bool = True,
@@ -539,6 +552,14 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: b
             "critical", "⚠️ <b>Scanner stopped</b> — no automatic scans are running. "
             "On the server: docker compose logs --tail 50 nvr-scanner",
             "✅ <b>Scanner running again</b>")
+    live_service = data.get("live") or {}
+    if not live_service.get("nvrs"):
+        muted.append("service:live")
+    elif not live_service.get("alive"):
+        state["service:live"] = _entry(
+            "warning", "⚠️ <b>Live checks stopped</b> — camera, disk and reachability alerts come only "
+            "from the scans again. On the server: docker compose logs --tail 50 nvr-live",
+            "✅ <b>Live checks running again</b>")
     for nvr in data.get("nvrs") or []:
         nid = nvr["id"]
         title = nvr_title(nvr)
@@ -555,33 +576,44 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: b
                 "warning", f"📡 <b>{title}</b>: real-time event stream disconnected "
                 f"({esc(reason_text(stream.get('last_error')))})",
                 f"✅ <b>{title}</b>: real-time events connected again")
+        _live_alerts(nvr, title, state, unknown, muted)
         if nvr.get("last_run_failed") or nvr["overall_status"] == "ERROR":
             state[f"nvr:{nid}:failed"] = _entry(
                 "critical", f"⛔ <b>{title}</b> could not be scanned "
                 f"({esc(nvr.get('last_run_failure_code') or 'no report')}). Is the NVR reachable?",
                 f"✅ <b>{title}</b> is reporting again")
             unknown.append(f"nvr:{nid}:")  # Everything else about it is last-known data.
-            unknown += [f"cam:{nid}:", f"storage:{nid}", f"clock:{nid}", f"checks:{nid}", f"smart:{nid}"]
+            unknown += [f"cam:{nid}:", f"storage:{nid}", f"clock:{nid}", f"checks:{nid}", f"smart:{nid}",
+                        f"disk:{nid}:"]
             continue
         if nvr.get("stale"):
             state[f"nvr:{nid}:stale"] = _entry(
                 "warning", f"⚠️ <b>{title}</b>: no new report since {when(nvr.get('last_check'))}",
                 f"✅ <b>{title}</b> has a fresh report")
             unknown += [f"cam:{nid}:", f"storage:{nid}", f"clock:{nid}", f"checks:{nid}", f"nvr:{nid}:critical",
-                        f"smart:{nid}"]
+                        f"smart:{nid}", f"disk:{nid}:"]
             continue
+        disk_alerts = _disk_alerts(nvr, title, state, unknown)
+        if disk_alerts:
+            muted.append(f"storage:{nid}")  # Each disk has its own alert ("HDD 8: error" / "OK again").
         if nvr["overall_status"] == "CRITICAL":
-            reason = (nvr.get("critical_reasons") or ["see /nvr " + nid])[0]
-            state[f"nvr:{nid}:critical"] = _entry(
-                "critical", f"🔴 <b>{title}</b> is critical: {esc(reason)}",
-                f"✅ <b>{title}</b> is no longer critical")
-        if nvr["storage_status"] in {"CRITICAL", "WARNING"}:
+            reasons = nvr.get("critical_reasons") or ["see /nvr " + nid]
+            covered = ((STORAGE_CRITICAL,) if disk_alerts else ()) + \
+                ((DOWN_REASON,) if f"live:{nid}:down" in state else ())
+            other = [r for r in reasons if not str(r).startswith(covered or ("\0",))]
+            if covered and not other:
+                muted.append(f"nvr:{nid}:critical")  # Disk or reachability alerts say it already.
+            else:
+                state[f"nvr:{nid}:critical"] = _entry(
+                    "critical", f"🔴 <b>{title}</b> is critical: {esc((other or reasons)[0])}",
+                    f"✅ <b>{title}</b> is no longer critical")
+        if not disk_alerts and nvr["storage_status"] in {"CRITICAL", "WARNING"}:
             icon = "🔴" if nvr["storage_status"] == "CRITICAL" else "🟡"
             state[f"storage:{nid}"] = _entry(
                 "critical" if icon == "🔴" else "warning",
                 f"{icon} <b>{title}</b> storage {nvr['storage_status'].lower()}: {esc(nvr.get('storage_message'))}",
                 f"✅ <b>{title}</b> storage healthy again", value=nvr["storage_status"])
-        elif nvr["storage_status"] != "HEALTHY":
+        elif not disk_alerts and nvr["storage_status"] != "HEALTHY":
             unknown.append(f"storage:{nid}")
         smart = (nvr.get("smart") or {}).get("status")
         if smart in {"WARNING", "CRITICAL"}:
@@ -678,6 +710,57 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: b
     return state, unknown, muted
 
 
+def _live_alerts(nvr: dict, title: str, state: dict, unknown: list, muted: list) -> None:
+    """NVR reachability from nvr-live, and whether its newest camera and disk
+    data can be trusted (a failed live check never resolves anything)."""
+    nid = nvr["id"]
+    live = nvr.get("live")
+    if not live:
+        muted.append(f"live:{nid}:")  # Live checks not enabled for this NVR.
+        return
+    down = live.get("reachable") is False and (live.get("failures") or 0) >= DOWN_AFTER_FAILURES
+    if not live.get("fresh") or (live.get("reachable") is not True and not down):
+        unknown.append(f"live:{nid}:")
+    elif down:
+        state[f"live:{nid}:down"] = _entry(
+            "critical", f"⛔ <b>{title}</b> is not reachable since {when(live.get('down_since'))} "
+            f"({esc(LIVE_REASON.get(live.get('error'), live.get('error') or 'no answer'))})",
+            f"✅ <b>{title}</b> is reachable again")
+    if not live.get("newer"):
+        return  # The saved report is newer than the last live check.
+    if not live.get("fresh") or live.get("reachable") is not True:
+        unknown += [f"cam:{nid}:", f"storage:{nid}", f"disk:{nid}:"]
+        return
+    if not live.get("channels_ok"):
+        unknown.append(f"cam:{nid}:")
+    if not live.get("storage_ok"):
+        unknown += [f"storage:{nid}", f"disk:{nid}:"]
+
+
+def _disk_alerts(nvr: dict, title: str, state: dict, unknown: list) -> int:
+    """One alert per disk that is not normal ("HDD 8: error"); returns how many."""
+    nid = nvr["id"]
+    if not nvr.get("disks"):
+        unknown.append(f"disk:{nid}:")
+        return 0
+    count = 0
+    for disk in nvr["disks"]:
+        disk_id = str(disk.get("id") or "").strip()
+        status = str(disk.get("reported_status") or "").strip().lower()
+        if not disk_id or status in NORMAL_DISK_STATES:
+            continue
+        key = f"disk:{nid}:{disk_id}:"  # Trailing ":" so HDD 1 never matches HDD 10.
+        if status in ABSENT_DISK_STATES or status in {"", "unknown"}:
+            unknown.append(key)  # Removed or unreadable is not "OK again".
+            continue
+        count += 1
+        state[key] = _entry(
+            "critical" if status in CRITICAL_DISK_STATES else "warning",
+            f"💽 <b>{title}</b> HDD {esc(disk_id)}: {esc(status)}",
+            f"✅ <b>{title}</b> HDD {esc(disk_id)} OK again", value=status)
+    return count
+
+
 def _down_for(stream: dict, minutes: int) -> bool:
     """Has the stream been down for at least `minutes`? Unknown start: yes."""
     if minutes <= 0:
@@ -697,7 +780,8 @@ def compare(previous: dict, current: dict, unknown: list[str], known_nvrs: set[s
         if key in merged or any(key.startswith(prefix) for prefix in muted) or entry.get("event"):
             continue  # Muted or one-off: dropped silently.
         parts = key.split(":")
-        nvr_gone = len(parts) > 1 and parts[0] in {"nvr", "cam", "storage", "clock", "checks", "smart", "events"} \
+        nvr_gone = len(parts) > 1 and parts[0] in {"nvr", "cam", "storage", "clock", "checks", "smart", "events",
+                                                   "disk", "live"} \
             and parts[1] not in known_nvrs
         if nvr_gone or any(key.startswith(prefix) for prefix in unknown):
             merged[key] = entry  # State unknown now: neither new nor resolved.

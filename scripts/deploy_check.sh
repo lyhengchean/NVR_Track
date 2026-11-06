@@ -5,7 +5,7 @@
 #
 # Read-only towards the NVRs. Never prints .env values or credentials.
 # Sends no email (runs one report per NVR instead of the fleet runner).
-# Recreates only nvr-dashboard, nvr-scanner and (if configured) nvr-telegram / nvr-events.
+# Recreates only nvr-dashboard, nvr-scanner and (if configured) nvr-telegram / nvr-events / nvr-live.
 set -u
 
 APP_DIR=${APP_DIR:-/opt/NVR_Track}
@@ -71,7 +71,7 @@ else
 fi
 
 section "4. Build and restart dashboard and scanner"
-if docker compose build -q nvr-report nvr-report-all nvr-dashboard nvr-scanner nvr-telegram nvr-events; then
+if docker compose build -q nvr-report nvr-report-all nvr-dashboard nvr-scanner nvr-telegram nvr-events nvr-live; then
     pass "Runtime images built"
 else
     fail "Runtime image build failed"; exit 1
@@ -103,6 +103,19 @@ if grep -qE '^NVR_EVENT_NVR_IDS=.+' .env 2>/dev/null; then
     SERVICES="$SERVICES nvr-events"
 else
     echo "  Real-time events not enabled (NVR_EVENT_NVR_IDS empty); skipped"
+fi
+# Live status between scans runs only for NVRs listed in NVR_LIVE_NVR_IDS.
+if grep -qE '^NVR_LIVE_NVR_IDS=.+' .env 2>/dev/null; then
+    if docker compose up -d --force-recreate nvr-live >/dev/null 2>&1; then
+        pass "Live status checker recreated"
+    else
+        fail "Live status checker did not start"
+    fi
+    SERVICES="$SERVICES nvr-live"
+else
+    echo "  Live status not enabled (NVR_LIVE_NVR_IDS empty); skipped"
+    docker compose stop nvr-live >/dev/null 2>&1 || true
+    rm -f state/live/service.json  # Switched off: no "live checks stopped" alert.
 fi
 sleep 5
 for svc in $SERVICES; do
@@ -245,6 +258,41 @@ PY
             [ -n "$ID" ] && warn "$ID real-time event stream not connected: $WHY"
         done <<< "$(echo "$STREAMS" | sed -n 's/^DOWN //p')"
     fi
+fi
+# Live status (nvr-live): first check runs right after start.
+if echo " $SERVICES " | grep -q " nvr-live "; then
+    sleep 20
+    LIVE=$(docker compose exec -T nvr-dashboard python - 2>/dev/null <<'PY'
+from app import live
+service, entries = live.read_all()
+print("ALIVE=" + ("yes" if live.service_alive(service) else "no"))
+for nvr in service.get("nvrs") or []:
+    e = entries.get(nvr)
+    if not e:
+        print(f"WAIT {nvr}")
+    elif e.get("reachable") is True:
+        ch = e.get("channels") or {}
+        disks = [d for d in (e.get("storage") or {}).get("disks") or []
+                 if str(d.get("reported_status")).lower() not in {"ok", "normal", "idle", "notexist"}]
+        print(f"OK {nvr} {sum(v == 'ONLINE' for v in ch.values())} online, "
+              f"{sum(v == 'OFFLINE' for v in ch.values())} offline; disks not OK: "
+              + (", ".join(f"HDD {d.get('id')} {d.get('reported_status')}" for d in disks) or "none"))
+    else:
+        print(f"BAD {nvr} {e.get('error') or 'no answer'}")
+PY
+)
+    if echo "$LIVE" | grep -q '^ALIVE=yes'; then
+        pass "Live status checker running ($(echo "$LIVE" | grep -cE '^(OK|BAD|WAIT) ') NVRs)"
+    else
+        warn "Live status checker has no heartbeat yet; check: docker compose logs --tail 20 nvr-live"
+    fi
+    while read -r KIND ID REST; do
+        case "$KIND" in
+            OK) pass "Live $ID: $REST" ;;
+            BAD) warn "Live $ID not readable: $REST" ;;
+            WAIT) warn "Live $ID: no check yet; check: docker compose logs --tail 20 nvr-live" ;;
+        esac
+    done <<< "$(echo "$LIVE" | grep -E '^(OK|BAD|WAIT) ')"
 fi
 SCAN=$(docker compose exec -T nvr-dashboard python - 2>/dev/null <<'PY'
 from app.dashboard import read_scan_status
