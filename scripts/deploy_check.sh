@@ -224,6 +224,28 @@ for svc in $SERVICES; do
         *) fail "$svc healthcheck: ${HEALTH:-unknown} ($(docker inspect -f '{{range .State.Health.Log}}{{.Output}}{{end}}' "$CID" 2>/dev/null | grep . | tail -1))" ;;
     esac
 done
+# Real-time event streams (nvr-events): one per NVR in NVR_EVENT_NVR_IDS.
+if echo " $SERVICES " | grep -q " nvr-events "; then
+    STREAMS=$(docker compose exec -T nvr-events python - 2>/dev/null <<'PY'
+from app import events
+for nvr, state in sorted((events.read_status().get("nvrs") or {}).items()):
+    if state.get("connected"):
+        print(f"UP {nvr}")
+    else:
+        print(f"DOWN {nvr} {events.reason_text(state.get('last_error'))}")
+PY
+)
+    UP=$(echo "$STREAMS" | grep -c '^UP ')
+    TOTAL=$(echo "$STREAMS" | grep -cE '^(UP|DOWN) ')
+    if [ "$TOTAL" -eq 0 ]; then
+        warn "Event listener reports no streams yet; check: docker compose logs --tail 20 nvr-events"
+    else
+        [ "$UP" -gt 0 ] && pass "Real-time event streams connected: $UP of $TOTAL"
+        while read -r ID WHY; do
+            [ -n "$ID" ] && warn "$ID real-time event stream not connected: $WHY"
+        done <<< "$(echo "$STREAMS" | sed -n 's/^DOWN //p')"
+    fi
+fi
 SCAN=$(docker compose exec -T nvr-dashboard python - 2>/dev/null <<'PY'
 from app.dashboard import read_scan_status
 s = read_scan_status()

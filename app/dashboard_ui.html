@@ -1216,7 +1216,7 @@ function findingsPanel(nvr) {
   if (evs.length || nvr.event_stream) {
     const sec = el("section"), cl = el("ul");
     const st = nvr.event_stream;
-    sec.append(el("h4", "", "Real-time events (24 h)" + (st ? (st.connected ? " · stream connected" : " · stream DOWN (" + (st.last_error || "?") + ")") : "")));
+    sec.append(el("h4", "", "Real-time events (24 h)" + (st ? (st.connected ? " · stream connected" : " · stream DOWN (" + (st.last_error_text || st.last_error || "?") + ")") : "")));
     for (const e of evs) cl.append(el("li", e.severity === "critical" ? "c" : "w", stamp(e.at) + " · " + e.label + (e.channel ? " · ch" + e.channel : "") + (e.description ? " — " + e.description : "")));
     if (!evs.length) cl.append(el("li", "", "No events in the last 24 hours."));
     sec.append(cl); extra.push(sec);

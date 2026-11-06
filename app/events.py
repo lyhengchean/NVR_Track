@@ -118,14 +118,30 @@ def is_heartbeat(event: dict) -> bool:
     return event["type"] == "videoloss" and event["state"] == "inactive" and event["count"] == 0
 
 
-class Deduplicator:
-    """Keep the first 'active' event; drop repeats for repeat_minutes."""
+# An NVR re-sends its alarms that are still active right after a client
+# connects. Such a replay of an alarm already recorded within this window is
+# the same ongoing problem, not a new one (it came again at every restart).
+REPLAY_SECONDS = 15
+REPLAY_HOURS = 24
 
-    def __init__(self, repeat_minutes: int = 30):
+
+class Deduplicator:
+    """Keep the first 'active' event; drop repeats for repeat_minutes, and
+    replays on (re)connect of an alarm recorded in the last REPLAY_HOURS."""
+
+    def __init__(self, repeat_minutes: int = 30, seen: list[dict] | None = None):
         self.repeat = timedelta(minutes=repeat_minutes)
         self.last: dict[tuple, datetime] = {}
+        for line in seen or []:            # Recorded events (events.jsonl), so a restart remembers.
+            try:
+                at = datetime.fromisoformat(line["at"])
+                key = (line["nvr"], line["type"], line.get("channel") or "")
+            except (KeyError, TypeError, ValueError):
+                continue
+            if at.tzinfo and (key not in self.last or at > self.last[key]):
+                self.last[key] = at
 
-    def accept(self, nvr_id: str, event: dict, now: datetime | None = None) -> bool:
+    def accept(self, nvr_id: str, event: dict, now: datetime | None = None, replay: bool = False) -> bool:
         now = now or datetime.now(timezone.utc)
         if event["state"] not in {"active", ""}:
             return False
@@ -133,8 +149,64 @@ class Deduplicator:
         previous = self.last.get(key)
         if previous is not None and now - previous < self.repeat:
             return False
+        if replay and previous is not None and now - previous < timedelta(hours=REPLAY_HOURS):
+            self.last[key] = now            # Still active: keep it quiet while it lasts.
+            return False
         self.last[key] = now
         return True
+
+
+REASONS = (("ConnectionRefusedError", "REFUSED"), ("RemoteDisconnected", "CLOSED_BY_NVR"),
+           ("ConnectionResetError", "RESET_BY_NVR"), ("BrokenPipeError", "RESET_BY_NVR"),
+           ("ConnectTimeout", "CONNECT_TIMEOUT"), ("ReadTimeout", "NO_DATA_TIMEOUT"),
+           ("NameResolutionError", "NAME_NOT_FOUND"), ("gaierror", "NAME_NOT_FOUND"),
+           ("NoRouteToHost", "NO_ROUTE"), ("ChunkedEncodingError", "STREAM_BROKEN"),
+           ("IncompleteRead", "STREAM_BROKEN"), ("InvalidChunkLength", "STREAM_BROKEN"))
+
+
+REASON_TEXT = {
+    "REFUSED": "connection refused",
+    "CLOSED_BY_NVR": "closed by the NVR (it may already serve its maximum number of event clients)",
+    "RESET_BY_NVR": "connection reset by the NVR",
+    "CONNECT_TIMEOUT": "no answer",
+    "NO_DATA_TIMEOUT": "no data or heartbeat for 90 s",
+    "STREAM_BROKEN": "stream broke off",
+    "STREAM_CLOSED": "stream ended",
+    "NAME_NOT_FOUND": "address not found",
+    "NO_ROUTE": "no network route",
+    "NO_CREDENTIALS": "no NVR login in .env",
+    "HTTP_401": "login refused (HTTP 401)",
+    "HTTP_403": "not allowed for this user (HTTP 403)",
+    "SERVICE_STOPPED": "nvr-events service is not running",
+}
+
+
+def reason_text(code: object) -> str:
+    """Readable text for a stream error code (unknown codes as they are)."""
+    code = str(code or "")[:40]
+    return REASON_TEXT.get(code) or (f"HTTP error ({code})" if code.startswith("HTTP_") else code or "no reply")
+
+
+def reason(exc: BaseException) -> str:
+    """Short cause of a failed stream, from the whole exception chain (no URL,
+    address or credentials): HTTP_401, REFUSED, CLOSED_BY_NVR, RESET_BY_NVR...;
+    otherwise the exception class name."""
+    if type(exc) is ConnectionError and str(exc).replace("_", "").isalnum() and str(exc).isupper():
+        return str(exc)[:40]                # Our own codes: HTTP_503, STREAM_CLOSED.
+    names, seen, stack = [], set(), [exc]
+    while stack and len(seen) < 20:
+        current = stack.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        names.append(type(current).__name__)
+        linked = [getattr(current, "reason", None), current.__cause__, current.__context__,
+                  *getattr(current, "args", ())]
+        stack += [item for item in linked if isinstance(item, BaseException)]
+    for name, code in REASONS:
+        if any(name in found for found in names):
+            return code
+    return type(exc).__name__[:40]
 
 
 def record(nvr_id: str, event: dict, types: dict, directory: Path | None = None) -> dict:

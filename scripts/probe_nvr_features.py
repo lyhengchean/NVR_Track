@@ -53,7 +53,7 @@ def probe_events(nvr, username: str, password: str, seconds: int) -> tuple[str, 
     except RequestException as exc:
         if counts:
             return "OK", counts
-        return type(exc).__name__, counts
+        return events.reason(exc), counts
     return "OK", counts
 
 

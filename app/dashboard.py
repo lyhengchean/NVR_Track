@@ -480,6 +480,8 @@ def _attach_events(nvrs: list[dict]) -> list[dict]:
             "since": str(state.get("since") or "")[:40],
             "last_seen": str(state.get("last_seen") or "")[:40],
             "last_error": "SERVICE_STOPPED" if not service_alive else str(state.get("last_error") or "")[:40],
+            "last_error_text": (event_store.reason_text("SERVICE_STOPPED") if not service_alive
+                                else event_store.reason_text(state.get("last_error")) if state.get("last_error") else ""),
         }
         nvr["events"] = [e for e in recent if e["nvr"] == nvr["id"]][:20]
     return recent
