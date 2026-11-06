@@ -250,7 +250,7 @@ class EventDeliveryTests(unittest.TestCase):
             with self.assertRaises(Stop):                                 # Reconnect wait, not a crash.
                 listener.run()
         self.assertFalse(listener.state["connected"])
-        self.assertIn("Timeout", listener.state["last_error"])
+        self.assertEqual(listener.state["last_error"], "NO_DATA_TIMEOUT")
 
 
 class BotEventStartTests(NotesFixture):

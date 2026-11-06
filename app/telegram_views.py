@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 
 from app.camera_condition import (CONDITIONS, EVIDENCE, kept_text, required_retention_days,
                                   retention_shortfall)
+from app.events import reason_text
 from app.notes import age_days
 
 LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
@@ -327,7 +328,7 @@ def nvr_detail(data: dict, nvr: dict, show_ips: bool) -> str:
     stream = nvr.get("event_stream")
     if stream:
         lines.append("📡 Event stream " + ("connected" if stream.get("connected") else
-                                          f"<b>down</b> ({esc(stream.get('last_error') or '?')})")
+                                          f"<b>down</b> ({esc(reason_text(stream.get('last_error')))})")
                      + (f" · {plural(len(nvr.get('events') or []), 'event')} in 24 h" if nvr.get("events") else ""))
     if nvr.get("nvr_known_issue"):
         lines.append(f"🔕 Whole-NVR known issue: {issue_text(nvr['nvr_known_issue'])}")
@@ -549,7 +550,7 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: b
         elif not stream.get("connected"):
             state[f"events:{nid}:down"] = _entry(
                 "warning", f"📡 <b>{title}</b>: real-time event stream disconnected "
-                f"({esc(stream.get('last_error') or 'no reply')})",
+                f"({esc(reason_text(stream.get('last_error')))})",
                 f"✅ <b>{title}</b>: real-time events connected again")
         if nvr.get("last_run_failed") or nvr["overall_status"] == "ERROR":
             state[f"nvr:{nid}:failed"] = _entry(
@@ -715,7 +716,7 @@ def events_text(data: dict, nvr_id: str | None = None, limit: int = 30) -> str:
         stream = nvr.get("event_stream")
         if stream:
             streams.append(f"{'📡' if stream.get('connected') else '⚠️'} {nvr_title(nvr)} "
-                           + ("connected" if stream.get("connected") else f"down ({esc(stream.get('last_error') or '?')})"))
+                           + ("connected" if stream.get("connected") else f"down ({esc(reason_text(stream.get('last_error')))})"))
         for event in nvr.get("events") or []:
             rows.append((event.get("at", ""), f"{'🔴' if event.get('severity') == 'critical' else '🟡'} "
                          f"{when(event.get('at'))} {nvr_title(nvr)}"

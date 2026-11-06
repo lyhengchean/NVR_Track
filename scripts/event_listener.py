@@ -84,15 +84,18 @@ class Listener:
                             raise ConnectionError(f"HTTP_{response.status_code}")
                         self.mark(connected=True, since=now(), last_error=None)
                         failures = 0
+                        opened = time.monotonic()
                         for chunk in stream_chunks(response):
                             self.state["last_seen"] = now()
                             for event in parser.feed(chunk):
-                                self.handle(event)
+                                self.handle(event, replay=time.monotonic() - opened < events.REPLAY_SECONDS)
                 raise ConnectionError("STREAM_CLOSED")
             except (RequestException, Urllib3Error, OSError) as exc:
-                code = str(exc) if isinstance(exc, ConnectionError) and str(exc).isupper() else type(exc).__name__
+                code = events.reason(exc)
                 if self.state["connected"]:
                     print(f"events: {self.nvr.id} disconnected ({code})", flush=True)
+                elif self.state["last_error"] != code:
+                    print(f"events: {self.nvr.id} cannot connect ({code}); retrying", flush=True)
                 self.mark(connected=False, since=now(), last_error=code[:40])
             wait = BACKOFF[min(failures, len(BACKOFF) - 1)]
             failures += 1
@@ -102,7 +105,7 @@ class Listener:
         with self.lock:
             self.state.update(changes)
 
-    def handle(self, event: dict) -> None:
+    def handle(self, event: dict, replay: bool = False) -> None:
         if events.is_heartbeat(event):
             return
         if event["type"] not in self.types:
@@ -110,7 +113,12 @@ class Listener:
             if len(ignored) < 30 or event["type"] in ignored:
                 ignored[event["type"]] = ignored.get(event["type"], 0) + 1
             return
-        if not self.dedupe.accept(self.nvr.id, event):
+        # NVR-level types are kept without a channel (as recorded), so a
+        # restart recognises them in events.jsonl.
+        key_event = {**event, "channel": event["channel"] if self.types[event["type"]][2] else ""}
+        if not self.dedupe.accept(self.nvr.id, key_event, replay=replay):
+            if replay:
+                self.state["replayed"] = self.state.get("replayed", 0) + 1
             return
         with self.lock:
             try:
@@ -149,7 +157,7 @@ def main() -> int:
     except ValueError:
         repeat = 30
     lock = threading.Lock()
-    dedupe = events.Deduplicator(repeat)
+    dedupe = events.Deduplicator(repeat, seen=events.recent_events(hours=events.REPLAY_HOURS, limit=5000))
     types = events.wanted_types()
     listeners = [Listener(nvr, types, dedupe, lock) for nvr in nvrs]
     for listener in listeners:
