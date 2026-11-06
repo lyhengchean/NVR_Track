@@ -42,6 +42,7 @@ class FakeNVR:
         self.pictures = {"1": "scene", "2": "scene", "3": "black"}
         self.picture_seed = 0
         self.events = []                        # Raw XML documents for the alert stream.
+        self.disk_states = {"1": "ok", "2": "ok"}  # HDD id -> status in the HDD list.
         self.requests: list[tuple[str, str]] = []
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
@@ -123,8 +124,8 @@ class FakeNVR:
                     return self.reply(nvr.channel_status())
                 if path == "/ISAPI/ContentMgmt/Storage/hdd":
                     disks = "".join(f"<hdd><id>{i}</id><hddName>hdd{i}</hddName><hddType>SATA</hddType>"
-                                    f"<status>ok</status><capacity>4000000</capacity><freeSpace>1000000</freeSpace>"
-                                    f"<property>RW</property></hdd>" for i in ("1", "2"))
+                                    f"<status>{state}</status><capacity>4000000</capacity><freeSpace>1000000</freeSpace>"
+                                    f"<property>RW</property></hdd>" for i, state in nvr.disk_states.items())
                     return self.reply(f"<hddList>{disks}</hddList>")
                 if path == "/ISAPI/ContentMgmt/record/tracks":
                     tracks = "".join(f"<Track><id>{int(c) * 100 + 1}</id></Track>" for c in nvr.channels)

@@ -17,6 +17,32 @@ def _local(value: object) -> str:
         return "an unknown time"
 
 
+STORAGE_CRITICAL = "Storage needs urgent review"
+STORAGE_WARNING = "Storage warning"
+STORAGE_UNKNOWN = "Storage status not verified"
+OFFLINE_SUFFIX = " channels are reported offline."
+
+
+def storage_findings(storage_status: str, storage_message: str = "") -> tuple[list[str], list[str], list[str]]:
+    """(critical, warnings, unknown) lines for the storage check; also used by app.live."""
+    # The storage check's own finding (e.g. "HDD 8 (error)"), so alerts and the
+    # email say which disk instead of a generic sentence.
+    detail = " ".join(str(storage_message or "").split())[:200]
+    if storage_status == "CRITICAL":
+        return ([f"{STORAGE_CRITICAL}: {detail}" if detail else
+                 f"{STORAGE_CRITICAL}: abnormal disks, expected disks missing, or no operational storage."], [], [])
+    if storage_status == "WARNING":
+        return ([], [f"{STORAGE_WARNING}: {detail}" if detail else
+                     f"{STORAGE_WARNING}: review disk detection, free space, and overwrite/quota policy."], [])
+    if storage_status != "HEALTHY":
+        return [], [], [f"{STORAGE_UNKNOWN}: {storage_status}."]
+    return [], [], []
+
+
+def offline_finding(offline_count: int) -> str:
+    return f"{offline_count}{OFFLINE_SUFFIX}"
+
+
 def determine_overall_status(
     *,
     device_info_status: str,
@@ -39,13 +65,8 @@ def determine_overall_status(
     critical: list[str] = []
     warnings: list[str] = []
     unknown: list[str] = []
-    # The storage check's own finding (e.g. "HDD 8 (error)"), so alerts and the
-    # email say which disk instead of a generic sentence.
-    storage_detail = " ".join(str(storage_message or "").split())[:200]
-
-    if storage_status == "CRITICAL":
-        critical.append(f"Storage needs urgent review: {storage_detail}" if storage_detail else
-                        "Storage needs urgent review: abnormal disks, expected disks missing, or no operational storage.")
+    storage_critical, storage_warnings, storage_unknown = storage_findings(storage_status, storage_message)
+    critical += storage_critical
 
     if device_info_status in {
         "AUTHENTICATION_FAILED",
@@ -72,7 +93,7 @@ def determine_overall_status(
         )
 
     if offline_count > 0:
-        warnings.append(f"{offline_count} channels are reported offline.")
+        warnings.append(offline_finding(offline_count))
 
     if (
         expected_count is not None
@@ -84,11 +105,8 @@ def determine_overall_status(
             f"from expected count {expected_count}."
         )
 
-    if storage_status == "WARNING":
-        warnings.append(f"Storage warning: {storage_detail}" if storage_detail else
-                        "Storage warning: review disk detection, free space, and overwrite/quota policy.")
-    elif storage_status not in {"HEALTHY", "CRITICAL", "WARNING"}:
-        unknown.append(f"Storage status not verified: {storage_status}.")
+    warnings += storage_warnings
+    unknown += storage_unknown
 
     # The old NVR-wide probe verifies just one track. When independent camera
     # checks are enabled, it must not override their more precise assessment.

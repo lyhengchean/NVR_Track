@@ -57,6 +57,7 @@ services:
       NOTES_DIR: /app/state/notes
       EVENTS_DIR: /app/state/events
       SNAPSHOT_DIR: /app/state/snapshots
+      LIVE_DIR: /app/state/live
 
     ports:
       - "${DASHBOARD_BIND_IP:-127.0.0.1}:8080:8080"
@@ -69,6 +70,7 @@ services:
       - ./state/notes:/app/state/notes
       - ./state/events:/app/state/events:ro
       - ./state/snapshots:/app/state/snapshots:ro
+      - ./state/live:/app/state/live:ro
 
     restart: unless-stopped
 
@@ -131,6 +133,7 @@ services:
       NOTES_DIR: /app/state/notes
       EVENTS_DIR: /app/state/events
       SNAPSHOT_DIR: /app/state/snapshots
+      LIVE_DIR: /app/state/live
       TELEGRAM_NOTES_BY: "${TELEGRAM_NOTES_BY:-admins}"
       TELEGRAM_SNAPSHOTS: "${TELEGRAM_SNAPSHOTS:-admins}"
       TELEGRAM_PICTURE_ALERTS: "${TELEGRAM_PICTURE_ALERTS:-off}"
@@ -160,6 +163,7 @@ services:
       - ./state/notes:/app/state/notes
       - ./state/events:/app/state/events:ro
       - ./state/snapshots:/app/state/snapshots:ro
+      - ./state/live:/app/state/live:ro
 
     restart: unless-stopped
 
@@ -195,6 +199,37 @@ services:
 
     healthcheck:
       test: ["CMD", "python", "-m", "scripts.healthcheck", "heartbeat", "/app/state/events/status.json", "180"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Live status between scans: camera online/offline, disk states and NVR
+  # reachability every NVR_LIVE_SECONDS for the NVRs in NVR_LIVE_NVR_IDS.
+  # Two read-only GETs per NVR and check (channel status, HDD list), the same
+  # ones every scan makes. Writes state/live only. Idle when the list is empty.
+  nvr-live:
+    build:
+      context: .
+    image: nvr-track:local
+    entrypoint: ["python", "-m", "scripts.live_status"]
+
+    env_file:
+      - .env
+
+    environment:
+      TZ: Asia/Phnom_Penh
+      PYTHONUNBUFFERED: "1"
+      LIVE_DIR: /app/state/live
+
+    volumes:
+      - ./config/nvrs.local.json:/app/config/nvrs.local.json:ro
+      - ./state/live:/app/state/live
+
+    restart: unless-stopped
+
+    healthcheck:
+      test: ["CMD", "python", "-m", "scripts.healthcheck", "heartbeat", "/app/state/live/service.json", "120"]
       interval: 60s
       timeout: 10s
       retries: 3

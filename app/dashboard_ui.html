@@ -191,6 +191,9 @@ select.control.active{border-color:var(--accent);background:var(--accent-soft)}
 .alerts{color:var(--ink-2);font-weight:560;margin-right:auto}
 .alerts .bad{color:var(--crit-text)}
 .when.stale{color:var(--warn-text);font-weight:600}
+.live-ok{color:var(--ok-text)}
+.live-bad{color:var(--crit-text);font-weight:600}
+.live-old{color:var(--warn-text);font-weight:600}
 .expand{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:7px;border:1px solid var(--line);background:var(--panel-2);font-size:12.5px;font-weight:620;color:var(--accent-ink)}
 .expand:hover{border-color:var(--accent)}
 .expand::after{content:"";width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translateY(-2px) rotate(45deg);transition:transform .15s}
@@ -408,7 +411,7 @@ footer{margin:30px 0 40px;font-size:12.5px;color:var(--muted);max-width:110ch}
   </section>
 
   <section class="monthly" id="monthly" hidden aria-label="Monthly reports"></section>
-  <footer id="footer">Read-only. The dashboard shows the latest saved report for each NVR and never queries devices. A camera without footage in the search window is not proof it never recorded; failed, unverified and disabled checks are never counted as recording.</footer>
+  <footer id="footer">Read-only. The dashboard shows the latest saved report for each NVR, with newer camera and disk states from the live check where it is enabled, and never queries devices itself. A camera without footage in the search window is not proof it never recorded; failed, unverified and disabled checks are never counted as recording.</footer>
 </main>
 <div id="tip" role="tooltip"></div>
 
@@ -809,11 +812,25 @@ function card(row) {
   scanBtn.addEventListener("click", () => requestScan(nvr.id));
   foot.append(alerts, live, chans);
   if (nvr.channels.length) foot.append(kept);
-  foot.append(when, scanBtn, btn);
+  foot.append(when);
+  const lv2 = liveBadge(nvr.live);
+  if (lv2) foot.append(lv2);
+  foot.append(scanBtn, btn);
   head.append(foot);
   art.append(head);
   if (isOpen(row)) art.append(drawer(row));
   return art;
+}
+// Live check between scans (nvr-live): camera and disk states newer than the report.
+function liveBadge(lv) {
+  if (!lv) return null;
+  let node;
+  if (lv.reachable === false && lv.failures >= 2) node = el("span", "live-bad", "Not reachable since " + stamp(lv.down_since));
+  else if (!lv.fresh) node = el("span", "live-old", "Live check stopped " + stamp(lv.checked_at));
+  else if (lv.reachable !== true) node = el("span", "live-old", "Live check failed " + stamp(lv.checked_at));
+  else node = el("span", "live-ok", "Live " + stamp(lv.checked_at));
+  node.title = "Camera online/offline and disk states are checked between scans" + (lv.error ? " (" + lv.error + ")" : "");
+  return node;
 }
 // Camera filters open the matching NVRs, unless the user closed one.
 function isOpen(row) {

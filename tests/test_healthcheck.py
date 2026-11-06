@@ -129,7 +129,7 @@ class ComposeTests(unittest.TestCase):
         return self.text.split(f"  {name}:", 1)[1].split("\n  nvr-", 1)[0]
 
     def test_every_long_running_service_has_a_local_healthcheck(self):
-        for name in ("nvr-dashboard", "nvr-scanner", "nvr-telegram", "nvr-events"):
+        for name in ("nvr-dashboard", "nvr-scanner", "nvr-telegram", "nvr-events", "nvr-live"):
             block = self.block(name)
             self.assertIn('"scripts.healthcheck"', block, name)
             self.assertIn("restart: unless-stopped", block, name)
