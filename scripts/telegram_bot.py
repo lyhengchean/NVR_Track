@@ -128,11 +128,24 @@ def load_settings(env: dict | None = None) -> dict:
         # Picture problems (black, covered, frozen, view changed) are on the
         # dashboard; Telegram posts nothing about them unless this is on.
         "picture_alerts": env.get("TELEGRAM_PICTURE_ALERTS", "off").strip().lower() in {"on", "true", "yes", "1"},
+        # Per NVR and local day: posts of the same real-time alarm (per camera for camera
+        # alarms), and event-stream-down alerts. Repeats stay in /events.
+        "event_daily_limit": bounded(env.get("TELEGRAM_EVENT_DAILY_LIMIT"), 1, 1, 50),
+        # A dropped event stream is alerted only after it stayed down this long.
+        "stream_down_minutes": bounded(env.get("TELEGRAM_STREAM_DOWN_MINUTES"), 10, 0, 1440),
         "state_dir": Path(env.get("TELEGRAM_STATE_DIR", str(ROOT / "state" / "telegram"))),
         # Weekly list of open known issues: (weekday 0=Mon, "HH", "MM") or None (off).
         "known_reminder": weekly_time(env.get("TELEGRAM_KNOWN_REMINDER", "mon 09:00")),
         "known_stale_days": notes_store.stale_days(env),
     }
+
+
+def bounded(text: object, default: int, low: int, high: int) -> int:
+    try:
+        value = int(str(text).strip())
+    except (TypeError, ValueError):
+        return default
+    return value if low <= value <= high else default
 
 
 def weekly_time(text: str) -> tuple[int, str, str] | None:
@@ -629,10 +642,21 @@ class Bot:
                   "Change with /alerts on or /alerts off. Alerts come only when something changes, "
                   "plus one daily summary.")
 
+    def daily_counts(self) -> tuple[str, dict]:
+        """Today's (local) posts per limited key: {key: count}."""
+        today = datetime.now(views.LOCAL_TZ).date().isoformat()
+        saved = read_state(self.state_dir / "daily_limits.json", {})
+        counts = saved.get("counts") if isinstance(saved, dict) and saved.get("date") == today else None
+        return today, {k: v for k, v in (counts or {}).items() if isinstance(v, int)}
+
+    def save_daily_counts(self, today: str, counts: dict) -> None:
+        write_state(self.state_dir / "daily_limits.json", {"date": today, "counts": counts})
+
     def check_alerts(self) -> None:
         data = self.fresh_data()
         current, unknown, muted = views.alert_state(data, clock_drift_seconds=self.settings["drift"],
-                                                    picture_alerts=self.settings.get("picture_alerts", False))
+                                                    picture_alerts=self.settings.get("picture_alerts", False),
+                                                    stream_down_minutes=self.settings.get("stream_down_minutes", 10))
         path = self.state_dir / "alerts.json"
         saved = read_state(path, None)
         if not isinstance(saved, dict) or not isinstance(saved.get("state"), dict):
@@ -646,11 +670,29 @@ class Bot:
             return
         known = {nvr["id"] for nvr in data.get("nvrs") or []}
         merged, opened, resolved = views.compare(saved["state"], current, unknown, known, muted)
+        # Event-stream drops: at most event_daily_limit alerts per NVR and day. One over
+        # the limit stays quiet, and so does its "connected again".
+        today, counts = self.daily_counts()
+        limit = self.settings.get("event_daily_limit", 1)
+        for key, entry in merged.items():
+            if not (key.startswith("events:") and key.endswith(":down")):
+                continue
+            if any(entry is item for item in opened):
+                counter = "stream|" + key.split(":")[1]
+                if counts.get(counter, 0) >= limit:
+                    entry["quiet"] = True
+                else:
+                    counts[counter] = counts.get(counter, 0) + 1
+            elif (saved["state"].get(key) or {}).get("quiet"):
+                entry["quiet"] = True                     # Still the same quiet outage.
+        opened = [entry for entry in opened if not entry.get("quiet")]
+        resolved = [entry for entry in resolved if not entry.get("quiet")]
         if opened or resolved:
             targets = self.recipients()
             sent = [self.send(chat_id, views.alert_message(opened, resolved)) for chat_id in targets]
             if targets and not any(sent):
                 return  # Telegram unreachable: keep the old state and retry next time.
+        self.save_daily_counts(today, counts)
         if merged != saved["state"]:
             write_state(path, {"schema_version": 1, "state": merged})
 
@@ -907,11 +949,28 @@ class Bot:
             ch = next((c for c in nvr["channels"] if str(c["channel_id"]) == line["channel"]), None)
             return bool(line["channel"] and ch and ch.get("known_issue"))
         wanted = [line for line in lines if not muted(line)]
-        if wanted:
+        # The same alarm (NVR, type, camera) is posted at most event_daily_limit times a
+        # day; an NVR re-sends an alarm while it lasts. All of them stay in /events.
+        today, counts = self.daily_counts()
+        limit = self.settings.get("event_daily_limit", 1)
+        posted, reached = [], False
+        for line in wanted:
+            counter = f"event|{line['nvr']}|{line['type']}|{line['channel']}"
+            if counts.get(counter, 0) >= limit:
+                continue
+            counts[counter] = counts.get(counter, 0) + 1
+            reached = reached or counts[counter] >= limit
+            posted.append(line)
+        if posted:
+            text = views.event_alert_text(posted, data)
+            if reached:
+                text += (f"\n<i>The same alarm is posted at most {views.plural(limit, 'time')} a day per NVR; "
+                         "repeats are listed in /events.</i>")
             targets = self.recipients()
-            sent = [self.send(chat_id, views.event_alert_text(wanted, data)) for chat_id in targets]
+            sent = [self.send(chat_id, text) for chat_id in targets]
             if targets and not any(sent):
                 return  # Retry these events next time.
+        self.save_daily_counts(today, counts)
         write_state(path, new_position)
 
     def check_monthly_uptime(self) -> None:
