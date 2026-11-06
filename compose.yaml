@@ -15,6 +15,7 @@ services:
       - ./config/nvrs.local.json:/app/config/nvrs.local.json:ro
       - ./reports:/app/reports
       - ./state/notes:/app/state/notes:ro
+      - ./state/events:/app/state/events:ro
       - ./state/snapshots:/app/state/snapshots
 
     stdin_open: true
@@ -36,6 +37,7 @@ services:
       - ./config/nvrs.local.json:/app/config/nvrs.local.json:ro
       - ./reports:/app/reports
       - ./state/notes:/app/state/notes:ro
+      - ./state/events:/app/state/events:ro
       - ./state/snapshots:/app/state/snapshots
   nvr-dashboard:
     build:
@@ -98,6 +100,7 @@ services:
       - ./reports:/app/reports
       - ./state/scan:/app/state/scan
       - ./state/notes:/app/state/notes:ro
+      - ./state/events:/app/state/events:ro
       - ./state/snapshots:/app/state/snapshots
 
     restart: unless-stopped

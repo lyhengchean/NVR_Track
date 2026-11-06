@@ -342,7 +342,7 @@ class Service:
             return
         write_json(marker, {"month": today.strftime("%Y-%m")})
         try:
-            result = subprocess.run([sys.executable, "-m", "scripts.uptime_report", "--previous-month", "--email"],
+            result = subprocess.run([sys.executable, "-m", "scripts.uptime_report", "--previous-month", "--email", "--pdf"],
                                     cwd=ROOT, capture_output=True, text=True, timeout=1800, check=False)
             email = re.search(r"^Email report: (\w+)", result.stdout, re.M)
             print(f"Monthly uptime report: exit {result.returncode}; email {email[1] if email else 'unknown'}",

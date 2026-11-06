@@ -251,6 +251,10 @@ tbody tr:hover td{background:color-mix(in srgb,var(--accent) 5%,var(--panel))}
 @keyframes shimmer{from{background-position:100% 0}to{background-position:-100% 0}}
 .zero-state{padding:40px 28px;text-align:center;background:var(--panel);border:1px dashed var(--line);border-radius:12px;color:var(--ink-2)}
 .zero-state code{font-family:var(--mono);font-size:12.5px;background:var(--panel-2);padding:2px 6px;border-radius:5px;border:1px solid var(--line)}
+.monthly{margin:26px 0 0;font-size:13px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline}
+.monthly strong{color:var(--ink)}
+.monthly a{color:var(--accent-ink);text-decoration:none;white-space:nowrap}
+.monthly a:hover{text-decoration:underline}
 footer{margin:30px 0 40px;font-size:12.5px;color:var(--muted);max-width:110ch}
 
 #tip{position:fixed;z-index:50;pointer-events:none;max-width:280px;padding:8px 10px;border-radius:8px;background:var(--ink);color:var(--bg);font-size:12px;line-height:1.45;box-shadow:var(--shadow);opacity:0;transform:translateY(4px);transition:opacity .08s,transform .08s}
@@ -403,6 +407,7 @@ footer{margin:30px 0 40px;font-size:12.5px;color:var(--muted);max-width:110ch}
     <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
   </section>
 
+  <section class="monthly" id="monthly" hidden aria-label="Monthly reports"></section>
   <footer id="footer">Read-only. The dashboard shows the latest saved report for each NVR and never queries devices. A camera without footage in the search window is not proof it never recorded; failed, unverified and disabled checks are never counted as recording.</footer>
 </main>
 <div id="tip" role="tooltip"></div>
@@ -1323,6 +1328,24 @@ async function refresh() {
   renderFacts();
   render();
   renderScan();
+  renderMonthly();
+}
+
+// ---------- monthly PDF reports (made by nvr-scanner on the 1st, or by hand) ----------
+function renderMonthly() {
+  const box = $("monthly");
+  const list = (state.data && state.data.monthly_reports) || [];
+  box.replaceChildren();
+  box.hidden = !list.length;
+  if (!list.length) return;
+  box.append(el("strong", "", "Monthly reports (PDF)"));
+  for (const r of list) {
+    const a = el("a", "", new Date(r.period + "-15T00:00:00Z").toLocaleDateString("en-GB", {month: "short", year: "numeric", timeZone: "UTC"}));
+    a.href = "/api/report.pdf?period=" + encodeURIComponent(r.period);
+    a.title = "Created " + stamp(r.created_at) + " · " + r.size_kb + " KB";
+    a.setAttribute("download", "NVR-Track-" + r.period + ".pdf");
+    box.append(a);
+  }
 }
 
 // ---------- scan now (the nvr-scanner service does the work) ----------
