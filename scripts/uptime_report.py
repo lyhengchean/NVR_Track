@@ -2,10 +2,14 @@
 
   docker compose run --rm -T --entrypoint python nvr-report -m scripts.uptime_report
   docker compose run --rm -T --entrypoint python nvr-report -m scripts.uptime_report --month 2026-10 --email
+  docker compose run --rm -T --entrypoint python nvr-report -m scripts.uptime_report --month 2026-11 --pdf
 
-Saves reports/uptime/uptime-<period>.csv and .json. The nvr-scanner service
-runs it for the previous month (with email) after the first scheduled scan on
-the 1st; the Telegram bot posts the same report and answers /uptime.
+Saves reports/uptime/uptime-<period>.csv and .json; with --pdf also the
+monthly report reports/uptime/NVR-Track-<period>.pdf (app.monthly_pdf), which
+the email attaches and the dashboard offers for download. The nvr-scanner
+service runs it for the previous month (with email and PDF) after the first
+scheduled scan on the 1st; the Telegram bot posts the same report and answers
+/uptime.
 """
 from __future__ import annotations
 
@@ -18,7 +22,7 @@ from html import escape
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from app import mailer
+from app import mailer, monthly_pdf
 from app.uptime import compute, summary_lines, to_csv
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -46,6 +50,7 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument("--month", help="Calendar month YYYY-MM.")
     group.add_argument("--previous-month", action="store_true")
     parser.add_argument("--email", action="store_true", help="Email the summary with the CSV attached.")
+    parser.add_argument("--pdf", action="store_true", help="Also save (and email) the monthly report as PDF.")
     args = parser.parse_args(argv)
     if args.previous_month:
         args.month = previous_month()
@@ -73,10 +78,19 @@ def main(argv: list[str] | None = None) -> int:
     lines = summary_lines(result, title)
     print("\n".join(lines))
     print(f"Saved: reports/uptime/uptime-{period}.csv")
+    attachments = [(f"uptime-{period}.csv", csv_text.encode("utf-8-sig"), "text/csv")]
+    if args.pdf:
+        try:
+            pdf = monthly_pdf.pdf_for({**result, "start": start.isoformat(), "end": end.isoformat()}, period)
+        except Exception as exc:            # The CSV and email still go out.
+            print(f"PDF report failed: {type(exc).__name__}")
+        else:
+            (out_dir / f"NVR-Track-{period}.pdf").write_bytes(pdf)
+            attachments.append((f"NVR-Track-{period}.pdf", pdf, "application/pdf"))
+            print(f"Saved: reports/uptime/NVR-Track-{period}.pdf ({len(pdf) // 1024} KB)")
     if args.email:
         html = "<pre style=\"font-family:Consolas,monospace\">" + escape("\n".join(lines)) + "</pre>"
-        ok, message = mailer.send(f"[NVR Report] Uptime {period}", "\n".join(lines), html,
-                                  [(f"uptime-{period}.csv", csv_text.encode("utf-8-sig"), "text/csv")])
+        ok, message = mailer.send(f"[NVR Report] Uptime {period}", "\n".join(lines), html, attachments)
         print(f"Email report: {message}")
         if not ok and message.startswith("FAILED"):
             return 2

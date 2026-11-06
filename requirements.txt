@@ -3,3 +3,5 @@ requests==2.34.2
 urllib3==2.8.0
 tzdata==2026.5
 pillow==11.3.0
+# Monthly PDF report (app/monthly_pdf.py).
+reportlab==4.4.10

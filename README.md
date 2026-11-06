@@ -667,11 +667,21 @@ two scans are not seen, so the count never overstates.
 **Uptime report** (on by default). Online % and recording % per camera and
 NVR, plus cameras that keep dropping on and off, from saved reports only.
 Failed or disabled checks are left out, never counted either way.
-- Telegram `/uptime` (last 30 days), `/uptime 7`, `/uptime 2026-10`, with a CSV file.
+- Telegram `/uptime` (last 30 days), `/uptime 7`, `/uptime 2026-10`, with a CSV file;
+  a month (`/uptime 2026-10`) also gets the monthly PDF report.
 - On the 1st, after the first scheduled scan, last month's report is emailed
-  (CSV attached) and posted to the alert chats. `NVR_UPTIME_MONTHLY=false` turns it off.
-- By hand: `docker compose run --rm -T --entrypoint python nvr-report -m scripts.uptime_report --month 2026-10`
-  (saves `reports/uptime/uptime-2026-10.csv`).
+  (CSV and PDF attached) and posted to the alert chats. `NVR_UPTIME_MONTHLY=false` turns it off.
+- By hand: `docker compose run --rm -T --entrypoint python nvr-report -m scripts.uptime_report --month 2026-10 --pdf`
+  (saves `reports/uptime/uptime-2026-10.csv` and `NVR-Track-2026-10.pdf`; the
+  current month gives a month-to-date report).
+
+**Monthly PDF report** (`app/monthly_pdf.py`, no NVR contact): fleet figures
+(cameras, online %, recording %, NVRs reachable, real-time events), what needs
+attention now, a table and chart per NVR (reachable, online, recording,
+restarts, footage kept, status now), the cameras with the lowest recording %
+(known issues marked), cameras going offline and online most, disks to replace
+or watch, real-time events of the month and open known issues. Saved PDFs are
+listed at the bottom of the dashboard ("Monthly reports (PDF)") for download.
 
 **Disk SMART, snapshot checks and real-time events** (off until enabled per
 NVR). First check what the NVR supports (GET only, saves nothing):

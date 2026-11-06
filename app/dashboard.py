@@ -487,6 +487,29 @@ def _attach_events(nvrs: list[dict]) -> list[dict]:
     return recent
 
 
+MONTHLY_PDF = re.compile(r"^NVR-Track-(?P<period>\d{4}-\d{2})\.pdf$")
+
+
+def monthly_reports() -> list[dict]:
+    """Saved monthly PDF reports (reports/uptime/NVR-Track-YYYY-MM.pdf), newest first."""
+    found = []
+    try:
+        paths = list((REPORTS_DIR / "uptime").glob("NVR-Track-*.pdf"))
+    except OSError:
+        return []
+    for path in paths:
+        match = MONTHLY_PDF.match(path.name)
+        if not match or path.is_symlink():
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        found.append({"period": match["period"], "size_kb": max(stat.st_size // 1024, 1),
+                      "created_at": datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat()})
+    return sorted(found, key=lambda r: r["period"], reverse=True)[:24]
+
+
 def _is_fresh(timestamp: str, cutoff: datetime | None = None) -> bool:
     try:
         checked = datetime.fromisoformat(timestamp)
@@ -798,6 +821,7 @@ def read_dashboard_data() -> dict:
         "summary": summary,
         "nvrs": nvrs,
         "fleet_duplicates": fleet_duplicates,
+        "monthly_reports": monthly_reports(),
         "report_errors": report_errors,
         "scan": scan,
     }
@@ -1036,6 +1060,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._snapshot(urlsplit(self.path).query)
             return
 
+        if path == "/api/report.pdf":
+            self._monthly_pdf(urlsplit(self.path).query)
+            return
+
         self._send(404, "text/plain; charset=utf-8", b"Not found.\n")
 
     def _json(self, code: int, data: dict) -> None:
@@ -1058,6 +1086,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send(404, "text/plain; charset=utf-8", b"No picture.\n")
             return
         self._send(200, "image/jpeg", body)
+
+    def _monthly_pdf(self, query: str) -> None:
+        """A saved monthly report: /api/report.pdf?period=2026-10."""
+        period = dict(part.partition("=")[::2] for part in query.split("&") if part).get("period", "")
+        if not re.fullmatch(r"\d{4}-\d{2}", period):
+            self._send(400, "text/plain; charset=utf-8", b"Bad request.\n")
+            return
+        path = REPORTS_DIR / "uptime" / f"NVR-Track-{period}.pdf"
+        try:
+            body = path.read_bytes() if path.is_file() and not path.is_symlink() else None
+        except OSError:
+            body = None
+        if not body or not body.startswith(b"%PDF") or len(body) > 20_000_000:
+            self._send(404, "text/plain; charset=utf-8", b"No report for this month.\n")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/pdf")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Disposition", f'attachment; filename="NVR-Track-{period}.pdf"')
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_POST(self) -> None:
         if not self._authorized():

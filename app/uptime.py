@@ -45,7 +45,7 @@ def compute(report_dir: Path, start: datetime, end: datetime) -> dict:
             files.setdefault(match["id"], []).append((moment, path))
     nvrs, cameras = [], []
     for nvr_id in sorted(files):
-        reports = reachable = 0
+        reports = reachable = restarts = 0
         name = ""
         cams: dict[str, dict] = {}
         for moment, path in sorted(files[nvr_id]):
@@ -59,6 +59,7 @@ def compute(report_dir: Path, start: datetime, end: datetime) -> dict:
             reports += 1
             name = str((report.get("nvr") or {}).get("name") or name)
             reachable += (report.get("device_info") or {}).get("status") == "DEVICE_INFO_RETRIEVED"
+            restarts += (report.get("restart") or {}).get("detected") is True
             for ch in (report.get("channel_inventory") or {}).get("channels") or []:
                 if not isinstance(ch, dict):
                     continue
@@ -89,7 +90,7 @@ def compute(report_dir: Path, start: datetime, end: datetime) -> dict:
         cameras += rows
         checked = sum(c["checked"] for c in rows)
         live = sum(c["live_known"] for c in rows)
-        nvrs.append({"nvr": nvr_id, "name": name, "reports": reports,
+        nvrs.append({"nvr": nvr_id, "name": name, "reports": reports, "restarts": restarts,
                      "reachable_pct": _pct(reachable, reports), "cameras": len(rows),
                      "online_pct": _pct(sum(c["online"] for c in rows), live),
                      "recording_pct": _pct(sum(c["recording"] for c in rows), checked)})

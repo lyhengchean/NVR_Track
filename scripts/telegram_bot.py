@@ -26,6 +26,7 @@ from requests.exceptions import RequestException
 
 from app import dashboard as dashboard_data
 from app import events as event_store
+from app import monthly_pdf
 from app import notes as notes_store
 from app import telegram_views as views
 from app import uptime as uptime_calc
@@ -859,6 +860,28 @@ class Bot:
                             uptime_calc.to_csv(result).encode("utf-8-sig"), "text/csv", chat_id=chat_id)
         except TelegramError as exc:
             print(f"telegram: CSV to {chat_id} failed: {exc}", flush=True)
+        if re.fullmatch(r"\d{4}-\d{2}", period or ""):
+            self.send_monthly_pdf(chat_id, result, period)
+
+    def send_monthly_pdf(self, chat_id: int, result: dict, period: str) -> None:
+        """The monthly PDF: the one the scanner saved for a finished month, else built now."""
+        saved = dashboard_data.REPORTS_DIR / "uptime" / f"NVR-Track-{period}.pdf"
+        try:
+            finished = datetime.fromisoformat(result["end"]) <= datetime.now(views.LOCAL_TZ)
+            data = saved.read_bytes() if finished and saved.is_file() else None
+            if not data or not data.startswith(b"%PDF"):
+                cached = getattr(self, "_pdf_cache", None)   # One build for all recipients.
+                if cached and cached[0] == (period, result["end"]) and time.monotonic() - cached[1] < 600:
+                    data = cached[2]
+                else:
+                    data = monthly_pdf.pdf_for(result, period)
+                    self._pdf_cache = ((period, result["end"]), time.monotonic(), data)
+            self.api.upload("sendDocument", "document", f"NVR-Track-{period}.pdf", data, "application/pdf",
+                            chat_id=chat_id)
+        except TelegramError as exc:
+            print(f"telegram: PDF to {chat_id} failed: {exc}", flush=True)
+        except Exception as exc:            # The text and CSV are already sent.
+            print(f"telegram: PDF for {period} failed: {type(exc).__name__}", flush=True)
 
     def check_events(self) -> None:
         """Post new real-time events (nvr-events service), except muted cameras/NVRs."""
