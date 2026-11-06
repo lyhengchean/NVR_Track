@@ -124,6 +124,9 @@ def load_settings(env: dict | None = None) -> dict:
         "notes_by": "users" if env.get("TELEGRAM_NOTES_BY", "admins").strip().lower() == "users" else "admins",
         # Latest camera pictures for admins (/snapshot), or off.
         "snapshots": "off" if env.get("TELEGRAM_SNAPSHOTS", "admins").strip().lower() == "off" else "admins",
+        # Picture problems (black, covered, frozen, view changed) are on the
+        # dashboard; Telegram posts nothing about them unless this is on.
+        "picture_alerts": env.get("TELEGRAM_PICTURE_ALERTS", "off").strip().lower() in {"on", "true", "yes", "1"},
         "state_dir": Path(env.get("TELEGRAM_STATE_DIR", str(ROOT / "state" / "telegram"))),
         # Weekly list of open known issues: (weekday 0=Mon, "HH", "MM") or None (off).
         "known_reminder": weekly_time(env.get("TELEGRAM_KNOWN_REMINDER", "mon 09:00")),
@@ -627,7 +630,8 @@ class Bot:
 
     def check_alerts(self) -> None:
         data = self.fresh_data()
-        current, unknown, muted = views.alert_state(data, clock_drift_seconds=self.settings["drift"])
+        current, unknown, muted = views.alert_state(data, clock_drift_seconds=self.settings["drift"],
+                                                    picture_alerts=self.settings.get("picture_alerts", False))
         path = self.state_dir / "alerts.json"
         saved = read_state(path, None)
         if not isinstance(saved, dict) or not isinstance(saved.get("state"), dict):
@@ -636,7 +640,8 @@ class Bot:
             for chat_id in self.recipients():
                 self.send(chat_id, "👋 <b>NVR Track bot started.</b> I will post here when a camera stops "
                           "or starts recording, goes offline, an NVR or its storage has a problem, or "
-                          "scans stop.\n\n" + views.fleet_status(data))
+                          "scans stop.\n\n"
+                          + views.fleet_status(data, pictures=self.settings.get("picture_alerts", False)))
             return
         known = {nvr["id"] for nvr in data.get("nvrs") or []}
         merged, opened, resolved = views.compare(saved["state"], current, unknown, known, muted)
@@ -663,7 +668,8 @@ class Bot:
         data = self.fresh_data()
         for chat_id in self.recipients():
             self.send(chat_id, "☀️ <b>Daily summary</b> (if this stops arriving, the monitor itself is down)\n\n"
-                      + views.fleet_status(data), menu_keyboard(False))
+                      + views.fleet_status(data, pictures=self.settings.get("picture_alerts", False)),
+                      menu_keyboard(False))
 
     def check_known_reminder(self) -> None:
         """Once a week, list the known issues that are still open (none open: no message)."""

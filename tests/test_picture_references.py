@@ -221,6 +221,7 @@ class AlertAndDashboardTests(Fixture):
         return [p["text"] for m, p in self.calls if m == "sendMessage"]
 
     def test_rechecking_keeps_an_open_picture_alert_without_messages(self):
+        self.bot.settings["picture_alerts"] = True                              # TELEGRAM_PICTURE_ALERTS=on.
         self.report(channels=[channel(1)])
         self.alerts()
         self.report(channels=[{**channel(1), "snapshot_result": {"status": "PICTURE_VIEW_CHANGED", "message": "x"}}])
