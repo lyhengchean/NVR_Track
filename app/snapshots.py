@@ -60,6 +60,11 @@ def moved_scans_needed() -> int:
         return 2
 
 
+# A candidate for an unlearned time-of-day slot becomes its reference when a
+# picture at that slot matches it again at least this much later (next day).
+LEARN_AFTER_HOURS = 20
+
+
 def moved_minutes() -> int:
     """Minutes the view must have differed before it is "view changed" (0-720, default 90).
 
@@ -141,10 +146,16 @@ def judge(metrics: dict, sha: str, previous: dict | None, reset_after: str | Non
 
     References per mode: "day"/"night" (latest matching picture) and
     "day@14" etc. (latest matching picture in that time-of-day slot). The view
-    is the same when it is close to either; then both are updated, so they
-    follow light and scene changes. Otherwise the camera is re-checked and is
-    "view changed" only after moved_scans_needed() scans in a row, the last
-    at least moved_minutes() after the first that differed.
+    is the same when it is close to any of them; then the mode and slot
+    references are updated, so they follow light and scene changes.
+
+    A slot with no reference yet (morning light when every reference is from
+    the afternoon) is learned, not counted as a move: the picture is kept as a
+    candidate and becomes the slot's reference when the next day's picture at
+    that time matches it. Only while no change is being followed, so a moved
+    view is never learned. Otherwise the camera is re-checked and is "view
+    changed" only after moved_scans_needed() scans in a row, the last at least
+    moved_minutes() after the first that differed.
     """
     previous = previous if isinstance(previous, dict) else {}
     now = now or datetime.now(timezone.utc)
@@ -162,12 +173,14 @@ def judge(metrics: dict, sha: str, previous: dict | None, reset_after: str | Non
     if not isinstance(reported, bool):
         reported = count >= moved_scans_needed()
     since = previous.get("differs_since")
+    candidates = {key: value for key, value in (previous.get("candidates") or {}).items()
+                  if isinstance(value, dict) and isinstance(value.get("dhash"), str)}
     if was_reset:
-        count, reported, since = 0, False, None
+        count, reported, since, candidates = 0, False, None, {}
     mode = metrics["mode"]
     band = _band_key(mode, now)
     entry = {"sha": sha, "dhash": metrics["dhash"], "checked_at": stamp, "refs": refs, "moved_scans": count,
-             "moved_reported": reported}
+             "moved_reported": reported, "candidates": candidates}
     if since and count:
         entry["differs_since"] = since       # Kept through black, flat or frozen pictures.
     if metrics["brightness"] < BLACK_BELOW:
@@ -180,10 +193,13 @@ def judge(metrics: dict, sha: str, previous: dict | None, reset_after: str | Non
         recent = False
     if previous.get("sha") == sha and recent:
         return FROZEN, "Exactly the same picture as at the previous scan (frozen image).", entry
-    known = [refs[key] for key in (mode, band) if key in refs]
+    # Every reference of this mode: the latest, and each time-of-day slot.
+    known = [ref for key, ref in refs.items() if (key == mode or key.startswith(mode + "@"))
+             and isinstance(ref.get("dhash"), str)]
     current = {"dhash": metrics["dhash"], "at": stamp}
     if not known:
         refs[mode] = refs[band] = current
+        candidates.pop(band, None)
         entry.update(moved_scans=0, moved_reported=False)
         entry.pop("differs_since", None)
         return OK, f"Picture OK ({mode}); saved as the reference view.", entry
@@ -191,9 +207,26 @@ def judge(metrics: dict, sha: str, previous: dict | None, reset_after: str | Non
     entry["distance"] = distance
     if distance <= MOVED_ABOVE:
         refs[mode] = refs[band] = current  # Follow light, weather and scene changes.
+        candidates.pop(band, None)
         entry.update(moved_scans=0, moved_reported=False)
         entry.pop("differs_since", None)
         return OK, f"Picture OK ({mode}).", entry
+    if band not in refs and count == 0 and not reported:
+        # This time of day has no reference yet: learn it rather than count a move.
+        candidate = candidates.get(band)
+        same = candidate is not None and hamming(metrics["dhash"], candidate["dhash"]) <= MOVED_ABOVE
+        try:
+            day_old = now - datetime.fromisoformat(candidate["at"]) >= timedelta(hours=LEARN_AFTER_HOURS)
+        except (TypeError, ValueError, KeyError):
+            day_old = False
+        if same and day_old:
+            refs[mode] = refs[band] = current
+            candidates.pop(band, None)
+            return OK, f"Picture OK ({mode}); learned the view for this time of day.", entry
+        if not same:
+            candidates[band] = current
+        return CHECKING, (f"View differs from the {mode} references of other times of day ({distance}/64); "
+                          "learning this time of day, compared again tomorrow at this time."), entry
     needed, minutes = moved_scans_needed(), moved_minutes()
     entry["moved_scans"] = count + 1
     # When the view first differed. Entries from before this field: the
