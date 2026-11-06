@@ -478,6 +478,7 @@ def _attach_events(nvrs: list[dict]) -> list[dict]:
         nvr["event_stream"] = None if not isinstance(state, dict) else {
             "connected": service_alive and state.get("connected") is True,
             "since": str(state.get("since") or "")[:40],
+            "down_since": str(state.get("down_since") or state.get("since") or "")[:40],
             "last_seen": str(state.get("last_seen") or "")[:40],
             "last_error": "SERVICE_STOPPED" if not service_alive else str(state.get("last_error") or "")[:40],
             "last_error_text": (event_store.reason_text("SERVICE_STOPPED") if not service_alive

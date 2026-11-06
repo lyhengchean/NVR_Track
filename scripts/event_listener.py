@@ -63,7 +63,7 @@ class Listener:
         self.dedupe = dedupe
         self.lock = lock
         self.state = {"connected": False, "since": None, "last_seen": None, "last_error": None,
-                      "events": 0, "ignored_types": {}}
+                      "events": 0, "ignored_types": {}, "down_since": now()}
 
     def run(self) -> None:
         username, password = credentials(self.nvr)
@@ -82,7 +82,7 @@ class Listener:
                                      headers={"Accept": "*/*"}) as response:
                         if response.status_code != 200:
                             raise ConnectionError(f"HTTP_{response.status_code}")
-                        self.mark(connected=True, since=now(), last_error=None)
+                        self.mark(connected=True, since=now(), last_error=None, down_since=None)
                         failures = 0
                         opened = time.monotonic()
                         for chunk in stream_chunks(response):
@@ -96,7 +96,8 @@ class Listener:
                     print(f"events: {self.nvr.id} disconnected ({code})", flush=True)
                 elif self.state["last_error"] != code:
                     print(f"events: {self.nvr.id} cannot connect ({code}); retrying", flush=True)
-                self.mark(connected=False, since=now(), last_error=code[:40])
+                self.mark(connected=False, since=now(), last_error=code[:40],
+                          down_since=self.state.get("down_since") or now())  # Start of this outage.
             wait = BACKOFF[min(failures, len(BACKOFF) - 1)]
             failures += 1
             time.sleep(wait)

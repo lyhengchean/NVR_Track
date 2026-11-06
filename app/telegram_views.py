@@ -6,7 +6,7 @@ dashboard does. Every device- or inventory-provided string is HTML-escaped.
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from html import escape
 from zoneinfo import ZoneInfo
 
@@ -521,7 +521,8 @@ NVR_PREFIXES = ("nvr:{0}:", "cam:{0}:", "storage:{0}", "clock:{0}", "checks:{0}"
                 "events:{0}:", "change:{0}:", "restart:{0}:")
 
 
-def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: bool = True) -> tuple[dict, list[str], list[str]]:
+def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: bool = True,
+                stream_down_minutes: int = 0) -> tuple[dict, list[str], list[str]]:
     """Current alert conditions, prefixes whose state is unknown, and muted prefixes.
 
     Keys under an unknown prefix keep their previous state, so a failed scan
@@ -547,6 +548,8 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: b
         stream = nvr.get("event_stream")
         if stream is None:
             muted.append(f"events:{nid}:")
+        elif not stream.get("connected") and not _down_for(stream, stream_down_minutes):
+            unknown.append(f"events:{nid}:")  # A short drop (the NVR ends the stream now and then).
         elif not stream.get("connected"):
             state[f"events:{nid}:down"] = _entry(
                 "warning", f"📡 <b>{title}</b>: real-time event stream disconnected "
@@ -673,6 +676,17 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: b
                 "warning", f"🟣 <b>{title}</b>: {plural(failed_checks, 'camera check')} could not be completed",
                 f"✅ <b>{title}</b>: all camera checks completed again")
     return state, unknown, muted
+
+
+def _down_for(stream: dict, minutes: int) -> bool:
+    """Has the stream been down for at least `minutes`? Unknown start: yes."""
+    if minutes <= 0:
+        return True
+    try:
+        start = datetime.fromisoformat(str(stream.get("down_since") or stream.get("since")))
+    except ValueError:
+        return True
+    return start.tzinfo is None or datetime.now(timezone.utc) - start >= timedelta(minutes=minutes)
 
 
 def compare(previous: dict, current: dict, unknown: list[str], known_nvrs: set[str],
