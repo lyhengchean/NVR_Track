@@ -497,6 +497,7 @@ class AddonBotTests(Fixture):
         self.assertIn("Which camera", self.message(111, "/known nvr-01 7d x")[0]["text"])
 
     def test_change_restart_picture_and_stream_alerts(self):
+        self.bot.settings["picture_alerts"] = True                              # TELEGRAM_PICTURE_ALERTS=on.
         self.report(channels=[channel(1), channel(2)])
         self.alerts()
         path = next((self.root / "reports").glob("nvr-01_*.json"))

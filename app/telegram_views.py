@@ -143,7 +143,8 @@ def scanner_line(scan: dict) -> str:
     return "⏱ Scanner: idle" + ("" if scan.get("scan_times") else ", no automatic scans set")
 
 
-def fleet_status(data: dict) -> str:
+def fleet_status(data: dict, pictures: bool = True) -> str:
+    """Fleet summary; pictures=False leaves out the picture-problem count (posts)."""
     s = data.get("summary") or {}
     c = s.get("condition_counts") or {}
     stopped = c.get("NOT_RECORDING", 0) + c.get("NO_FOOTAGE_30", 0)
@@ -182,7 +183,7 @@ def fleet_status(data: dict) -> str:
                                   ("OFFLINE_RECORDING", "Offline but recording"),
                                   ("KNOWN_ISSUE", "Known issues"),
                                   ("NO_RECENT_EVENTS", "Quiet event cams"))
-              if c.get(code)]
+              if c.get(code) and (pictures or code != "BAD_PICTURE")]
     if counts:
         lines.append("<b>Cameras needing a look</b> " + " · ".join(counts))
     if known_stopped:
@@ -519,7 +520,7 @@ NVR_PREFIXES = ("nvr:{0}:", "cam:{0}:", "storage:{0}", "clock:{0}", "checks:{0}"
                 "events:{0}:", "change:{0}:", "restart:{0}:")
 
 
-def alert_state(data: dict, *, clock_drift_seconds: int = 120) -> tuple[dict, list[str], list[str]]:
+def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: bool = True) -> tuple[dict, list[str], list[str]]:
     """Current alert conditions, prefixes whose state is unknown, and muted prefixes.
 
     Keys under an unknown prefix keep their previous state, so a failed scan
@@ -642,7 +643,9 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120) -> tuple[dict, li
                     f"{shortfall['history_days']} days; {shortfall['required']} days are required.",
                     f"✅ Keeps the required days again: {camera}")
             picture = (ch.get("snapshot_result") or {}).get("status")
-            if picture in BAD_PICTURES:
+            if not picture_alerts:
+                muted.append(key + "pic")  # Dashboard only; an open alert is dropped without a message.
+            elif picture in BAD_PICTURES:
                 state[key + "pic"] = _entry(
                     "warning", f"🖼 Picture {PICTURE_LABEL[picture]}: {camera}\n"
                     f"   {esc((ch.get('snapshot_result') or {}).get('message'))}",
