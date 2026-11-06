@@ -44,9 +44,9 @@ class JudgeTests(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
 
-    def run_day(self, steps):
+    def run_day(self, steps, entry=None):
         """steps: [(datetime, bits)]; returns statuses."""
-        entry, statuses = None, []
+        statuses = []
         for n, (when, bits) in enumerate(steps):
             status, _, entry = snapshots.judge(pic(bits), f"sha{n}", entry, None, now=when)
             statuses.append(status)
@@ -69,15 +69,22 @@ class JudgeTests(unittest.TestCase):
         self.assertEqual(status, "PICTURE_OK")                               # Matches yesterday 08:00.
         self.assertIn("day@08", self.entry["refs"])
 
+    def learned(self, base):
+        """An entry whose 08:00, 10:00 and 12:00 slots are known (day 4)."""
+        self.run_day([(at(4, 8), base), (at(4, 10), base), (at(4, 12), base)])
+        return self.entry
+
     def test_one_odd_picture_is_rechecked_and_a_lasting_change_is_reported(self):
         base = 0x0F0F_F0F0_3C3C_C3C3
-        statuses = self.run_day([(at(5, 8), base), (at(5, 10), flip(base, 40)), (at(5, 12), flip(base, 2))])
+        statuses = self.run_day([(at(5, 8), base), (at(5, 10), flip(base, 40)), (at(5, 12), flip(base, 2))],
+                                self.learned(base))
         self.assertEqual(statuses, ["PICTURE_OK", "PICTURE_VIEW_CHECKING", "PICTURE_OK"])  # A truck passed.
-        statuses = self.run_day([(at(5, 8), base), (at(5, 10), flip(base, 40)), (at(5, 12), flip(base, 41))])
+        statuses = self.run_day([(at(5, 8), base), (at(5, 10), flip(base, 40)), (at(5, 12), flip(base, 41))],
+                                self.learned(base))
         self.assertEqual(statuses, ["PICTURE_OK", "PICTURE_VIEW_CHECKING", "PICTURE_VIEW_CHANGED"])
         self.assertEqual(self.entry["refs"]["day"]["dhash"], f"{base:016x}")  # A moved view is never learned.
         with patch.dict("os.environ", {"NVR_SNAPSHOT_MOVED_SCANS": "1"}):
-            self.assertEqual(self.run_day([(at(5, 8), base), (at(5, 10), flip(base, 40))])[-1],
+            self.assertEqual(self.run_day([(at(5, 8), base), (at(5, 10), flip(base, 40))], self.learned(base))[-1],
                              "PICTURE_VIEW_CHANGED")
 
     def test_entries_from_before_this_rule_do_not_flap(self):
@@ -139,12 +146,12 @@ class SpacedRecheckTests(unittest.TestCase):
         self.assertEqual(self.judge(entry, flip(self.base, 41), self.minute(17, 0), "c")[0], "PICTURE_VIEW_CHANGED")
 
     def test_a_matching_picture_in_between_starts_over(self):
-        _, _, entry = self.judge(None, self.base, self.minute(8, 0), "a")
-        _, _, entry = self.judge(entry, flip(self.base, 40), self.minute(10, 0), "b")
-        status, _, entry = self.judge(entry, flip(self.base, 2), self.minute(10, 30), "c")
+        _, _, entry = self.judge(None, self.base, self.minute(14, 0), "a")
+        _, _, entry = self.judge(entry, flip(self.base, 40), self.minute(14, 20), "b")
+        status, _, entry = self.judge(entry, flip(self.base, 2), self.minute(14, 40), "c")
         self.assertEqual((status, entry["moved_scans"], entry.get("differs_since")), ("PICTURE_OK", 0, None))
-        status, _, entry = self.judge(entry, flip(self.base, 40), self.minute(12, 0), "d")
-        self.assertEqual((status, entry["differs_since"]), ("PICTURE_VIEW_CHECKING", self.minute(12, 0).isoformat()))
+        status, _, entry = self.judge(entry, flip(self.base, 40), self.minute(15, 0), "d")
+        self.assertEqual((status, entry["differs_since"]), ("PICTURE_VIEW_CHECKING", self.minute(15, 0).isoformat()))
 
     def test_entries_written_before_this_rule(self):
         refs = {"day": {"dhash": f"{self.base:016x}", "at": self.minute(14, 0).isoformat()}}
@@ -166,6 +173,76 @@ class SpacedRecheckTests(unittest.TestCase):
             _, _, entry = self.judge(entry, flip(self.base, 40), self.minute(15, 10), "b")
             self.assertEqual(self.judge(entry, flip(self.base, 41), self.minute(15, 20), "c")[0],
                              "PICTURE_VIEW_CHANGED")
+
+
+class TimeOfDayLearningTests(unittest.TestCase):
+    """06 Nov: 35 cameras "view changed" in the morning. Their references were
+    all from the afternoon, and a slot learned its reference only from a
+    picture that already matched, so morning light was never learned."""
+
+    def setUp(self):
+        env = patch.dict("os.environ", {"NVR_SNAPSHOT_MOVED_SCANS": "2", "NVR_SNAPSHOT_MOVED_MINUTES": "90"})
+        env.start()
+        self.addCleanup(env.stop)
+        self.afternoon = 0x0F0F_F0F0_3C3C_C3C3
+        self.morning = flip(self.afternoon, 34)                               # Low sun from the other side.
+        entry = None
+        for hour in (14, 16, 18):                                             # Only afternoon slots known.
+            _, _, entry = snapshots.judge(pic(self.afternoon), f"a{hour}", entry, None, now=at(5, hour))
+        self.entry = entry
+
+    def scan(self, bits, when, sha):
+        status, _, self.entry = snapshots.judge(pic(bits), sha, self.entry, None, now=when)
+        return status
+
+    def test_morning_light_is_learned_never_reported(self):
+        statuses = [self.scan(flip(self.morning, n % 2), at(6, hour), f"m{hour}") for n, hour in enumerate((8, 10))]
+        self.assertEqual(statuses, ["PICTURE_VIEW_CHECKING"] * 2)              # Was: VIEW_CHANGED at 10:00.
+        self.assertEqual((self.entry["moved_scans"], self.entry.get("differs_since")), (0, None))
+        self.assertEqual(set(self.entry["candidates"]), {"day@08", "day@10"})
+        self.assertEqual(self.scan(self.afternoon, at(6, 14), "a"), "PICTURE_OK")
+        self.assertEqual(self.scan(flip(self.morning, 2), at(7, 8), "n8"), "PICTURE_OK")   # Next morning.
+        self.assertIn("day@08", self.entry["refs"])
+        self.assertNotIn("day@08", self.entry["candidates"])
+        self.assertEqual(self.scan(flip(self.morning, 1), at(7, 9), "n9"), "PICTURE_OK")
+
+    def test_a_rescan_the_same_morning_does_not_learn_yet(self):
+        self.scan(self.morning, at(6, 8), "m8")
+        self.assertEqual(self.scan(flip(self.morning, 1), at(6, 9), "m9"), "PICTURE_VIEW_CHECKING")
+        self.assertNotIn("day@08", self.entry["refs"])
+
+    def test_a_move_seen_at_a_known_time_is_still_reported(self):
+        moved = flip(self.afternoon, 40, 20)
+        statuses = [self.scan(flip(moved, n % 2), at(6, hour), f"x{hour}") for n, hour in enumerate((14, 16))]
+        self.assertEqual(statuses, ["PICTURE_VIEW_CHECKING", "PICTURE_VIEW_CHANGED"])
+        # Next morning (no morning reference): still reported, never learned.
+        self.assertEqual(self.scan(moved, at(7, 8), "y8"), "PICTURE_VIEW_CHANGED")
+        self.assertEqual(self.scan(flip(moved, 1), at(8, 8), "z8"), "PICTURE_VIEW_CHANGED")
+        self.assertNotIn("day@08", self.entry["refs"])
+
+    def test_a_move_first_seen_in_an_unknown_slot_is_reported_at_the_next_known_one(self):
+        moved = flip(self.afternoon, 40, 20)
+        self.assertEqual(self.scan(moved, at(6, 10), "u10"), "PICTURE_VIEW_CHECKING")      # Learning only.
+        self.assertEqual(self.scan(flip(moved, 1), at(6, 14), "k14"), "PICTURE_VIEW_CHECKING")  # Counted.
+        self.assertEqual(self.scan(moved, at(6, 16), "k16"), "PICTURE_VIEW_CHANGED")
+        self.assertEqual(self.scan(flip(moved, 1), at(7, 10), "u10b"), "PICTURE_VIEW_CHANGED")  # Candidate not used.
+        self.assertNotIn("day@10", self.entry["refs"])
+
+    def test_any_time_of_day_reference_counts_as_the_same_view(self):
+        status = self.scan(flip(self.afternoon, 3), at(6, 12), "noon")      # No 12:00 slot yet.
+        self.assertEqual(status, "PICTURE_OK")
+        self.assertIn("day@12", self.entry["refs"])
+
+    def test_cameras_reported_this_morning_clear_when_they_match_another_slot(self):
+        self.entry.update(moved_scans=2, moved_reported=True, distance=34,
+                          differs_since=at(6, 8).isoformat())                 # Written by the old rule.
+        self.assertEqual(self.scan(self.morning, at(6, 11), "m11"), "PICTURE_VIEW_CHANGED")
+        self.assertEqual(self.scan(flip(self.afternoon, 2), at(6, 12), "a12"), "PICTURE_OK")
+
+    def test_marking_fixed_forgets_candidates(self):
+        self.scan(self.morning, at(6, 8), "m8")
+        _, _, entry = snapshots.judge(pic(self.morning), "f", self.entry, at(6, 9).isoformat(), now=at(6, 10))
+        self.assertEqual(entry["candidates"], {})
 
 
 class StoredPictureTests(unittest.TestCase):
