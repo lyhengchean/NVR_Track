@@ -380,23 +380,27 @@ Content-Security-Policy; all device-provided text is rendered as plain text.
 **Reports** in the dashboard header opens a query builder over data NVR Track
 already has (`app/custom_reports.py`; no NVR is contacted):
 
-1. **Report on** — *Cameras* or *Disks* on a date (today = what the dashboard
+1. **Report on** — click one or more cards (each becomes a section of the
+   report): *Cameras* or *Disks* on a date (today = what the dashboard
    shows now, an earlier day = the newest scan up to that day), or over a
    period: *Camera uptime* (online %, recording %, scans offline, offline/online
    changes, last seen offline), *NVR health* (reachable %, healthy/warning/critical
    scans, restarts, cameras offline), *Scan log* (one row per scan),
    *Real-time events*, *Camera changes*, *Repair notes*.
-2. **NVRs**, 3. **dates** (at most 366 days), 4. **columns**,
-5. **only rows where** (up to 6 conditions, all must match: `=`, `≠`,
-   contains, `>`, `<`, empty …; a date alone means the whole day),
-6. **sort and limit**.
+2. **NVRs** and 3. **dates** (at most 366 days) for all sections; "on a date"
+   sections use the To date.
+4. Per section, in its own group: **columns**, **only rows where** (up to 6
+   conditions, all must match: `=`, `≠`, contains, `>`, `<`, empty …; a date
+   alone means the whole day), **sort and limit**.
 
-The query is shown like SQL. **Run query** previews the first 200 rows;
-**Save on server** stores the full result (up to 50,000 rows) under any name in
-`state/custom_reports/` (included in the deploy backup). Saved reports can be
-downloaded any time as **CSV** (UTF-8, opens in Excel, Khmer names kept) or
-**PDF** (landscape table, first 3,000 rows, Latin letters), loaded back with
-**Use query**, or deleted. Percentages follow the uptime rules: failed or
+The queries are shown like SQL. **Run query** previews each section in its own
+tab (first 200 rows); **Save on server** stores the full result (up to 50,000
+rows per section, 150,000 in all) under any name in `state/custom_reports/`
+(included in the deploy backup). Saved reports can be downloaded any time as
+**PDF** (one file, a landscape table per section, first 3,000 rows each, Latin
+letters) or **CSV** (UTF-8, opens in Excel, Khmer names kept; a ZIP with one
+CSV per section when there are several), loaded back with **Use query**, or
+deleted. Reports saved before sections existed still open and download. Percentages follow the uptime rules: failed or
 disabled checks are left out, never counted as recording or online.
 
 ## NVR display names

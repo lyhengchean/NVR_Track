@@ -1,12 +1,15 @@
-"""Report builder (/reports): query saved reports by data set, NVRs, dates,
-columns and conditions; save under any name on the server; download later as
-CSV or PDF. Built from saved data only; unverified checks never count as
-recording or online."""
+"""Report builder (/reports): query saved reports by one or more data sets,
+NVRs, dates and, per data set, columns, conditions and sort; save under any
+name on the server; download later as PDF (a section per data set) or CSV (a
+ZIP with one CSV per data set). Built from saved data only; unverified checks
+never count as recording or online."""
 import base64
+import io
 import json
 import tempfile
 import threading
 import unittest
+import zipfile
 from datetime import date, datetime, time, timedelta
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -84,9 +87,10 @@ class Fixture(unittest.TestCase):
         (self.reports / name).write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
 
     def query(self, **raw):
+        """One data set in the one-table form saved before (still accepted)."""
         spec, error = cr.normalize(raw)
         self.assertIsNone(error, error)
-        result = cr.build(spec, self.reports)
+        result = cr.build(spec, self.reports)["sections"][0]
         return [dict(zip([c["key"] for c in result["columns"]], row)) for row in result["rows"]], result
 
 
@@ -95,8 +99,8 @@ class QueryTests(Fixture):
         spec, error = cr.normalize({"dataset": "camera_uptime"})
         self.assertIsNone(error)
         self.assertEqual((spec["date_from"], spec["date_to"]), ((TODAY - timedelta(days=6)).isoformat(), TODAY.isoformat()))
-        self.assertEqual(spec["sort"], {"column": "online_pct", "desc": False})
-        self.assertIn("online_pct", spec["columns"])
+        self.assertEqual(spec["sections"][0]["sort"], {"column": "online_pct", "desc": False})
+        self.assertIn("online_pct", spec["sections"][0]["columns"])
         bad = [({"dataset": "x"}, "Choose what"), ({"dataset": "scans", "date_to": "2999-01-01"}, "future"),
                ({"dataset": "scans", "date_from": D3.isoformat(), "date_to": D1.isoformat()}, "after the end"),
                ({"dataset": "scans", "date_from": "2020-01-01"}, "at most 366"),
@@ -109,6 +113,11 @@ class QueryTests(Fixture):
             self.assertIn(words, cr.normalize(raw)[1], raw)
         spec, _ = cr.normalize({"dataset": "cameras", "date_from": "2001-01-01", "date_to": D2.isoformat()})
         self.assertEqual(spec["date_from"], D2.isoformat())                          # "On a date" ignores From.
+        sections = [{"dataset": "scans"}, {"dataset": "scans"}]
+        self.assertIn("once", cr.normalize({"sections": sections})[1])
+        self.assertIn("Choose what", cr.normalize({"sections": []})[1])
+        bad = cr.normalize({"sections": [{"dataset": "disks"}, {"dataset": "scans", "columns": ["nope"]}]})[1]
+        self.assertEqual(bad, "Scan log: Choose at least one column.")              # Says which data set.
 
     def test_camera_uptime_over_a_period_with_conditions(self):
         rows, result = self.query(dataset="camera_uptime", nvrs=["nvr-01"], date_from=D1.isoformat(),
@@ -191,6 +200,57 @@ class QueryTests(Fixture):
         self.assertIn("LIMIT 2", result["query"])
 
 
+class SeveralDataSetsTests(Fixture):
+    def test_each_data_set_keeps_its_own_columns_conditions_and_dates(self):
+        spec, error = cr.normalize({
+            "nvrs": ["nvr-01"], "date_from": D1.isoformat(), "date_to": D3.isoformat(),
+            "sections": [{"dataset": "camera_uptime", "columns": ["channel", "online_pct"],
+                          "conditions": [{"column": "online_pct", "op": "lt", "value": "100"}]},
+                         {"dataset": "disks", "columns": ["hdd", "status"], "sort": {"column": "hdd", "desc": True}},
+                         {"dataset": "changes"}]})
+        self.assertIsNone(error)
+        first, disks, changes = cr.build(spec, self.reports)["sections"]
+        self.assertEqual((first["label"], [c["key"] for c in first["columns"]], first["rows"]),
+                         ("Camera uptime", ["channel", "online_pct"], [[2, 50.0]]))
+        self.assertEqual((disks["mode"], disks["date_from"], disks["date_to"]), ("as_of", D3.isoformat(), D3.isoformat()))
+        self.assertEqual(disks["rows"], [["2", "error"], ["1", "ok"]])               # Its own sort, on the To date.
+        self.assertEqual(len(changes["rows"]), 1)
+        self.assertIn("FROM Disks ON", disks["query"])
+        self.assertIn(f"FROM Camera uptime FROM {D1.isoformat()} TO {D3.isoformat()}", first["query"])
+
+        item, error = cr.save("Weekly check", spec, cr.build(spec, self.reports))
+        self.assertIsNone(error)
+        self.assertEqual((item["labels"], item["section_rows"], item["rows"]),
+                         (["Camera uptime", "Disks", "Camera changes"], [1, 2, 1], 4))
+        doc = cr.load_saved(item["id"])
+        body, content_type, extension = cr.csv_download(doc)
+        self.assertEqual((content_type, extension), ("application/zip", "zip"))
+        with zipfile.ZipFile(io.BytesIO(body)) as archive:
+            self.assertEqual(archive.namelist(), ["01-Camera-uptime.csv", "02-Disks.csv", "03-Camera-changes.csv"])
+            self.assertTrue(archive.read("02-Disks.csv").startswith(b"\xef\xbb\xbfHDD,Status"))
+        pdf = cr.to_pdf(doc)
+        self.assertTrue(pdf.startswith(b"%PDF"))
+        with patch.object(cr, "MAX_TOTAL_ROWS", 3):
+            self.assertIn("rows in total", cr.save("Too big", spec, cr.build(spec, self.reports))[1])
+
+    def test_reports_saved_as_one_table_still_open_and_download(self):
+        old = {"schema_version": 1, "id": "abcdef012345", "name": "Old one", "created_at": "2026-11-06T08:00:00+00:00",
+               "spec": {"dataset": "scans", "nvrs": [], "date_from": D1.isoformat(), "date_to": D3.isoformat(),
+                        "columns": ["time", "nvr"], "conditions": [], "sort": {"column": "time", "desc": True},
+                        "limit": None},
+               "query": "SELECT Time, NVR FROM Scan log", "columns": [{"key": "time", "label": "Time", "kind": "time"},
+                                                                     {"key": "nvr", "label": "NVR", "kind": "text"}],
+               "rows": [["2026-11-05 08:00", "nvr-01"]], "total": 1, "truncated": False, "meta": {}}
+        (self.root / "saved" / "abcdef012345.json").write_text(json.dumps(old))
+        listed = cr.list_saved()
+        self.assertEqual((listed[0]["labels"], listed[0]["rows"]), (["Scan log"], 1))
+        self.assertEqual(listed[0]["spec"]["sections"][0]["dataset"], "scans")         # "Use query" works.
+        doc = cr.load_saved("abcdef012345")
+        self.assertEqual(cr.csv_download(doc)[1:], ("text/csv; charset=utf-8", "csv"))
+        self.assertTrue(cr.to_pdf(doc).startswith(b"%PDF"))
+        self.assertIsNone(cr.normalize(listed[0]["spec"])[1])
+
+
 class SaveAndDownloadTests(Fixture):
     def test_save_list_download_delete(self):
         spec, _ = cr.normalize({"dataset": "camera_uptime", "date_from": D1.isoformat(), "date_to": D3.isoformat()})
@@ -204,7 +264,8 @@ class SaveAndDownloadTests(Fixture):
         (self.root / "saved" / "index.json").unlink()                               # Rebuilt from the files.
         self.assertEqual(cr.list_saved()[0]["rows"], 5)
         doc = cr.load_saved(item["id"])
-        csv_bytes = cr.to_csv(doc)
+        csv_bytes, content_type, extension = cr.csv_download(doc)
+        self.assertEqual(extension, "csv")
         self.assertTrue(csv_bytes.startswith(b"\xef\xbb\xbfNVR,NVR name,Channel,Camera"))
         text = csv_bytes.decode("utf-8")
         self.assertIn("'=Store", text)                                              # No spreadsheet formulas.
@@ -265,11 +326,15 @@ class HttpTests(Fixture):
         self.assertIn("camera_uptime", [d["key"] for d in options["datasets"]])
         self.assertEqual(options["saved"], [])
 
-        spec = {"dataset": "camera_uptime", "date_from": D1.isoformat(), "date_to": D3.isoformat(),
-                "conditions": [{"column": "offline_scans", "op": "gt", "value": "0"}]}
+        spec = {"date_from": D1.isoformat(), "date_to": D3.isoformat(),
+                "sections": [{"dataset": "camera_uptime",
+                              "conditions": [{"column": "offline_scans", "op": "gt", "value": "0"}]}]}
         self.assertEqual(self.post({"action": "preview", "spec": spec}, header="scan")[0], 403)
         status, preview = self.post({"action": "preview", "spec": spec})
-        self.assertEqual((status, preview["total"]), (200, 1))
+        self.assertEqual((status, [x["total"] for x in preview["sections"]]), (200, [1]))
+        both = {**spec, "sections": spec["sections"] + [{"dataset": "disks"}]}
+        status, preview = self.post({"action": "preview", "spec": both})
+        self.assertEqual([x["label"] for x in preview["sections"]], ["Camera uptime", "Disks"])
         self.assertEqual(self.post({"action": "preview", "spec": {"dataset": "nope"}})[0], 400)
         status, saved = self.post({"action": "save", "name": "Offline – last days", "spec": spec})
         self.assertEqual(status, 200)
@@ -285,6 +350,12 @@ class HttpTests(Fixture):
             with self.assertRaises(HTTPError) as ctx:
                 self.get("/api/custom-reports/download" + bad)
             self.assertEqual(ctx.exception.code, 404)
+        status, saved = self.post({"action": "save", "name": "Two parts", "spec": both})
+        status, headers, body = self.get(f"/api/custom-reports/download?id={saved['item']['id']}&format=csv")
+        self.assertEqual(headers["Content-Type"], "application/zip")
+        self.assertIn('filename="Two-parts.zip"', headers["Content-Disposition"])
+        self.assertEqual(len(zipfile.ZipFile(io.BytesIO(body)).namelist()), 2)
+        self.post({"action": "delete", "id": saved["item"]["id"]})
         status, after = self.post({"action": "delete", "id": rid})
         self.assertEqual((status, after["saved"]), (200, []))
 
