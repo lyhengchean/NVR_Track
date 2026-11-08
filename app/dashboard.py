@@ -1018,7 +1018,8 @@ def custom_report_action(body: dict) -> tuple[int, dict]:
         return 400, {"error": error}
     result = custom_reports.build(spec, REPORTS_DIR)
     if action == "preview":
-        return 200, {**result, "rows": result["rows"][:custom_reports.PREVIEW_ROWS], "spec": spec}
+        return 200, {"spec": spec, "sections": [{**x, "rows": x["rows"][:custom_reports.PREVIEW_ROWS]}
+                                                for x in result["sections"]]}
     item, error = custom_reports.save(str(body.get("name") or ""), spec, result)
     if error:
         return 400, {"error": error}
@@ -1149,16 +1150,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send(404, "text/plain; charset=utf-8", b"No such saved report.\n")
             return
         try:
-            body = custom_reports.to_csv(doc) if fmt == "csv" else custom_reports.to_pdf(doc)
+            if fmt == "csv":  # One CSV, or a ZIP with one CSV per section.
+                body, content_type, extension = custom_reports.csv_download(doc)
+            else:
+                body, content_type, extension = custom_reports.to_pdf(doc), "application/pdf", "pdf"
         except Exception:
             self._send(500, "text/plain; charset=utf-8", b"The file could not be made.\n")
             return
         stem = custom_reports.file_stem(doc["name"])
-        utf8 = quote(doc["name"][:80] + "." + fmt, safe="")
+        utf8 = quote(doc["name"][:80] + "." + extension, safe="")
         self.send_response(200)
-        self.send_header("Content-Type", "text/csv; charset=utf-8" if fmt == "csv" else "application/pdf")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Content-Disposition", f'attachment; filename="{stem}.{fmt}"; filename*=UTF-8\'\'{utf8}')
+        self.send_header("Content-Disposition", f'attachment; filename="{stem}.{extension}"; filename*=UTF-8\'\'{utf8}')
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
@@ -1228,7 +1232,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
-            if not 0 < length <= 4096:
+            # A report with several data sets carries columns and conditions for each.
+            if not 0 < length <= (32_768 if route == "/api/custom-reports" else 4096):
                 raise ValueError
             body = json.loads(self.rfile.read(length).decode("utf-8"))
             if not isinstance(body, dict):

@@ -67,18 +67,36 @@ a{color:var(--accent-ink)}
 .step{padding:14px 0;border-bottom:1px solid var(--line-2)}
 .step:last-of-type{border-bottom:0}
 .step h2{display:flex;align-items:center;gap:9px;margin:0 0 10px;font-size:13px;font-weight:680;letter-spacing:.01em}
-.step h2 .n{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);font-size:11.5px;font-weight:700}
+.step h2 .n{flex:none;display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);font-size:11.5px;font-weight:700}
 .step h2 .aside{margin-left:auto;font-weight:500;color:var(--muted);font-size:12px}
 .datasets{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-.ds{position:relative;display:block;padding:9px 11px 10px;border:1px solid var(--line);border-radius:9px;background:var(--panel);cursor:pointer;text-align:left}
-.ds input{position:absolute;opacity:0;pointer-events:none}
-.ds b{display:block;font-size:13px;font-weight:650}
+.ds{position:relative;display:block;width:100%;padding:9px 11px 10px;border:1px solid var(--line);border-radius:9px;background:var(--panel);cursor:pointer;text-align:left;color:var(--ink)}
+.ds b{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:650;padding-right:62px}
 .ds span{display:block;font-size:11.5px;line-height:1.35;color:var(--muted);margin-top:2px}
 .ds:hover{border-color:color-mix(in srgb,var(--accent) 45%,var(--line))}
-.ds:has(input:checked){border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
-.ds:has(input:checked) b{color:var(--accent-ink)}
-.ds:has(input:focus-visible){outline:3px solid var(--focus);outline-offset:2px}
+.ds[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.ds[aria-pressed="true"] b{color:var(--accent-ink)}
 .ds .tag{position:absolute;top:8px;right:9px;font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:0}
+.order{display:inline-grid;place-items:center;flex:none;min-width:18px;height:18px;padding:0 4px;border-radius:9px;background:var(--accent);color:#fff;font:700 10.5px/1 var(--font);font-style:normal}
+.group{border:1px solid var(--line);border-radius:10px;background:var(--panel);margin-top:8px}
+.group:first-child{margin-top:0}
+.group>summary{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;list-style:none;border-radius:10px}
+.group>summary::-webkit-details-marker{display:none}
+.group>summary::after{content:"";width:7px;height:7px;margin-left:4px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:rotate(-45deg);transition:transform .15s;flex:none}
+.group[open]>summary::after{transform:rotate(45deg)}
+.group>summary:hover{background:var(--panel-2)}
+.group[open]>summary{border-bottom:1px solid var(--line-2);border-radius:10px 10px 0 0}
+.gname{font-weight:680;font-size:13px}
+.gsum{margin-left:auto;font-size:11.5px;color:var(--muted);text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.gbody{padding:2px 12px 12px}
+.sub-h{display:flex;align-items:center;gap:8px;margin:12px 0 6px;font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.sub-h .links{margin-left:auto;text-transform:none;letter-spacing:0}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.tab{display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px 0 7px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:12.5px;font-weight:620;color:var(--ink-2)}
+.tab:hover{border-color:var(--accent)}
+.tab[aria-selected="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink)}
+.tab .c{font-weight:500;color:var(--muted)}
+.secmeta{margin:0 0 8px;font-size:12.5px;color:var(--muted)}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chip{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--line);border-radius:999px;background:var(--panel);font-size:12.5px;cursor:pointer;user-select:none;white-space:nowrap}
 .chip input{accent-color:var(--accent);margin:0}
@@ -137,7 +155,7 @@ td.blank{color:var(--muted)}
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media (max-width:1100px){.layout{grid-template-columns:minmax(0,1fr)}.builder{position:static;max-height:none}}
-@media (max-width:560px){.wrap{padding:0 14px}.datasets{grid-template-columns:1fr}.brand p{display:none}.cond{grid-template-columns:1fr 1fr}.cond .x{height:36px}.row2{grid-template-columns:1fr 1fr}.saved li{grid-template-columns:minmax(0,1fr)}.saved .acts{justify-content:flex-start}}
+@media (max-width:560px){.wrap{padding:0 14px}.datasets{grid-template-columns:1fr}.gsum{display:none}.brand p{display:none}.cond{grid-template-columns:1fr 1fr}.cond .x{height:36px}.row2{grid-template-columns:1fr 1fr}.saved li{grid-template-columns:minmax(0,1fr)}.saved .acts{justify-content:flex-start}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -161,8 +179,8 @@ td.blank{color:var(--muted)}
 <main class="wrap layout">
   <form class="card builder" id="builder" autocomplete="off">
     <section class="step">
-      <h2><span class="n">1</span>Report on</h2>
-      <div class="datasets" id="datasets" role="radiogroup" aria-label="Data set"></div>
+      <h2><span class="n">1</span>Report on<span class="aside" id="ds-count">pick one or more</span></h2>
+      <div class="datasets" id="datasets" role="group" aria-label="Data sets"></div>
     </section>
     <section class="step">
       <h2><span class="n">2</span>NVRs<span class="aside" id="nvr-count"></span></h2>
@@ -175,24 +193,11 @@ td.blank{color:var(--muted)}
         <div><label for="date-to" id="to-label">To</label><input type="date" class="control" id="date-to"></div>
       </div>
       <div class="quick" id="quick"></div>
+      <p class="hint" id="date-hint" hidden></p>
     </section>
     <section class="step">
-      <h2><span class="n">4</span>Columns<span class="aside"><button type="button" class="linkbtn" id="cols-default">Default</button><button type="button" class="linkbtn" id="cols-all">All</button></span></h2>
-      <div class="chips" id="columns"></div>
-    </section>
-    <section class="step">
-      <h2><span class="n">5</span>Only rows where</h2>
-      <div id="conditions"></div>
-      <button type="button" class="linkbtn" id="add-cond">+ Add condition</button>
-      <p class="hint" id="cond-hint">No conditions: every row is included.</p>
-    </section>
-    <section class="step">
-      <h2><span class="n">6</span>Sort and limit</h2>
-      <div class="row2">
-        <select class="control" id="sort-col" aria-label="Sort by"></select>
-        <select class="control" id="sort-dir" aria-label="Sort direction"><option value="0">Ascending</option><option value="1">Descending</option></select>
-        <input type="number" class="control" id="limit" min="1" step="1" placeholder="All rows" aria-label="Row limit">
-      </div>
+      <h2><span class="n">4</span>Columns, conditions and sort<span class="aside">per data set</span></h2>
+      <div id="groups"></div>
     </section>
     <section class="step">
       <pre class="query" id="query" aria-label="Query"></pre>
@@ -239,7 +244,8 @@ td.blank{color:var(--muted)}
 "use strict";
 const $ = id => document.getElementById(id);
 function el(tag, cls, text) { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined && text !== null) n.textContent = String(text); return n; }
-const S = {opts: null, ds: null, nvrs: new Set(), cols: [], conds: [], result: null, ranSpec: "", busy: false};
+// sel: chosen data sets in the order picked; sec: settings per data set (kept when unpicked).
+const S = {opts: null, sel: [], sec: {}, nvrs: new Set(), result: null, tab: null, ranSpec: "", busy: false, saved: []};
 const KIND_OPS = {
   text: ["contains", "not_contains", "is", "is_not", "empty", "not_empty"],
   enum: ["is", "is_not", "empty", "not_empty"],
@@ -257,48 +263,61 @@ async function api(body) {
   if (!res.ok) throw new Error(data.error || ("Request failed (" + res.status + ")."));
   return data;
 }
-function dataset() { return S.opts.datasets.find(d => d.key === S.ds); }
-function column(key) { return dataset().columns.find(c => c.key === key); }
+function ds(key) { return S.opts.datasets.find(d => d.key === key); }
+function column(key, col) { return ds(key).columns.find(c => c.key === col); }
 function iso(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
 function day(text) { const [y, m, d] = text.split("-").map(Number); return new Date(y, m - 1, d); }
 function shift(text, days) { const d = day(text); d.setDate(d.getDate() + days); return iso(d); }
+function sec(key) {
+  if (!S.sec[key]) {
+    const d = ds(key);
+    S.sec[key] = {cols: d.columns.filter(c => c.default).map(c => c.key), conds: [], sort: d.sort.column, desc: d.sort.desc, limit: "", open: true};
+  }
+  return S.sec[key];
+}
+function hasPeriod() { return S.sel.some(k => ds(k).mode === "range"); }
+function hasDate() { return S.sel.some(k => ds(k).mode === "as_of"); }
+function changed() { renderQuery(); }
 
-// ---------- builder ----------
+// ---------- 1. data sets: click a card to add or remove it ----------
 function renderDatasets() {
   const box = $("datasets");
   box.replaceChildren();
   for (const d of S.opts.datasets) {
-    const label = el("label", "ds");
-    const input = el("input");
-    input.type = "radio"; input.name = "dataset"; input.value = d.key; input.checked = d.key === S.ds;
-    input.addEventListener("change", () => chooseDataset(d.key));
-    label.append(input, el("b", "", d.label), el("span", "", d.help), el("p", "tag", d.mode === "as_of" ? "on a date" : "period"));
-    box.append(label);
+    const at = S.sel.indexOf(d.key);
+    const card = el("button", "ds");
+    card.type = "button";
+    card.setAttribute("aria-pressed", String(at >= 0));
+    card.title = at >= 0 ? "Click to remove " + d.label : "Click to add " + d.label;
+    const title = el("b");
+    if (at >= 0) title.append(el("i", "order", at + 1));
+    title.append(d.label);
+    card.append(title, el("span", "", d.help), el("p", "tag", d.mode === "as_of" ? "on a date" : "period"));
+    card.addEventListener("click", () => toggle(d.key));
+    box.append(card);
   }
+  $("ds-count").textContent = S.sel.length ? S.sel.length + " chosen" : "pick one or more";
 }
-function chooseDataset(key, keep) {
-  S.ds = key;
-  const d = dataset();
-  if (!keep) {
-    S.cols = d.columns.filter(c => c.default).map(c => c.key);
-    S.conds = [];
-    $("sort-col").dataset.value = d.sort.column;
-    $("sort-dir").value = d.sort.desc ? "1" : "0";
-  }
-  renderDatasets(); renderDates(); renderColumns(); renderConditions(); renderSort(); renderQuery();
+function toggle(key) {
+  const at = S.sel.indexOf(key);
+  if (at >= 0) S.sel.splice(at, 1);
+  else { S.sel.push(key); sec(key).open = true; }
+  renderDatasets(); renderDates(); renderGroups(); renderQuery();
 }
+
+// ---------- 2. NVRs ----------
 function renderNvrs() {
   const box = $("nvrs");
   box.replaceChildren();
   const all = el("label", "chip");
   const a = el("input"); a.type = "checkbox"; a.checked = S.nvrs.size === 0;
-  a.addEventListener("change", () => { S.nvrs.clear(); renderNvrs(); renderQuery(); });
+  a.addEventListener("change", () => { S.nvrs.clear(); renderNvrs(); changed(); });
   all.append(a, "All NVRs");
   box.append(all);
   for (const n of S.opts.nvrs) {
     const chip = el("label", "chip");
     const input = el("input"); input.type = "checkbox"; input.checked = S.nvrs.has(n.id);
-    input.addEventListener("change", () => { input.checked ? S.nvrs.add(n.id) : S.nvrs.delete(n.id); renderNvrs(); renderQuery(); });
+    input.addEventListener("change", () => { input.checked ? S.nvrs.add(n.id) : S.nvrs.delete(n.id); renderNvrs(); changed(); });
     chip.title = n.name ? n.name + " (" + n.id + ")" : n.id;
     chip.append(input, n.id.replace(/^nvr-/i, "NVR "));
     if (n.name) chip.append(el("small", "", n.name.length > 14 ? n.name.slice(0, 13) + "…" : n.name));
@@ -306,14 +325,19 @@ function renderNvrs() {
   }
   $("nvr-count").textContent = S.nvrs.size ? S.nvrs.size + " of " + S.opts.nvrs.length : "all " + S.opts.nvrs.length;
 }
+
+// ---------- 3. dates (shared; "on a date" data sets use the To date) ----------
 function renderDates() {
-  const single = dataset().mode === "as_of";
+  const single = S.sel.length > 0 && !hasPeriod();
   $("dates").classList.toggle("single", single);
   $("from-box").hidden = single;
   $("date-title").textContent = single ? "On date" : "Dates";
   $("to-label").textContent = single ? "State on" : "To";
   for (const id of ["date-from", "date-to"]) { $(id).max = S.opts.today; if (S.opts.oldest) $(id).min = S.opts.oldest; }
   $("oldest").textContent = S.opts.oldest ? "reports since " + S.opts.oldest : "";
+  const mixed = hasPeriod() && hasDate();
+  $("date-hint").hidden = !mixed;
+  if (mixed) $("date-hint").textContent = S.sel.filter(k => ds(k).mode === "as_of").map(k => ds(k).label).join(" and ") + " show the state on the To date.";
   const t = S.opts.today, first = t.slice(0, 8) + "01", lastEnd = shift(first, -1), lastFirst = lastEnd.slice(0, 8) + "01";
   const choices = single
     ? [["Today", t, t], ["Yesterday", shift(t, -1), shift(t, -1)], ["End of last month", lastEnd, lastEnd], ["7 days ago", shift(t, -7), shift(t, -7)]]
@@ -323,114 +347,179 @@ function renderDates() {
   box.replaceChildren();
   for (const [label, from, to] of choices) {
     const b = el("button", "", label); b.type = "button";
-    b.addEventListener("click", () => { $("date-from").value = from; $("date-to").value = to; renderQuery(); });
+    b.addEventListener("click", () => { $("date-from").value = from; $("date-to").value = to; changed(); });
     box.append(b);
   }
 }
-function renderColumns() {
-  const box = $("columns");
-  box.replaceChildren();
-  for (const c of dataset().columns) {
-    const chip = el("label", "chip");
-    const input = el("input"); input.type = "checkbox"; input.checked = S.cols.includes(c.key);
-    input.addEventListener("change", () => {
-      const order = dataset().columns.map(x => x.key);
-      S.cols = input.checked ? order.filter(k => k === c.key || S.cols.includes(k)) : S.cols.filter(k => k !== c.key);
-      renderQuery();
-    });
-    chip.append(input, c.label);
-    box.append(chip);
-  }
-}
+
+// ---------- 4. one group per chosen data set ----------
 function opLabel(kind, op) { return kind === "time" && TIME_OPS[op] ? TIME_OPS[op] : S.opts.ops[op]; }
-function renderConditions() {
-  const box = $("conditions");
+function groupSummary(key) {
+  const s = sec(key), n = s.conds.length;
+  return s.cols.length + (s.cols.length === 1 ? " column" : " columns") + (n ? " · " + n + (n === 1 ? " condition" : " conditions") : "")
+    + " · by " + column(key, s.sort).label + (s.desc ? " ↓" : " ↑") + (s.limit ? " · max " + s.limit : "");
+}
+function renderGroups() {
+  const box = $("groups");
   box.replaceChildren();
-  S.conds.forEach((cond, i) => {
-    const row = el("div", "cond");
-    const colSel = el("select", "control"); colSel.setAttribute("aria-label", "Column");
-    for (const c of dataset().columns) { const o = el("option", "", c.label); o.value = c.key; o.selected = c.key === cond.column; colSel.append(o); }
-    const kind = column(cond.column).kind;
-    if (!KIND_OPS[kind].includes(cond.op)) cond.op = KIND_OPS[kind][0];
-    const opSel = el("select", "control"); opSel.setAttribute("aria-label", "Comparison");
-    for (const op of KIND_OPS[kind]) { const o = el("option", "", opLabel(kind, op)); o.value = op; o.selected = op === cond.op; opSel.append(o); }
-    let value;
-    const noValue = cond.op === "empty" || cond.op === "not_empty";
-    if (kind === "enum" && !noValue) {
-      value = el("select", "control");
-      const values = column(cond.column).values;
-      if (!values.includes(cond.value)) cond.value = values[0] || "";
-      for (const v of values) { const o = el("option", "", v); o.value = v; o.selected = v === cond.value; value.append(o); }
-    } else {
-      value = el("input", "control");
-      value.type = (kind === "number" || kind === "percent") ? "number" : "text";
-      if (value.type === "number") value.step = "any";
-      value.placeholder = noValue ? "—" : kind === "time" ? "2026-11-05" : kind === "percent" ? "e.g. 95" : "value";
-      value.value = noValue ? "" : cond.value;
-      value.disabled = noValue;
-    }
-    value.setAttribute("aria-label", "Value");
-    const x = el("button", "x", "×"); x.type = "button"; x.title = "Remove condition"; x.setAttribute("aria-label", "Remove condition");
-    colSel.addEventListener("change", () => { cond.column = colSel.value; cond.value = ""; renderConditions(); renderQuery(); });
-    opSel.addEventListener("change", () => { cond.op = opSel.value; renderConditions(); renderQuery(); });
-    value.addEventListener("input", () => { cond.value = value.value; renderQuery(); });
-    value.addEventListener("change", () => { cond.value = value.value; renderQuery(); });
-    x.addEventListener("click", () => { S.conds.splice(i, 1); renderConditions(); renderQuery(); });
-    row.append(colSel, opSel, value, x);
-    box.append(row);
+  if (!S.sel.length) { box.append(el("p", "hint", "Pick one or more data sets in step 1; each gets its own columns, conditions and sort here.")); return; }
+  S.sel.forEach((key, index) => {
+    const d = ds(key), s = sec(key);
+    const group = el("details", "group");
+    group.open = s.open;
+    group.addEventListener("toggle", () => { s.open = group.open; });
+    const summary = el("summary");
+    const sum = el("span", "gsum", groupSummary(key));
+    summary.append(el("i", "order", index + 1), el("span", "gname", d.label), sum);
+    group.append(summary);
+    const body = el("div", "gbody");
+    const refresh = () => { sum.textContent = groupSummary(key); changed(); };
+
+    // Columns
+    const ch = el("div", "sub-h"); ch.append(el("span", "", "Columns"));
+    const links = el("span", "links");
+    const def = el("button", "linkbtn", "Default"); def.type = "button";
+    const all = el("button", "linkbtn", "All"); all.type = "button";
+    links.append(def, all); ch.append(links);
+    const chips = el("div", "chips");
+    const drawChips = () => {
+      chips.replaceChildren();
+      for (const c of d.columns) {
+        const chip = el("label", "chip");
+        const input = el("input"); input.type = "checkbox"; input.checked = s.cols.includes(c.key);
+        input.addEventListener("change", () => {
+          const order = d.columns.map(x => x.key);
+          s.cols = input.checked ? order.filter(k => k === c.key || s.cols.includes(k)) : s.cols.filter(k => k !== c.key);
+          refresh();
+        });
+        chip.append(input, c.label);
+        chips.append(chip);
+      }
+    };
+    def.addEventListener("click", () => { s.cols = d.columns.filter(c => c.default).map(c => c.key); drawChips(); refresh(); });
+    all.addEventListener("click", () => { s.cols = d.columns.map(c => c.key); drawChips(); refresh(); });
+    drawChips();
+    body.append(ch, chips);
+
+    // Conditions
+    body.append(el("div", "sub-h", "Only rows where"));
+    const conds = el("div");
+    const add = el("button", "linkbtn", "+ Add condition"); add.type = "button";
+    const hint = el("p", "hint");
+    const drawConds = () => {
+      conds.replaceChildren();
+      s.conds.forEach((cond, i) => conds.append(conditionRow(key, cond, () => { s.conds.splice(i, 1); drawConds(); refresh(); }, () => { drawConds(); refresh(); }, refresh)));
+      add.hidden = s.conds.length >= S.opts.limits.max_conditions;
+      hint.textContent = s.conds.length ? "All conditions must match (AND). A date alone means the whole day." : "No conditions: every row is included.";
+    };
+    add.addEventListener("click", () => {
+      const first = d.columns.find(c => c.kind === "enum") || d.columns[0];
+      s.conds.push({column: first.key, op: KIND_OPS[first.kind][0], value: ""});
+      drawConds(); refresh();
+    });
+    drawConds();
+    body.append(conds, add, hint);
+
+    // Sort and limit
+    body.append(el("div", "sub-h", "Sort and limit"));
+    const row = el("div", "row2");
+    const sortSel = el("select", "control"); sortSel.setAttribute("aria-label", d.label + ": sort by");
+    for (const c of d.columns) { const o = el("option", "", c.label); o.value = c.key; o.selected = c.key === s.sort; sortSel.append(o); }
+    const dirSel = el("select", "control"); dirSel.setAttribute("aria-label", d.label + ": sort direction");
+    for (const [v, t] of [["0", "Ascending"], ["1", "Descending"]]) { const o = el("option", "", t); o.value = v; o.selected = (v === "1") === s.desc; dirSel.append(o); }
+    const limit = el("input", "control"); limit.type = "number"; limit.min = "1"; limit.step = "1"; limit.placeholder = "All rows";
+    limit.value = s.limit; limit.setAttribute("aria-label", d.label + ": row limit");
+    sortSel.addEventListener("change", () => { s.sort = sortSel.value; refresh(); });
+    dirSel.addEventListener("change", () => { s.desc = dirSel.value === "1"; refresh(); });
+    limit.addEventListener("input", () => { s.limit = limit.value; refresh(); });
+    row.append(sortSel, dirSel, limit);
+    body.append(row);
+    group.append(body);
+    box.append(group);
   });
-  $("add-cond").hidden = S.conds.length >= S.opts.limits.max_conditions;
-  $("cond-hint").textContent = S.conds.length ? "All conditions must match (AND). A date alone means the whole day." : "No conditions: every row is included.";
 }
-function renderSort() {
-  const sel = $("sort-col");
-  const want = sel.dataset.value || dataset().sort.column;
-  sel.replaceChildren();
-  for (const c of dataset().columns) { const o = el("option", "", c.label); o.value = c.key; o.selected = c.key === want; sel.append(o); }
-}
-function spec() {
-  const d = dataset();
-  const limit = parseInt($("limit").value, 10);
-  return {dataset: S.ds, nvrs: [...S.nvrs].sort(), date_from: d.mode === "as_of" ? $("date-to").value : $("date-from").value,
-          date_to: $("date-to").value, columns: [...S.cols], conditions: S.conds.map(c => ({...c})),
-          sort: {column: $("sort-col").value, desc: $("sort-dir").value === "1"}, limit: Number.isFinite(limit) && limit > 0 ? limit : null};
-}
-function renderQuery() {
-  const s = spec(), d = dataset(), pre = $("query");
-  pre.replaceChildren();
-  const k = t => pre.append(el("span", "k", t));
-  const s_ = t => pre.append(el("span", "s", t));
-  const t = x => pre.append(document.createTextNode(x));
-  k("SELECT "); t(s.columns.length ? s.columns.map(key => column(key).label).join(", ") : "(no columns)");
-  t("\n"); k("FROM "); t(d.label);
-  t("\n"); if (d.mode === "as_of") { k("ON "); s_(s.date_to || "?"); } else { k("FROM "); s_(s.date_from || "?"); k(" TO "); s_(s.date_to || "?"); }
-  const where = [];
-  if (s.nvrs.length) where.push(["NVR", "IN", "(" + s.nvrs.join(", ") + ")"]);
-  for (const c of s.conditions) {
-    const col = column(c.column);
-    const plain = col.kind === "number" || col.kind === "percent";
-    where.push([col.label, opLabel(col.kind, c.op), (c.op === "empty" || c.op === "not_empty") ? "" : plain ? c.value : '"' + c.value + '"']);
+function conditionRow(key, cond, remove, redraw, refresh) {
+  const row = el("div", "cond");
+  const cols = ds(key).columns;
+  const colSel = el("select", "control"); colSel.setAttribute("aria-label", "Column");
+  for (const c of cols) { const o = el("option", "", c.label); o.value = c.key; o.selected = c.key === cond.column; colSel.append(o); }
+  const kind = column(key, cond.column).kind;
+  if (!KIND_OPS[kind].includes(cond.op)) cond.op = KIND_OPS[kind][0];
+  const opSel = el("select", "control"); opSel.setAttribute("aria-label", "Comparison");
+  for (const op of KIND_OPS[kind]) { const o = el("option", "", opLabel(kind, op)); o.value = op; o.selected = op === cond.op; opSel.append(o); }
+  let value;
+  const noValue = cond.op === "empty" || cond.op === "not_empty";
+  if (kind === "enum" && !noValue) {
+    value = el("select", "control");
+    const values = column(key, cond.column).values;
+    if (!values.includes(cond.value)) cond.value = values[0] || "";
+    for (const v of values) { const o = el("option", "", v); o.value = v; o.selected = v === cond.value; value.append(o); }
+  } else {
+    value = el("input", "control");
+    value.type = (kind === "number" || kind === "percent") ? "number" : "text";
+    if (value.type === "number") value.step = "any";
+    value.placeholder = noValue ? "—" : kind === "time" ? "2026-11-05" : kind === "percent" ? "e.g. 95" : "value";
+    value.value = noValue ? "" : cond.value;
+    value.disabled = noValue;
   }
-  where.forEach((w, i) => { t("\n"); k(i ? "  AND " : "WHERE "); t(w[0] + " " + w[1] + " "); s_(w[2]); });
-  t("\n"); k("ORDER BY "); t(column(s.sort.column).label + " " + (s.sort.desc ? "DESC" : "ASC"));
-  if (s.limit) { t("\n"); k("LIMIT "); t(String(s.limit)); }
-  const changed = S.result && JSON.stringify(s) !== S.ranSpec;
-  $("preview-meta").classList.toggle("stale", Boolean(changed));
-  if (changed) $("preview-meta").textContent = "The query changed — run it again to update the preview.";
+  value.setAttribute("aria-label", "Value");
+  const x = el("button", "x", "×"); x.type = "button"; x.title = "Remove condition"; x.setAttribute("aria-label", "Remove condition");
+  colSel.addEventListener("change", () => { cond.column = colSel.value; cond.value = ""; redraw(); });
+  opSel.addEventListener("change", () => { cond.op = opSel.value; redraw(); });
+  value.addEventListener("input", () => { cond.value = value.value; refresh(); });
+  value.addEventListener("change", () => { cond.value = value.value; refresh(); });
+  x.addEventListener("click", remove);
+  row.append(colSel, opSel, value, x);
+  return row;
 }
 
-// ---------- results ----------
-function cellClass(kind, value) {
-  if (value === null || value === undefined || value === "") return "blank";
-  return (kind === "number" || kind === "percent") ? "num" : "";
+// ---------- the query ----------
+function spec() {
+  return {nvrs: [...S.nvrs].sort(), date_from: hasPeriod() ? $("date-from").value : $("date-to").value, date_to: $("date-to").value,
+          sections: S.sel.map(key => {
+            const s = sec(key), limit = parseInt(s.limit, 10);
+            return {dataset: key, columns: [...s.cols], conditions: s.conds.map(c => ({...c})),
+                    sort: {column: s.sort, desc: s.desc}, limit: Number.isFinite(limit) && limit > 0 ? limit : null};
+          })};
 }
+function renderQuery() {
+  const q = spec(), pre = $("query");
+  pre.replaceChildren();
+  const k = t => pre.append(el("span", "k", t));
+  const str = t => pre.append(el("span", "s", t));
+  const t = x => pre.append(document.createTextNode(x));
+  if (!q.sections.length) { t("-- Pick what to report on in step 1."); }
+  q.sections.forEach((s, i) => {
+    const d = ds(s.dataset);
+    if (i) t(";\n\n");
+    t("-- " + (i + 1) + ". " + d.label + "\n");
+    k("SELECT "); t(s.columns.length ? s.columns.map(key => column(s.dataset, key).label).join(", ") : "(no columns)");
+    t("\n"); k("FROM "); t(d.label);
+    t("\n"); if (d.mode === "as_of") { k("ON "); str(q.date_to || "?"); } else { k("FROM "); str(q.date_from || "?"); k(" TO "); str(q.date_to || "?"); }
+    const where = [];
+    if (q.nvrs.length) where.push(["NVR", "IN", "(" + q.nvrs.join(", ") + ")"]);
+    for (const c of s.conditions) {
+      const col = column(s.dataset, c.column);
+      const plain = col.kind === "number" || col.kind === "percent";
+      where.push([col.label, opLabel(col.kind, c.op), (c.op === "empty" || c.op === "not_empty") ? "" : plain ? c.value : '"' + c.value + '"']);
+    }
+    where.forEach((w, j) => { t("\n"); k(j ? "  AND " : "WHERE "); t(w[0] + " " + w[1] + " "); str(w[2]); });
+    t("\n"); k("ORDER BY "); t(column(s.dataset, s.sort.column).label + " " + (s.sort.desc ? "DESC" : "ASC"));
+    if (s.limit) { t("\n"); k("LIMIT "); t(String(s.limit)); }
+  });
+  $("run").disabled = S.busy || !q.sections.length;
+  if (S.result && JSON.stringify(q) !== S.ranSpec) $("preview-meta").textContent = "The query changed — run it again to update the preview.";
+}
+
+// ---------- results: one tab per data set ----------
 const BAD = new Set(["Offline", "Stopped recording", "No footage 30+ days", "Critical", "No footage in window", "Yes", "error", "smartfailed", "offline", "unformatted"]);
 const WARN = new Set(["Warning", "Check failed", "Gaps", "Not verified", "Unknown", "Picture problem", "Below required days", "Offline, still recording"]);
 const GOOD = new Set(["Online", "OK", "Recorded", "Healthy", "No", "ok"]);
 function renderCell(td, kind, value) {
-  if (value === null || value === undefined || value === "") { td.textContent = "—"; return; }
+  if (value === null || value === undefined || value === "") { td.textContent = "—"; td.className = "blank"; return; }
+  if (kind === "number" || kind === "percent") td.className = "num";
   if (kind === "percent") { td.textContent = Number(value).toFixed(1) + "%"; return; }
-  if (kind === "enum" || (kind === "text" && typeof value === "string" && value.length < 14 && (BAD.has(value) || GOOD.has(value)))) {
+  if (kind === "enum") {
     const cls = BAD.has(value) ? "bad" : WARN.has(value) ? "warn" : GOOD.has(value) ? "good" : "";
     td.append(el("span", "pill " + cls, value)); return;
   }
@@ -438,29 +527,42 @@ function renderCell(td, kind, value) {
   if (String(value).length > 40) td.title = String(value);
 }
 function renderResult() {
-  const r = S.result, box = $("result");
+  const box = $("result");
   box.replaceChildren();
-  if (!r) return;
-  const shown = r.rows.length;
+  if (!S.result) return;
+  const sections = S.result;
+  if (!sections.some(x => x.dataset === S.tab)) S.tab = sections[0].dataset;
+  const total = sections.reduce((n, x) => n + x.total, 0);
+  $("preview-meta").textContent = sections.length + (sections.length === 1 ? " data set · " : " data sets · ") + total + (total === 1 ? " row" : " rows");
+  const tabs = el("div", "tabs"); tabs.setAttribute("role", "tablist");
+  sections.forEach((x, i) => {
+    const tab = el("button", "tab"); tab.type = "button"; tab.setAttribute("role", "tab");
+    tab.setAttribute("aria-selected", String(x.dataset === S.tab));
+    tab.append(el("i", "order", i + 1), x.label, el("span", "c", x.total));
+    tab.addEventListener("click", () => { S.tab = x.dataset; renderResult(); });
+    tabs.append(tab);
+  });
+  box.append(tabs);
+  const r = sections.find(x => x.dataset === S.tab);
   const meta = [r.total + (r.total === 1 ? " row" : " rows") + (r.truncated ? " (limited)" : "")];
-  if (shown < Math.min(r.total, S.opts.limits.max_rows)) meta.push("showing first " + shown);
-  if (r.meta && r.meta.first) meta.push(r.meta.first + " → " + r.meta.last);
+  if (r.rows.length < r.total && !r.truncated) meta.push("showing first " + r.rows.length);
+  meta.push(r.mode === "as_of" ? "on " + r.date_to
+    : r.meta && r.meta.first ? r.meta.first + " → " + r.meta.last : r.date_from + " → " + r.date_to);
   if (r.meta && r.meta.source) meta.push(r.meta.source);
-  $("preview-meta").textContent = meta.join(" · ");
+  box.append(el("p", "secmeta", meta.join(" · ")));
   if (!r.total) {
-    const e = el("div", "empty"); e.append(el("b", "", "No rows match"), "Try more NVRs, other dates or fewer conditions."); box.append(e); return;
+    const e = el("div", "empty"); e.append(el("b", "", "No rows match"), "Try more NVRs, other dates or fewer conditions for " + r.label + "."); box.append(e); return;
   }
+  const s = sec(r.dataset);
   const wrap = el("div", "tablewrap"), table = el("table"), thead = el("thead"), tr = el("tr");
-  const sortCol = $("sort-col").value, desc = $("sort-dir").value === "1";
   for (const c of r.columns) {
     const th = el("th", (c.kind === "number" || c.kind === "percent") ? "num" : "", c.label);
-    th.scope = "col"; th.title = "Sort by " + c.label;
-    if (c.key === sortCol) th.append(el("span", "dir", desc ? "▼" : "▲"));
+    th.scope = "col"; th.title = "Sort " + r.label + " by " + c.label;
+    if (c.key === s.sort) th.append(el("span", "dir", s.desc ? "▼" : "▲"));
     th.addEventListener("click", () => {
-      if ($("sort-col").value === c.key) $("sort-dir").value = desc ? "0" : "1";
-      else { $("sort-col").value = c.key; $("sort-dir").value = (c.kind === "number" || c.kind === "percent" || c.kind === "time") ? "1" : "0"; }
-      $("sort-col").dataset.value = $("sort-col").value;
-      renderQuery(); run();
+      if (s.sort === c.key) s.desc = !s.desc;
+      else { s.sort = c.key; s.desc = c.kind === "number" || c.kind === "percent" || c.kind === "time"; }
+      renderGroups(); renderQuery(); run();
     });
     tr.append(th);
   }
@@ -468,7 +570,7 @@ function renderResult() {
   const tbody = el("tbody");
   for (const row of r.rows) {
     const line = el("tr");
-    r.columns.forEach((c, i) => { const td = el("td", cellClass(c.kind, row[i])); renderCell(td, c.kind, row[i]); line.append(td); });
+    r.columns.forEach((c, i) => { const td = el("td"); renderCell(td, c.kind, row[i]); line.append(td); });
     tbody.append(line);
   }
   table.append(thead, tbody); wrap.append(table); box.append(wrap);
@@ -480,25 +582,26 @@ function busy(button, on, label) {
   else if (button.dataset.label) { button.innerHTML = button.dataset.label; }
 }
 async function run() {
-  if (S.busy) return;
+  if (S.busy || !S.sel.length) return;
   say("");
-  const s = spec();
+  const q = spec();
   busy($("run"), true, "Running…");
   $("preview-meta").textContent = "Reading saved reports… (a long period takes a while the first time)";
   try {
-    const r = await api({action: "preview", spec: s});
-    S.result = r; S.ranSpec = JSON.stringify(s);
+    const r = await api({action: "preview", spec: q});
+    S.result = r.sections; S.ranSpec = JSON.stringify(q);
     renderResult();
     if (!$("save-name").value) $("save-name").placeholder = suggestName();
   } catch (e) { say(e.message, "err"); $("preview-meta").textContent = "Not run."; }
-  finally { busy($("run"), false); }
+  finally { busy($("run"), false); renderQuery(); }
 }
 function suggestName() {
-  const s = spec(), d = dataset();
-  return d.label + (s.nvrs.length ? " – " + s.nvrs.join(", ") : "") + " – " + (d.mode === "as_of" ? s.date_to : s.date_from + " to " + s.date_to);
+  const q = spec();
+  return S.sel.map(k => ds(k).label).join(" + ") + (q.nvrs.length ? " – " + q.nvrs.join(", ") : "")
+    + " – " + (hasPeriod() ? q.date_from + " to " + q.date_to : q.date_to);
 }
 async function save() {
-  if (S.busy) return;
+  if (S.busy || !S.sel.length) return;
   const name = $("save-name").value.trim() || suggestName();
   busy($("save"), true, "Saving…");
   say("");
@@ -511,7 +614,7 @@ async function save() {
   finally { busy($("save"), false); }
 }
 
-// ---------- saved ----------
+// ---------- saved reports ----------
 function stampText(value) {
   const d = new Date(value);
   return Number.isNaN(d.valueOf()) ? "" : d.toLocaleString("en-GB", {timeZone: "Asia/Phnom_Penh", day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false});
@@ -525,14 +628,21 @@ function renderSaved(list) {
   for (const item of S.saved) {
     const li = el("li"), info = el("div");
     info.style.minWidth = "0";
-    const when = item.mode === "as_of" ? "on " + item.date_to : item.date_from + " → " + item.date_to;
-    info.append(el("div", "name", item.name), el("div", "sub", item.dataset_label + " · " + when + " · " + item.rows + (item.rows === 1 ? " row" : " rows") + " · saved " + stampText(item.created_at)));
-    const q = el("div", "q", item.query); q.title = item.query; info.append(q);
+    const labels = item.labels || [item.dataset_label || ""];
+    const modes = item.modes || [item.mode];
+    const period = modes.includes("range");
+    const when = period ? item.date_from + " → " + item.date_to : "on " + item.date_to;
+    info.append(el("div", "name", item.name),
+      el("div", "sub", labels.join(" + ") + " · " + when + " · " + item.rows + (item.rows === 1 ? " row" : " rows") + " · saved " + stampText(item.created_at)));
+    for (const text of item.queries || [item.query || ""]) { const q = el("div", "q", text); q.title = text; info.append(q); }
     const acts = el("div", "acts");
+    const many = labels.length > 1;
     for (const fmt of ["csv", "pdf"]) {
-      const a = el("a", "btn sm", fmt.toUpperCase());
+      const a = el("a", "btn sm", fmt === "csv" ? (many ? "CSV (ZIP)" : "CSV") : "PDF");
       a.href = "/api/custom-reports/download?id=" + encodeURIComponent(item.id) + "&format=" + fmt;
-      a.title = fmt === "csv" ? "Download for Excel (all rows, any language)" : "Download as PDF (Latin letters; first " + S.opts.limits.pdf_rows + " rows)";
+      a.title = fmt === "csv"
+        ? (many ? "ZIP with one CSV per data set, for Excel (all rows, any language)" : "Download for Excel (all rows, any language)")
+        : "One PDF with a section per data set (Latin letters; first " + S.opts.limits.pdf_rows + " rows each)";
       acts.append(a);
     }
     const open = el("button", "btn sm", "Use query"); open.type = "button"; open.title = "Load this query into the builder to run it again or change it";
@@ -552,16 +662,21 @@ async function remove(id) {
   try { const r = await api({action: "delete", id}); renderSaved(r.saved); say("Deleted.", "ok"); }
   catch (e) { say(e.message, "err"); }
 }
-function loadSpec(s) {
-  if (!s || !S.opts.datasets.some(d => d.key === s.dataset)) return;
-  S.ds = s.dataset; S.nvrs = new Set(s.nvrs || []);
-  S.cols = [...(s.columns || [])]; S.conds = (s.conditions || []).map(c => ({...c}));
-  $("sort-col").dataset.value = (s.sort || {}).column || "";
-  $("sort-dir").value = (s.sort || {}).desc ? "1" : "0";
-  $("limit").value = s.limit || "";
-  chooseDataset(s.dataset, true);
-  $("date-from").value = s.date_from || S.opts.today; $("date-to").value = s.date_to || S.opts.today;
-  renderNvrs(); renderQuery();
+function loadSpec(q) {
+  if (!q) return;
+  const sections = q.sections || (q.dataset ? [q] : []);   // Reports saved before data sets could be combined.
+  S.sel = []; S.sec = {};
+  for (const x of sections) {
+    if (!ds(x.dataset) || S.sel.includes(x.dataset)) continue;
+    S.sel.push(x.dataset);
+    const d = ds(x.dataset);
+    S.sec[x.dataset] = {cols: [...(x.columns || d.columns.filter(c => c.default).map(c => c.key))],
+                        conds: (x.conditions || []).map(c => ({...c})), sort: (x.sort || {}).column || d.sort.column,
+                        desc: x.sort ? Boolean(x.sort.desc) : d.sort.desc, limit: x.limit || "", open: true};
+  }
+  S.nvrs = new Set(q.nvrs || []);
+  $("date-from").value = q.date_from || S.opts.today; $("date-to").value = q.date_to || S.opts.today;
+  renderDatasets(); renderNvrs(); renderDates(); renderGroups(); renderQuery();
   window.scrollTo({top: 0, behavior: "smooth"});
   run();
 }
@@ -570,16 +685,12 @@ function loadSpec(s) {
 $("builder").addEventListener("submit", e => { e.preventDefault(); run(); });
 $("save").addEventListener("click", save);
 $("save-name").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); save(); } });
-$("add-cond").addEventListener("click", () => {
-  const first = dataset().columns.find(c => c.kind === "enum") || dataset().columns[0];
-  S.conds.push({column: first.key, op: KIND_OPS[first.kind][0], value: ""});
-  renderConditions(); renderQuery();
+for (const id of ["date-from", "date-to"]) $(id).addEventListener("input", changed);
+$("reset").addEventListener("click", () => {
+  S.nvrs.clear(); S.sel = [S.opts.datasets[0].key]; S.sec = {};
+  $("date-to").value = S.opts.today; $("date-from").value = shift(S.opts.today, -6);
+  renderDatasets(); renderNvrs(); renderDates(); renderGroups(); renderQuery();
 });
-$("cols-default").addEventListener("click", () => { S.cols = dataset().columns.filter(c => c.default).map(c => c.key); renderColumns(); renderQuery(); });
-$("cols-all").addEventListener("click", () => { S.cols = dataset().columns.map(c => c.key); renderColumns(); renderQuery(); });
-for (const id of ["date-from", "date-to", "sort-dir", "limit"]) $(id).addEventListener("input", renderQuery);
-$("sort-col").addEventListener("change", () => { $("sort-col").dataset.value = $("sort-col").value; renderQuery(); });
-$("reset").addEventListener("click", () => { S.nvrs.clear(); $("limit").value = ""; $("date-to").value = S.opts.today; $("date-from").value = shift(S.opts.today, -6); renderNvrs(); chooseDataset(S.ds); });
 
 const THEMES = ["auto", "light", "dark"];
 function applyTheme(mode) {
@@ -602,9 +713,9 @@ $("theme").addEventListener("click", () => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Could not load.");
     S.opts = data;
-    S.ds = data.datasets[0].key;
+    S.sel = [data.datasets[0].key];
     $("date-to").value = data.today; $("date-from").value = shift(data.today, -6);
-    renderNvrs(); chooseDataset(S.ds); renderSaved(data.saved);
+    renderDatasets(); renderNvrs(); renderDates(); renderGroups(); renderQuery(); renderSaved(data.saved);
   } catch (e) {
     $("result").replaceChildren(el("div", "empty", "The report builder could not load: " + e.message));
   }

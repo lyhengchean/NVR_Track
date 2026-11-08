@@ -1,6 +1,8 @@
-"""Report builder: pick a data set, NVRs, dates, columns and conditions, like
-a database query; preview it, save it on the server under any name
-(state/custom_reports) and download it later as CSV or PDF.
+"""Report builder: pick one or more data sets, NVRs, dates and, per data set,
+columns, conditions, sort and limit, like database queries; preview them,
+save them on the server as one report under any name (state/custom_reports)
+and download it later as PDF (one section per data set) or CSV (a ZIP with one
+CSV per data set when there are several).
 
 Built only from data NVR Track already has: saved scan reports, recorded
 real-time events and repair notes. No NVR is contacted. Failed, disabled or
@@ -17,6 +19,7 @@ import re
 import tempfile
 import threading
 import uuid
+import zipfile
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -29,9 +32,10 @@ from app.telegram_views import LIVE_LABEL, PICTURE_LABEL
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
-SCHEMA = 1
+SCHEMA = 2                   # 2: several sections per saved report; 1 (one table) is still read.
 MAX_RANGE_DAYS = 366
-MAX_ROWS = 50_000
+MAX_ROWS = 50_000            # Per section.
+MAX_TOTAL_ROWS = 150_000     # Per saved report.
 PREVIEW_ROWS = 200
 PDF_ROWS = 3000
 MAX_SAVED = 300
@@ -238,23 +242,37 @@ def clean_name(value: object) -> str:
 
 # ---------- the query ----------
 
+SECTION_KEYS = ("dataset", "columns", "conditions", "sort", "limit")
+
+
 def normalize(raw: object, today: date | None = None) -> tuple[dict | None, str | None]:
-    """A checked query from the page, or (None, a message for the user)."""
+    """A checked query from the page, or (None, a message for the user).
+
+    {"nvrs", "date_from", "date_to", "sections": [{"dataset", "columns",
+    "conditions", "sort", "limit"}, ...]}; NVRs and dates are shared, "on a
+    date" sections use the To date. The one-table form saved before
+    (a "dataset" key at the top) is accepted too."""
     today = today or today_local()
     raw = raw if isinstance(raw, dict) else {}
-    key = raw.get("dataset")
-    if key not in DATASETS:
+    if "sections" not in raw and "dataset" in raw:
+        raw = {**raw, "sections": [{k: raw.get(k) for k in SECTION_KEYS}]}
+    sections = raw.get("sections")
+    if not isinstance(sections, list) or not sections:
         return None, "Choose what to report on."
-    dataset = DATASETS[key]
-    columns = {c["key"]: c for c in dataset["columns"]}
+    if len(sections) > len(DATASETS) or not all(isinstance(x, dict) and x.get("dataset") in DATASETS
+                                                for x in sections):
+        return None, "Choose what to report on."
+    if len({x["dataset"] for x in sections}) != len(sections):
+        return None, "Each data set can be chosen once."
     nvrs = raw.get("nvrs") or []
     if not isinstance(nvrs, list) or len(nvrs) > 100 or not all(
             isinstance(n, str) and DEVICE_ID.fullmatch(n) for n in nvrs):
         return None, "Choose NVRs from the list."
+    period = any(DATASETS[x["dataset"]]["mode"] == "range" for x in sections)
     try:
         date_to = date.fromisoformat(str(raw.get("date_to") or today.isoformat()))
         date_from = (date.fromisoformat(str(raw.get("date_from") or (date_to - timedelta(days=6)).isoformat()))
-                     if dataset["mode"] == "range" else date_to)
+                     if period else date_to)
     except ValueError:
         return None, "Dates must be like 2026-11-06."
     if date_to > today:
@@ -263,6 +281,20 @@ def normalize(raw: object, today: date | None = None) -> tuple[dict | None, str 
         return None, "The start date is after the end date."
     if (date_to - date_from).days + 1 > MAX_RANGE_DAYS:
         return None, f"Choose at most {MAX_RANGE_DAYS} days."
+    checked = []
+    for section in sections:
+        clean, error = _normalize_section(section)
+        if error:
+            return None, (f"{DATASETS[section['dataset']]['label']}: {error}" if len(sections) > 1 else error)
+        checked.append(clean)
+    return {"nvrs": sorted(set(nvrs)), "date_from": date_from.isoformat(), "date_to": date_to.isoformat(),
+            "sections": checked}, None
+
+
+def _normalize_section(raw: dict) -> tuple[dict | None, str | None]:
+    key = raw["dataset"]
+    dataset = DATASETS[key]
+    columns = {c["key"]: c for c in dataset["columns"]}
     chosen = raw.get("columns") or [c["key"] for c in dataset["columns"] if c["default"]]
     if not isinstance(chosen, list) or not chosen or not all(isinstance(c, str) and c in columns for c in chosen):
         return None, "Choose at least one column."
@@ -289,13 +321,19 @@ def normalize(raw: object, today: date | None = None) -> tuple[dict | None, str 
         limit = None
     elif type(limit) is not int or not 1 <= limit <= MAX_ROWS:
         return None, f"Row limit must be 1 to {MAX_ROWS}."
-    return {"dataset": key, "nvrs": sorted(set(nvrs)), "date_from": date_from.isoformat(),
-            "date_to": date_to.isoformat(), "columns": list(dict.fromkeys(chosen)), "conditions": conditions,
+    return {"dataset": key, "columns": list(dict.fromkeys(chosen)), "conditions": conditions,
             "sort": {"column": sort_column, "desc": descending}, "limit": limit}, None
 
 
+def flat(spec: dict, section: dict) -> dict:
+    """One section with the shared NVRs and dates ("on a date": the To date)."""
+    as_of = DATASETS[section["dataset"]]["mode"] == "as_of"
+    return {**section, "nvrs": spec["nvrs"], "date_to": spec["date_to"],
+            "date_from": spec["date_to"] if as_of else spec["date_from"]}
+
+
 def query_text(spec: dict) -> str:
-    """The query in words, like SQL, for the page and the PDF."""
+    """One section's query in words, like SQL, for the page and the PDF."""
     dataset = DATASETS[spec["dataset"]]
     labels = {c["key"]: c["label"] for c in dataset["columns"]}
     kinds = {c["key"]: c["kind"] for c in dataset["columns"]}
@@ -351,7 +389,12 @@ _build_lock = threading.Lock()
 
 
 def build(spec: dict, reports_dir: Path, today: date | None = None) -> dict:
-    """Run a normalized query: {"columns", "rows" (lists), "total", "truncated", "meta"}."""
+    """Run every section: {"sections": [{"dataset", "label", "mode", "columns",
+    "rows" (lists), "total", "truncated", "meta", "query"}, ...]}."""
+    return {"sections": [build_section(flat(spec, section), reports_dir, today) for section in spec["sections"]]}
+
+
+def build_section(spec: dict, reports_dir: Path, today: date | None = None) -> dict:
     dataset = DATASETS[spec["dataset"]]
     kinds = {c["key"]: c["kind"] for c in dataset["columns"]}
     with _build_lock:  # One at a time: a year of reports takes a while the first time.
@@ -377,7 +420,9 @@ def build(spec: dict, reports_dir: Path, today: date | None = None) -> dict:
     limit = min(spec["limit"] or MAX_ROWS, MAX_ROWS)
     columns = [{"key": k, "label": c["label"], "kind": c["kind"]}
                for k in spec["columns"] for c in dataset["columns"] if c["key"] == k]
-    return {"columns": columns, "rows": [[r.get(k) for k in spec["columns"]] for r in rows[:limit]],
+    return {"dataset": spec["dataset"], "label": dataset["label"], "mode": dataset["mode"],
+            "date_from": spec["date_from"], "date_to": spec["date_to"],
+            "columns": columns, "rows": [[r.get(k) for k in spec["columns"]] for r in rows[:limit]],
             "total": total, "truncated": total > limit, "meta": meta, "query": query_text(spec)}
 
 
@@ -697,7 +742,7 @@ def options(reports_dir: Path) -> dict:
                          for key, d in DATASETS.items()],
             "ops": OPS, "nvrs": [{"id": k, "name": v} for k, v in nvr_names(reports_dir).items()],
             "today": today_local().isoformat(), "oldest": oldest_date(reports_dir),
-            "limits": {"max_rows": MAX_ROWS, "preview_rows": PREVIEW_ROWS, "max_days": MAX_RANGE_DAYS,
+            "limits": {"max_rows": MAX_ROWS, "max_total_rows": MAX_TOTAL_ROWS, "preview_rows": PREVIEW_ROWS, "max_days": MAX_RANGE_DAYS,
                        "max_conditions": MAX_CONDITIONS, "name_chars": NAME_CHARS, "pdf_rows": PDF_ROWS}}
 
 
@@ -717,12 +762,28 @@ def _write_json(path: Path, data: object) -> None:
 
 def _item(doc: dict) -> dict:
     spec = doc.get("spec") or {}
-    dataset = DATASETS.get(spec.get("dataset"), {})
+    sections = doc["sections"]
     return {"id": doc["id"], "name": doc.get("name") or "", "created_at": doc.get("created_at"),
-            "dataset": spec.get("dataset"), "dataset_label": dataset.get("label", ""),
-            "mode": dataset.get("mode"), "date_from": spec.get("date_from"), "date_to": spec.get("date_to"),
-            "rows": len(doc.get("rows") or []), "total": doc.get("total"), "query": doc.get("query") or "",
-            "spec": spec}
+            "datasets": [x.get("dataset") for x in sections], "labels": [x.get("label") or "" for x in sections],
+            "modes": [x.get("mode") for x in sections], "date_from": spec.get("date_from"),
+            "date_to": spec.get("date_to"), "rows": sum(len(x.get("rows") or []) for x in sections),
+            "section_rows": [len(x.get("rows") or []) for x in sections],
+            "queries": [x.get("query") or "" for x in sections], "spec": spec}
+
+
+def _upgrade(doc: dict) -> dict | None:
+    """A report saved as one table (schema 1) in the sections form."""
+    spec = doc.get("spec") if isinstance(doc.get("spec"), dict) else {}
+    dataset = DATASETS.get(spec.get("dataset"))
+    if dataset is None or not isinstance(doc.get("rows"), list) or not isinstance(doc.get("columns"), list):
+        return None
+    section = {"dataset": spec["dataset"], "label": dataset["label"], "mode": dataset["mode"],
+               "date_from": spec.get("date_from"), "date_to": spec.get("date_to"),
+               "columns": doc["columns"], "rows": doc["rows"], "total": doc.get("total", len(doc["rows"])),
+               "truncated": doc.get("truncated") is True, "meta": doc.get("meta") or {}, "query": doc.get("query") or ""}
+    return {**doc, "schema_version": SCHEMA, "sections": [section],
+            "spec": {"nvrs": spec.get("nvrs") or [], "date_from": spec.get("date_from"),
+                     "date_to": spec.get("date_to"), "sections": [{k: spec.get(k) for k in SECTION_KEYS}]}}
 
 
 def list_saved(directory: Path | None = None) -> list[dict]:
@@ -768,8 +829,15 @@ def load_saved(report_id: str, directory: Path | None = None) -> dict | None:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    ok = isinstance(doc, dict) and doc.get("schema_version") == SCHEMA and doc.get("id") == report_id
-    return doc if ok and isinstance(doc.get("rows"), list) and isinstance(doc.get("columns"), list) else None
+    if not isinstance(doc, dict) or doc.get("id") != report_id:
+        return None
+    if doc.get("schema_version") == 1:
+        return _upgrade(doc)
+    sections = doc.get("sections")
+    ok = (doc.get("schema_version") == SCHEMA and isinstance(sections, list) and sections
+          and all(isinstance(x, dict) and isinstance(x.get("rows"), list) and isinstance(x.get("columns"), list)
+                  for x in sections))
+    return doc if ok else None
 
 
 def save(name: str, spec: dict, result: dict, directory: Path | None = None) -> tuple[dict | None, str | None]:
@@ -777,14 +845,16 @@ def save(name: str, spec: dict, result: dict, directory: Path | None = None) -> 
     name = clean_name(name)
     if not name:
         return None, "Give the report a name."
+    if sum(len(x["rows"]) for x in result["sections"]) > MAX_TOTAL_ROWS:
+        return None, (f"More than {MAX_TOTAL_ROWS:,} rows in total; add conditions, a row limit "
+                      "or fewer NVRs or days.")
     with _save_lock:
         items = list_saved(directory)
         if len(items) >= MAX_SAVED:
             return None, f"{MAX_SAVED} reports are saved already; delete some first."
         doc = {"schema_version": SCHEMA, "id": uuid.uuid4().hex[:12], "name": name,
-               "created_at": datetime.now(timezone.utc).isoformat(), "spec": spec, "query": result["query"],
-               "columns": result["columns"], "rows": result["rows"], "total": result["total"],
-               "truncated": result["truncated"], "meta": result["meta"]}
+               "created_at": datetime.now(timezone.utc).isoformat(), "spec": spec,
+               "sections": result["sections"]}
         _write_json(directory / f"{doc['id']}.json", doc)
         item = _item(doc)
         _write_json(directory / "index.json", [item] + [i for i in items if i["id"] != item["id"]])
@@ -823,17 +893,30 @@ def _cell(value: object, kind: str) -> str:
     return str(value)
 
 
-def to_csv(doc: dict) -> bytes:
-    """UTF-8 with BOM, so Excel shows Khmer names correctly."""
+def to_csv(section: dict) -> bytes:
+    """One section as CSV: UTF-8 with BOM, so Excel shows Khmer names correctly."""
     out = io.StringIO()
     writer = csv.writer(out)
-    kinds = [c.get("kind", "text") for c in doc["columns"]]
-    writer.writerow([c["label"] for c in doc["columns"]])
-    for row in doc["rows"]:
+    kinds = [c.get("kind", "text") for c in section["columns"]]
+    writer.writerow([c["label"] for c in section["columns"]])
+    for row in section["rows"]:
         cells = [_cell(v, k) for v, k in zip(row, kinds)]
         writer.writerow(["'" + c if c[:1] in "=+-@" and not re.fullmatch(r"-?\d+(\.\d+)?", c) else c
                          for c in cells])
-    return ("﻿" + out.getvalue()).encode("utf-8")
+    return ("\ufeff" + out.getvalue()).encode("utf-8")
+
+
+def csv_download(doc: dict) -> tuple[bytes, str, str]:
+    """(body, content type, extension): one CSV, or a ZIP with one CSV per section."""
+    sections = doc["sections"]
+    if len(sections) == 1:
+        return to_csv(sections[0]), "text/csv; charset=utf-8", "csv"
+    out = io.BytesIO()
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
+        for number, section in enumerate(sections, 1):
+            name = f"{number:02d}-{file_stem(section.get('label') or section.get('dataset') or 'section')}.csv"
+            archive.writestr(name, to_csv(section))
+    return out.getvalue(), "application/zip", "zip"
 
 
 def to_pdf(doc: dict) -> bytes:
@@ -842,42 +925,54 @@ def to_pdf(doc: dict) -> bytes:
     from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.units import mm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import CondPageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
     from app.monthly_pdf import BASE, HEAD, INK, LINE, MUTED, SMALL, SUB, TITLE, clean
 
     cell = ParagraphStyle("rcell", parent=BASE, fontSize=7.2, leading=8.8)
     head = ParagraphStyle("rhead", parent=cell, fontName="Helvetica-Bold")
+    h2 = ParagraphStyle("rh2", parent=BASE, fontName="Helvetica-Bold", fontSize=11.5, leading=14, spaceBefore=4)
     spec = doc.get("spec") or {}
-    dataset = DATASETS.get(spec.get("dataset"), {"label": "", "mode": "range"})
-    when = (f"On {spec.get('date_to')}" if dataset["mode"] == "as_of"
-            else f"{spec.get('date_from')} to {spec.get('date_to')}")
-    shown = doc["rows"][:PDF_ROWS]
+    sections = doc["sections"]
+    labels = " + ".join(x.get("label") or "" for x in sections)
+    dates = sorted({(x.get("mode"), x.get("date_from"), x.get("date_to")) for x in sections},
+                   key=lambda d: (d[0] != "range", str(d)))  # The period first, then "on <date>".
+    when = "; ".join(f"on {b}" if m == "as_of" else f"{a} to {b}" for m, a, b in dates)
+    nvrs = ", ".join(spec.get("nvrs") or []) or "all NVRs"
     story = [Paragraph(clean(doc.get("name"), 120), TITLE),
-             Paragraph(clean(f"{dataset['label']} · {when} · {doc.get('total', len(doc['rows']))} rows · "
-                             f"made {_local(doc.get('created_at')) or ''}", 200), SUB), Spacer(1, 3 * mm),
-             Paragraph(clean(doc.get("query"), 900), SMALL),
-             Paragraph(clean("Source: " + str((doc.get("meta") or {}).get("source") or ""), 300), SMALL)]
-    if len(doc["rows"]) > len(shown) or doc.get("truncated"):
-        story.append(Paragraph(clean(f"Showing {len(shown)} of {doc.get('total')} rows; the CSV download has "
-                                     f"{len(doc['rows'])}.", 200), SMALL))
-    story.append(Spacer(1, 3 * mm))
+             Paragraph(clean(f"{labels} · {when} · {nvrs} · made {_local(doc.get('created_at')) or ''}", 300), SUB),
+             Spacer(1, 4 * mm)]
     weight = {"text": 1.6, "enum": 1.3, "time": 1.5, "number": 1.1, "percent": 1.1}
     wide = {"camera", "findings", "detail", "text", "description", "known_issue"}
-    kinds = [c.get("kind", "text") for c in doc["columns"]]
     width = landscape(A4)[0] - 24 * mm
-    weights = [1.0 if c["key"] == "nvr" else weight.get(k, 1.4) * (1.6 if c["key"] in wide else 1)
-               for k, c in zip(kinds, doc["columns"])]
-    widths = [width * w / sum(weights) for w in weights]
-    data = [[Paragraph(clean(c["label"], 60), head) for c in doc["columns"]]]
-    data += [[Paragraph(clean(_cell(v, k), 200), cell) for v, k in zip(row, kinds)] for row in shown]
-    if not shown:
-        data.append([Paragraph("No rows match this query.", cell)] + [""] * (len(widths) - 1))
-    table = Table(data, colWidths=widths, repeatRows=1)
-    table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), HEAD), ("LINEBELOW", (0, 0), (-1, -1), 0.3, LINE),
-                               ("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 0), (-1, -1), 2),
-                               ("BOTTOMPADDING", (0, 0), (-1, -1), 2), ("TEXTCOLOR", (0, 0), (-1, -1), INK)]))
-    story.append(table)
+    for number, section in enumerate(sections, 1):
+        if number > 1:
+            story += [Spacer(1, 6 * mm), CondPageBreak(55 * mm)]
+        shown = section["rows"][:PDF_ROWS]
+        when = (f"on {section.get('date_to')}" if section.get("mode") == "as_of"
+                else f"{section.get('date_from')} to {section.get('date_to')}")
+        title = f"{number}. {section.get('label')}" if len(sections) > 1 else str(section.get("label"))
+        total = section.get("total", len(section["rows"]))
+        story += [Paragraph(clean(f"{title} · {when} · {total} {'row' if total == 1 else 'rows'}", 200), h2),
+                  Paragraph(clean(section.get("query"), 900), SMALL),
+                  Paragraph(clean("Source: " + str((section.get("meta") or {}).get("source") or ""), 300), SMALL)]
+        if len(section["rows"]) > len(shown) or section.get("truncated"):
+            story.append(Paragraph(clean(f"Showing {len(shown)} of {section.get('total')} rows; the CSV download "
+                                         f"has {len(section['rows'])}.", 200), SMALL))
+        story.append(Spacer(1, 2.5 * mm))
+        kinds = [c.get("kind", "text") for c in section["columns"]]
+        weights = [1.0 if c["key"] == "nvr" else weight.get(k, 1.4) * (1.6 if c["key"] in wide else 1)
+                   for k, c in zip(kinds, section["columns"])]
+        widths = [width * w / sum(weights) for w in weights]
+        data = [[Paragraph(clean(c["label"], 60), head) for c in section["columns"]]]
+        data += [[Paragraph(clean(_cell(v, k), 200), cell) for v, k in zip(row, kinds)] for row in shown]
+        if not shown:
+            data.append([Paragraph("No rows match this query.", cell)] + [""] * (len(widths) - 1))
+        table = Table(data, colWidths=widths, repeatRows=1)
+        table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), HEAD), ("LINEBELOW", (0, 0), (-1, -1), 0.3, LINE),
+                                   ("VALIGN", (0, 0), (-1, -1), "TOP"), ("TOPPADDING", (0, 0), (-1, -1), 2),
+                                   ("BOTTOMPADDING", (0, 0), (-1, -1), 2), ("TEXTCOLOR", (0, 0), (-1, -1), INK)]))
+        story.append(table)
 
     def footer(canvas, document):
         canvas.saveState()
