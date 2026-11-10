@@ -71,6 +71,10 @@ services:
       SNAPSHOT_DIR: /app/state/snapshots
       LIVE_DIR: /app/state/live
       CUSTOM_REPORTS_DIR: /app/state/custom_reports
+      # HTTPS (opt-in): certificate from scripts/dashboard_cert.sh in config/tls.
+      DASHBOARD_TLS: "${DASHBOARD_TLS:-false}"
+      DASHBOARD_TLS_CERT: /app/config/tls/dashboard.crt
+      DASHBOARD_TLS_KEY: /app/config/tls/dashboard.key
 
     ports:
       - "${DASHBOARD_BIND_IP:-127.0.0.1}:8080:8080"
@@ -86,6 +90,7 @@ services:
       - ./state/live:/app/state/live:ro
       # Reports saved in the report builder (/reports); downloads come from here.
       - ./state/custom_reports:/app/state/custom_reports
+      - ./config/tls:/app/config/tls:ro
 
     restart: unless-stopped
 

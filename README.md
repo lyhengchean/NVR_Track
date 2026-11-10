@@ -32,7 +32,7 @@ NVR_Track/
 │   └── report-builder/          index.html, report-builder.css, report-builder.js
 ├── deploy/Dockerfile            one image for every service (targets: runtime, test)
 ├── compose.yaml                 services, volumes, healthchecks
-├── scripts/                     server scripts: deploy_check.sh, fill_calendars.sh
+├── scripts/                     server scripts: deploy_check.sh, dashboard_cert.sh, fill_calendars.sh
 ├── config/nvrs.example.json     inventory example
 ├── docs/                        operations, architecture, security
 ├── .github/workflows/ci.yml     tests on every pull request

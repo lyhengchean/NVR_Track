@@ -161,12 +161,27 @@ if [ "${SERVICES#*nvr-telegram}" != "$SERVICES" ]; then
     fi
 fi
 ADDR=$(docker compose port nvr-dashboard 8080 2>/dev/null | head -1)
-if [ -n "$ADDR" ]; then
+TLS=$(sed -n 's/^DASHBOARD_TLS=//p' .env 2>/dev/null | tail -1 | tr -d "\"' \r" | tr 'A-Z' 'a-z')
+if [ -z "$ADDR" ]; then
+    fail "Dashboard port 8080 is not published"
+elif [ "$TLS" = "true" ] || [ "$TLS" = "1" ] || [ "$TLS" = "yes" ] || [ "$TLS" = "on" ]; then
+    # Self-signed certificate: -k here; each browser shows a warning once.
+    CODE=$(curl -sk -o /dev/null -m 10 -w '%{http_code}' "https://$ADDR/")
+    [ "$CODE" = "401" ] && pass "Dashboard at https://$ADDR asks for a password (HTTP 401)" \
+        || fail "Dashboard at https://$ADDR returned HTTP $CODE without a password"
+    REDIRECT=$(curl -s -o /dev/null -m 10 -w '%{http_code} %{redirect_url}' "http://$ADDR/")
+    [ "${REDIRECT%% *}" = "301" ] && pass "http://$ADDR redirects to ${REDIRECT#* }" \
+        || warn "http://$ADDR did not redirect to https:// (HTTP ${REDIRECT%% *})"
+    if openssl x509 -checkend $((30 * 86400)) -noout -in config/tls/dashboard.crt >/dev/null 2>&1; then
+        pass "Dashboard certificate valid until $(openssl x509 -enddate -noout -in config/tls/dashboard.crt | cut -d= -f2)"
+    else
+        warn "Dashboard certificate expires within 30 days or cannot be read; renew: sudo bash scripts/dashboard_cert.sh --renew"
+    fi
+else
     CODE=$(curl -s -o /dev/null -m 10 -w '%{http_code}' "http://$ADDR/")
     [ "$CODE" = "401" ] && pass "Dashboard at http://$ADDR asks for a password (HTTP 401)" \
         || fail "Dashboard at http://$ADDR returned HTTP $CODE without a password"
-else
-    fail "Dashboard port 8080 is not published"
+    echo "  Dashboard uses plain HTTP (DASHBOARD_TLS is off; see docs/security.md)"
 fi
 
 section "5. Fresh report for every NVR (read-only, no email)"
@@ -381,11 +396,18 @@ esac
 section "8. Secrets and private files"
 PERM=$(stat -c %a .env 2>/dev/null)
 [ "$PERM" = "600" ] && pass ".env permissions are 600" || fail ".env permissions are ${PERM:-missing}"
-for f in .env config/nvrs.local.json reports/x.json; do
+for f in .env config/nvrs.local.json config/tls/dashboard.key reports/x.json; do
     git check-ignore -q "$f" && pass "$f is ignored by Git" || fail "$f is NOT ignored by Git"
 done
-TRACKED=$(git ls-files | grep -E '(^|/)\.env$|nvrs\.local\.json|^reports/')
+TRACKED=$(git ls-files | grep -E '(^|/)\.env$|nvrs\.local\.json|^reports/|^config/tls/')
 [ -z "$TRACKED" ] && pass "No secrets, inventory or reports are committed" || fail "Committed private files: $TRACKED"
+if [ -e config/tls/dashboard.key ]; then
+    KPERM=$(stat -c %a config/tls/dashboard.key)
+    case "$KPERM" in
+        600|640) pass "Dashboard HTTPS key permissions are $KPERM" ;;
+        *) fail "Dashboard HTTPS key permissions are $KPERM; fix: sudo chmod 600 config/tls/dashboard.key" ;;
+    esac
+fi
 
 section "9. Server network (read-only)"
 IFACE=$(ip route show default | awk '{print $5; exit}')
