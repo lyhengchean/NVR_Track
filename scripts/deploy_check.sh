@@ -106,6 +106,13 @@ if docker compose build -q nvr-report nvr-report-all nvr-dashboard nvr-scanner n
 else
     fail "Runtime image build failed"; exit 1
 fi
+# The containers run as UID/GID 10001: give them reports/, state/ and read access
+# to the inventory and HTTPS key before they start (only what differs).
+if CHANGED=$(bash scripts/container_files.sh); then
+    pass "Container user 10001 owns reports/ and state/ ($CHANGED changed) and can read the inventory and HTTPS key"
+else
+    fail "Could not give the container user its files; containers may fail to write (sudo bash scripts/container_files.sh)"
+fi
 if docker compose up -d --force-recreate nvr-dashboard nvr-scanner >/dev/null 2>&1; then
     pass "Dashboard and scanner containers recreated"
 else
@@ -149,8 +156,13 @@ else
 fi
 sleep 5
 for svc in $SERVICES; do
-    STATE=$(docker inspect -f '{{.State.Status}}' "$(docker compose ps -q $svc)" 2>/dev/null)
-    [ "$STATE" = "running" ] && pass "$svc is running" || fail "$svc state: ${STATE:-missing}"
+    CID=$(docker compose ps -q $svc)
+    STATE=$(docker inspect -f '{{.State.Status}}' "$CID" 2>/dev/null)
+    RUNAS=$(docker inspect -f '{{.Config.User}}' "$CID" 2>/dev/null)
+    [ "$STATE" = "running" ] && pass "$svc is running as user ${RUNAS:-root}" || fail "$svc state: ${STATE:-missing}"
+    case "$RUNAS" in
+        ""|0|0:*|root|root:*) warn "$svc runs as root; rebuild: docker compose build $svc" ;;
+    esac
 done
 if [ "${SERVICES#*nvr-telegram}" != "$SERVICES" ]; then
     sleep 10
@@ -401,13 +413,13 @@ for f in .env config/nvrs.local.json config/tls/dashboard.key reports/x.json; do
 done
 TRACKED=$(git ls-files | grep -E '(^|/)\.env$|nvrs\.local\.json|^reports/|^config/tls/')
 [ -z "$TRACKED" ] && pass "No secrets, inventory or reports are committed" || fail "Committed private files: $TRACKED"
-if [ -e config/tls/dashboard.key ]; then
-    KPERM=$(stat -c %a config/tls/dashboard.key)
-    case "$KPERM" in
-        600|640) pass "Dashboard HTTPS key permissions are $KPERM" ;;
-        *) fail "Dashboard HTTPS key permissions are $KPERM; fix: sudo chmod 600 config/tls/dashboard.key" ;;
-    esac
-fi
+# Readable by root and the containers' group 10001 only.
+for f in config/nvrs.local.json config/tls/dashboard.key; do
+    [ -e "$f" ] || continue
+    FPERM=$(stat -c '%a %U:%g' "$f")
+    [ "$FPERM" = "640 root:10001" ] && pass "$f: 640, root, group 10001" \
+        || fail "$f is $FPERM (needs 640 root:10001); fix: sudo bash scripts/container_files.sh"
+done
 
 section "9. Server network (read-only)"
 IFACE=$(ip route show default | awk '{print $5; exit}')

@@ -31,6 +31,8 @@ if [ -e "$CRT" ] && [ "${1:-}" != "--renew" ]; then
 fi
 
 mkdir -p "$DIR"
+# The dashboard runs as UID/GID 10001: it reads the key through its group.
+chown root:10001 "$DIR"
 chmod 750 "$DIR"
 umask 077
 openssl req -x509 -newkey rsa:3072 -sha256 -days "$DAYS" -nodes \
@@ -39,7 +41,8 @@ openssl req -x509 -newkey rsa:3072 -sha256 -days "$DAYS" -nodes \
     -addext "basicConstraints=critical,CA:FALSE" \
     -addext "keyUsage=critical,digitalSignature,keyEncipherment" \
     -addext "extendedKeyUsage=serverAuth" 2>/dev/null
-chmod 600 "$KEY.new"
+chown root:10001 "$KEY.new"
+chmod 640 "$KEY.new"
 chmod 644 "$CRT.new"
 mv -f "$KEY.new" "$KEY"
 mv -f "$CRT.new" "$CRT"

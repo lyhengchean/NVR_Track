@@ -15,7 +15,7 @@ history (120 commits, all branches).
 | 5 | Medium | Dashboard is plain HTTP with Basic auth: the password crosses the LAN in clear text with every refresh | Available: `DASHBOARD_TLS` (opt-in; see docs/operations.md "Dashboard HTTPS") |
 | 6 | Medium | Pillow 11.3.0 had 73 published vulnerabilities and decodes pictures fetched over HTTP | Fixed (PR #46): Pillow 13.0.0, JPEG-only decoding |
 | 7 | Medium-Low | NVR ISAPI is plain HTTP (Digest) with an admin login: someone on the camera network can read or fake NVR replies | Probe available: `probe_nvr_features --ask-login` (restricted login), `--https` (certificate pin); open: HTTPS scans per NVR |
-| 8 | Low-Medium | Containers run as root; every `env_file` service gets the whole `.env` | Partly fixed (PR #46): `no-new-privileges`. Open: non-root user, split secrets |
+| 8 | Low-Medium | Containers run as root; every `env_file` service gets the whole `.env` | Fixed: `no-new-privileges` (PR #46), UID 10001, no capabilities. Open: split secrets |
 | 9 | Low | `DASHBOARD_BIND_IP=0.0.0.0` exposes the dashboard on every interface; Docker-published ports bypass UFW | **Server setting**: the server's LAN IP |
 | 10 | Low | Deploy runs whatever is on GitHub `main` as root | Open: GitHub 2FA, branch protection on `main`, pin the base image digest |
 | 11 | Low | Deploy backups (with `.env`) were created world-readable before `chmod 600`, and are never rotated | Fixed: created 600 (PR #46); one backup kept, replaced by each deploy |
@@ -53,8 +53,9 @@ To change them: edit `.env` (keep `chmod 600`), then
 - Telegram: allowlist / group / open access modes, admins only for scans,
   notes (default), pictures and group alert switches; per-user rate limit;
   token never logged.
-- Containers: `no-new-privileges`; secrets only from `.env` (chmod 600,
-  git-ignored, not in the build context).
+- Containers: UID/GID 10001, no Linux capabilities, `no-new-privileges`;
+  secrets only from `.env` (chmod 600, root, git-ignored, not in the build
+  context); inventory and HTTPS key 640 root:10001.
 - Deploy: backup before every change, tests before every rebuild, refuses to
   pull over server edits.
 - CI: tests, Docker test image and a dependency audit on every pull request.
@@ -65,9 +66,8 @@ To change them: edit `.env` (keep `chmod 600`), then
 2. **NVR account** — a dedicated NVR user with only the rights the checks need
    (no configuration rights), instead of an admin account: try it with
    `--ask-login` on one NVR (docs/operations.md), then `NVR_<NN>_USERNAME/PASSWORD`.
-3. **Non-root containers** — `USER` in `deploy/Dockerfile` plus a one-time
-   `chown` of `reports/` and `state/` on the server; give `nvr-events` and
-   `nvr-live` only the NVR credentials.
+3. **Split secrets** — give `nvr-events` and `nvr-live` only the NVR
+   credentials instead of the whole `.env`.
 4. **NVR HTTPS** — `--https` probe on one NVR (docs/operations.md), then
    per-NVR opt-in scans pinned to the probed certificate.
 5. **Supply chain** — 2FA on GitHub, branch protection on `main` (pull request

@@ -1502,9 +1502,10 @@ def main() -> int:
             TLSDashboardHandler.tls = tls_context(DASHBOARD_TLS_CERT, DASHBOARD_TLS_KEY)
         except (OSError, ssl.SSLError, ValueError) as exc:
             # Fail closed: never fall back to plain HTTP when HTTPS was asked for.
+            fix = ("Let the dashboard read them: sudo bash scripts/container_files.sh"
+                   if isinstance(exc, PermissionError) else "Create them with: sudo bash scripts/dashboard_cert.sh")
             print(f"DASHBOARD_TLS=true but the certificate or key cannot be used "
-                  f"({DASHBOARD_TLS_CERT.name}, {DASHBOARD_TLS_KEY.name}: {type(exc).__name__}). "
-                  "Create them with: sudo bash scripts/dashboard_cert.sh", flush=True)
+                  f"({DASHBOARD_TLS_CERT.name}, {DASHBOARD_TLS_KEY.name}: {type(exc).__name__}). {fix}", flush=True)
             return 2
         handler = TLSDashboardHandler
     server = ThreadingHTTPServer((HOST, PORT), handler)
