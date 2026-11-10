@@ -32,7 +32,8 @@ from nvr_track.nvr.storage import classify_storage, get_storage_check
 from nvr_track.core.paths import PROJECT_ROOT as ROOT
 
 
-INVENTORY_PATH = ROOT / "config" / "nvrs.local.json"
+# NVR_INVENTORY_PATH: another inventory file (tests); default config/nvrs.local.json.
+INVENTORY_PATH = Path(os.environ.get("NVR_INVENTORY_PATH") or ROOT / "config" / "nvrs.local.json")
 TIMEZONE = ZoneInfo("Asia/Phnom_Penh")
 NETWORK_FAILURES = {"TIMEOUT", "CONNECTION_ERROR"}
 
@@ -205,6 +206,12 @@ def main() -> int:
         default=None,
         help="Verified recording track to test, e.g. 201 for NVR nvr-01.",
     )
+    parser.add_argument(
+        "--report-dir",
+        type=Path,
+        default=None,
+        help="Folder for the JSON report (default: reports/). The login probe uses a temporary folder.",
+    )
     args = parser.parse_args()
 
     started_at = now_local()
@@ -281,7 +288,7 @@ def main() -> int:
 
     # Lock report generation for this NVR across Compose invocations.
     # The shared reports volume makes this effective across reporter containers.
-    report_dir = ROOT / "reports"
+    report_dir = args.report_dir or ROOT / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
     lock_handle = acquire_report_lock(report_dir, configured_nvr.id)
     if lock_handle is False:

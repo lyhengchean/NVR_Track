@@ -31,7 +31,7 @@ def jpeg(kind: str, seed: int = 0) -> bytes:
 
 
 class FakeNVR:
-    def __init__(self):
+    def __init__(self, tls=None):
         self.channels = {"1": ("Gate", True), "2": ("Yard", True), "3": ("Store", True), "4": ("Roof", False)}
         self.camera_ips: dict[str, str] = {}   # Channel -> camera IP (default 192.0.2.<channel>).
         self.source_inputs: dict[str, int] = {}  # Channel -> srcInputPort (default 1).
@@ -44,7 +44,11 @@ class FakeNVR:
         self.events = []                        # Raw XML documents for the alert stream.
         self.disk_states = {"1": "ok", "2": "ok"}  # HDD id -> status in the HDD list.
         self.requests: list[tuple[str, str]] = []
+        self.forbidden: set[str] = set()       # Path prefixes answered 403 (a login without that right).
+        self.refuse_login = False              # Answer everything 401 (wrong username or password).
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
+        if tls is not None:                    # An ssl.SSLContext: serve HTTPS instead.
+            self.server.socket = tls.wrap_socket(self.server.socket, server_side=True)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         self.port = self.server.server_port
 
@@ -115,6 +119,10 @@ class FakeNVR:
             def do_GET(self):
                 nvr.requests.append(("GET", self.path))
                 path = self.path.split("?")[0]
+                if nvr.refuse_login:
+                    return self.reply("<ResponseStatus/>", code=401)
+                if any(path.startswith(prefix) for prefix in nvr.forbidden):
+                    return self.reply("<ResponseStatus><statusCode>4</statusCode></ResponseStatus>", code=403)
                 now = datetime.now(ICT).replace(microsecond=0)
                 if path == "/ISAPI/System/deviceInfo":
                     return self.reply("<DeviceInfo><model>DS-8664NI-I8</model><firmwareVersion>V4.1</firmwareVersion></DeviceInfo>")
@@ -158,6 +166,10 @@ class FakeNVR:
             def do_POST(self):
                 nvr.requests.append(("POST", self.path))
                 body = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                if nvr.refuse_login:
+                    return self.reply("<ResponseStatus/>", code=401)
+                if any(self.path.startswith(prefix) for prefix in nvr.forbidden):
+                    return self.reply("<ResponseStatus><statusCode>4</statusCode></ResponseStatus>", code=403)
                 if self.path == "/ISAPI/ContentMgmt/search":
                     return self.reply(nvr.search(body))
                 match = re.fullmatch(r"/ISAPI/ContentMgmt/record/tracks/(\d+)/dailyDistribution", self.path)

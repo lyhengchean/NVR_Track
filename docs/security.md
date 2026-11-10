@@ -14,7 +14,7 @@ history (120 commits, all branches).
 | 4 | Medium | Unlimited dashboard password guesses | Fixed (PR #46): 10 different wrong logins in 10 min lock the address for 10 min |
 | 5 | Medium | Dashboard is plain HTTP with Basic auth: the password crosses the LAN in clear text with every refresh | Available: `DASHBOARD_TLS` (opt-in; see docs/operations.md "Dashboard HTTPS") |
 | 6 | Medium | Pillow 11.3.0 had 73 published vulnerabilities and decodes pictures fetched over HTTP | Fixed (PR #46): Pillow 13.0.0, JPEG-only decoding |
-| 7 | Medium-Low | NVR ISAPI is plain HTTP (Digest): someone on the camera network can read or fake NVR replies | Open: per-NVR HTTPS opt-in after a probe; dedicated read-only NVR account |
+| 7 | Medium-Low | NVR ISAPI is plain HTTP (Digest) with an admin login: someone on the camera network can read or fake NVR replies | Probe available: `probe_nvr_features --ask-login` (restricted login), `--https` (certificate pin); open: HTTPS scans per NVR |
 | 8 | Low-Medium | Containers run as root; every `env_file` service gets the whole `.env` | Partly fixed (PR #46): `no-new-privileges`. Open: non-root user, split secrets |
 | 9 | Low | `DASHBOARD_BIND_IP=0.0.0.0` exposes the dashboard on every interface; Docker-published ports bypass UFW | **Server setting**: the server's LAN IP |
 | 10 | Low | Deploy runs whatever is on GitHub `main` as root | Open: GitHub 2FA, branch protection on `main`, pin the base image digest |
@@ -63,10 +63,12 @@ To change them: edit `.env` (keep `chmod 600`), then
 
 1. **Dashboard TLS** — turn on `DASHBOARD_TLS` (docs/operations.md "Dashboard HTTPS").
 2. **NVR account** — a dedicated NVR user with only the rights the checks need
-   (no configuration rights), instead of an admin account.
+   (no configuration rights), instead of an admin account: try it with
+   `--ask-login` on one NVR (docs/operations.md), then `NVR_<NN>_USERNAME/PASSWORD`.
 3. **Non-root containers** — `USER` in `deploy/Dockerfile` plus a one-time
    `chown` of `reports/` and `state/` on the server; give `nvr-events` and
    `nvr-live` only the NVR credentials.
-4. **NVR HTTPS** — per-NVR opt-in after a read-only probe on one NVR.
+4. **NVR HTTPS** — `--https` probe on one NVR (docs/operations.md), then
+   per-NVR opt-in scans pinned to the probed certificate.
 5. **Supply chain** — 2FA on GitHub, branch protection on `main` (pull request
    required), pin `python:3.12-slim` by digest, `pip install --require-hashes`.
