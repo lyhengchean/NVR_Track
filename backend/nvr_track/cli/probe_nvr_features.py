@@ -339,18 +339,32 @@ def main() -> int:
     if code == "OK" and counts:
         enable.append(f"NVR_EVENT_NVR_IDS=...,{nvr.id}")
 
-    failed = 0
+    login_failed = 0
+    events_used = nvr.id.lower() in {item.strip().lower()
+                                     for item in os.environ.get("NVR_EVENT_NVR_IDS", "").split(",") if item.strip()}
+    if code in {"HTTP_401", "HTTP_403"}:
+        print("   This login may not read the event stream: "
+              + ("nvr-events uses it for this NVR, so its real-time events would stop." if events_used
+                 else "not used for this NVR now (not in NVR_EVENT_NVR_IDS)."))
+        login_failed += events_used
+
     if args.ask_login or args.scan:
         print()
-        failed += scan_with_login(nvr, username, password)
+        login_failed += scan_with_login(nvr, username, password)
+    https_failed = 0
     if args.https:
         print()
-        failed += https_check(nvr, args.https_port, username, password)
+        https_failed = https_check(nvr, args.https_port, username, password)
 
     print("\nTo enable what worked, add the NVR ID to these lines in .env:")
     for line in enable or ["(nothing worked; keep these features off for this NVR)"]:
         print("   " + line)
-    return 0 if enable and not failed else 1
+    if args.ask_login:
+        suffix = env_suffix(nvr)
+        print(f"\nResult: this login can replace the current one for {nvr.id} "
+              f"(NVR_{suffix}_USERNAME / NVR_{suffix}_PASSWORD in .env)." if not login_failed else
+              f"\nResult: keep the current login for {nvr.id}; see what was refused or not verified above.")
+    return 0 if enable and not login_failed and not https_failed else 1
 
 
 if __name__ == "__main__":

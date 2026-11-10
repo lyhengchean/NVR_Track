@@ -131,6 +131,34 @@ class LoginProbeTests(unittest.TestCase):
         self.assertIn(".env is not changed", out.getvalue())
         self.assertEqual(self.nvr.requests, [("GET", "/ISAPI/System/status")])
 
+    def probe_main(self, *extra):
+        out = io.StringIO()
+        with patch.object(sys, "argv", ["probe", "--nvr-id", "nvr-01", "--ask-login", "--seconds", "1", *extra]), \
+                patch.object(probe, "ask_login", return_value=("viewer", "typed-password")), redirect_stdout(out):
+            code = probe.main()
+        return code, out.getvalue()
+
+    def test_a_typed_login_with_every_right_can_replace_the_current_one(self):
+        with patch.dict("os.environ", {"NVR_EVENT_NVR_IDS": "nvr-01"}):
+            code, out = self.probe_main()
+        self.assertEqual(code, 0, out)
+        self.assertIn("Result: this login can replace the current one for nvr-01 "
+                      "(NVR_01_USERNAME / NVR_01_PASSWORD in .env).", out)
+        self.assertNotIn("typed-password", out)
+
+    def test_a_refused_event_stream_blocks_the_switch_only_where_events_are_used(self):
+        self.nvr.forbidden = {"/ISAPI/Event/notification/alertStream"}
+        with patch.dict("os.environ", {"NVR_EVENT_NVR_IDS": "nvr-02,nvr-01"}):
+            code, out = self.probe_main()
+        self.assertEqual(code, 1)
+        self.assertIn("HTTP_403; received: nothing", out)
+        self.assertIn("nvr-events uses it for this NVR, so its real-time events would stop.", out)
+        self.assertIn("Result: keep the current login for nvr-01", out)
+        with patch.dict("os.environ", {"NVR_EVENT_NVR_IDS": "nvr-02"}):
+            code, out = self.probe_main()
+        self.assertIn("not used for this NVR now (not in NVR_EVENT_NVR_IDS).", out)
+        self.assertIn("Result: this login can replace the current one for nvr-01", out)
+
     def test_ask_login_needs_a_terminal(self):
         out = io.StringIO()
         with patch("sys.stdin", io.StringIO("viewer\n")), redirect_stdout(out):
