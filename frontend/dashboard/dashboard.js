@@ -212,7 +212,8 @@ function renderHero() {
   if (stopped && failed) parts.push(plural(failed, "check") + " could not be completed.");
   if (knownStopped) parts.push(plural(knownStopped, "camera with a known issue is", "cameras with a known issue are") + " not recording (alerts paused).");
   if (unmonitored) parts.push(plural(unmonitored, "camera is", "cameras are") + " on NVRs without per-camera checks.");
-  if (num(s.cameras_without_result)) parts.push(plural(num(s.cameras_without_result), "expected camera has", "expected cameras have") + " no result because the NVR was unreachable.");
+  if (num(s.cameras_not_listed)) parts.push(plural(num(s.cameras_not_listed), "expected camera has", "expected cameras have") + " no result because the NVR was unreachable.");
+  if (num(s.cameras_not_configured)) parts.push(plural(num(s.cameras_not_configured), "expected camera is", "expected cameras are") + " not configured on its NVR (inventory mismatch).");
   if (!state.nvrs.length) parts.push("Run the reporter once, then refresh: docker compose run --rm nvr-report-all");
   $("subline").textContent = parts.join(" ");
 
@@ -279,7 +280,8 @@ function renderFacts() {
   ]);
   group("Cameras live", [
     ["Online", num(s.cameras_online), "ok", true], ["Offline", num(s.cameras_offline), "crit", true],
-    ["Unknown", num(s.cameras_unknown), "warn", true], ["No result (NVR unreachable)", num(s.cameras_without_result), "crit"]
+    ["Unknown", num(s.cameras_unknown), "warn", true], ["No result (NVR unreachable)", num(s.cameras_not_listed), "crit"],
+    ["Not configured on the NVR", num(s.cameras_not_configured), "warn"]
   ]);
   const failedChecks = Math.max(0, num(s.recording_unverified) - num(s.recording_not_checked));
   group("Recording in " + windowText(s.window_minutes), [
@@ -316,11 +318,16 @@ function wall(nvr, match, narrowed) {
     cell.dataset.ch = ch.channel_id;
     box.append(cell);
   }
-  const missing = Number.isInteger(nvr.expected_channels) ? Math.max(0, nvr.expected_channels - nvr.channels.length) : 0;
-  for (let i = 0; i < missing; i++) {
-    const ghost = el("span", "cell ghost");
-    ghost.dataset.ghost = "1";
-    box.append(ghost);
+  // Expected cameras without a row: first those the NVR has no channel for, then unlisted ones.
+  const gone = nvr.missing_cameras || {};
+  const ghosts = [["config", num(gone.not_configured)], ["unlisted", num(gone.not_listed)]];
+  for (const [reason, count] of ghosts) {
+    for (let i = 0; i < count; i++) {
+      const ghost = el("span", "cell ghost");
+      ghost.dataset.ghost = reason;
+      ghost.dataset.nvr = nvr.id;
+      box.append(ghost);
+    }
   }
   return box;
 }
@@ -1129,7 +1136,11 @@ document.addEventListener("pointerover", e => {
   const cell = e.target.closest?.(".cell");
   if (!cell) return;
   tip.replaceChildren();
-  if (cell.dataset.ghost) {
+  if (cell.dataset.ghost === "config") {
+    const [nvr] = findCamera(cell.dataset.nvr, "");
+    tip.append(el("b", "", "Not configured on the NVR"), "The inventory expects " + (nvr?.expected_channels ?? "more") +
+      " channels; the NVR has " + (nvr?.configured_channels ?? "fewer") + ". A channel was removed on the NVR, or expected_channels in the inventory is out of date.");
+  } else if (cell.dataset.ghost) {
     tip.append(el("b", "", "No result"), "Expected camera missing from this report; the NVR could not be reached.");
   } else {
     const [nvr, ch] = findCamera(cell.dataset.nvr, cell.dataset.ch);

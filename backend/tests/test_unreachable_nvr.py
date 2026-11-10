@@ -72,7 +72,8 @@ class DashboardUnreachableTests(unittest.TestCase):
         self.assertEqual(unreachable["firmware_version"], "")
         fallback_row = next(n for n in data["nvrs"] if n["id"] == "nvr-02")["channels"][0]
         self.assertEqual((fallback_row["name"], fallback_row["camera_ip"]), ("", ""))
-        self.assertIn("cameras_without_result", DASHBOARD_UI)
+        self.assertEqual(data["summary"]["cameras_not_listed"], 24 + 1)     # Unreachable, not "not configured".
+        self.assertIn("cameras_not_listed", DASHBOARD_UI)
 
 
 if __name__ == "__main__":
