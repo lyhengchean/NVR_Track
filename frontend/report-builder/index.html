@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0e1a2b">
+<title>Report builder · NVR Track</title>
+<link rel="stylesheet" href="/static/report-builder/report-builder.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div><h1>Report builder</h1><p>Query the saved reports, save under any name, download later</p></div>
+    </div>
+    <a class="btn" href="/">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg>
+      Dashboard
+    </a>
+    <button type="button" class="btn icon" id="theme" title="Theme: follow system" aria-label="Change colour theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="wrap layout">
+  <form class="card builder" id="builder" autocomplete="off">
+    <section class="step">
+      <h2><span class="n">1</span>Report on<span class="aside" id="ds-count">pick one or more</span></h2>
+      <div class="datasets" id="datasets" role="group" aria-label="Data sets"></div>
+    </section>
+    <section class="step">
+      <h2><span class="n">2</span>NVRs<span class="aside" id="nvr-count"></span></h2>
+      <div class="chips" id="nvrs"></div>
+    </section>
+    <section class="step">
+      <h2><span class="n">3</span><span id="date-title">Dates</span><span class="aside" id="oldest"></span></h2>
+      <div class="dates" id="dates">
+        <div id="from-box"><label for="date-from">From</label><input type="date" class="control" id="date-from"></div>
+        <div><label for="date-to" id="to-label">To</label><input type="date" class="control" id="date-to"></div>
+      </div>
+      <div class="quick" id="quick"></div>
+      <p class="hint" id="date-hint" hidden></p>
+    </section>
+    <section class="step">
+      <h2><span class="n">4</span>Columns, conditions and sort<span class="aside">per data set</span></h2>
+      <div id="groups"></div>
+    </section>
+    <section class="step">
+      <pre class="query" id="query" aria-label="Query"></pre>
+      <div class="run">
+        <button type="submit" class="btn primary" id="run">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg>
+          Run query
+        </button>
+        <button type="button" class="btn" id="reset" title="Start again">Reset</button>
+      </div>
+    </section>
+  </form>
+
+  <div class="right">
+    <section class="card" aria-labelledby="preview-title">
+      <div class="panel-head">
+        <h2 id="preview-title">Preview</h2>
+        <span class="meta" id="preview-meta">Run a query to see the rows.</span>
+      </div>
+      <div class="panel-body">
+        <div id="result"><div class="empty"><b>Nothing run yet</b>Pick what to report on, the NVRs and the dates, then <em>Run query</em>.</div></div>
+        <div class="savebar">
+          <input type="text" class="control" id="save-name" maxlength="80" placeholder="Name this report, e.g. Offline cameras – October" aria-label="Report name">
+          <button type="button" class="btn primary" id="save">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11l3 3v13H5z"/><path d="M8 4v5h8V4"/><path d="M8 20v-6h8v6"/></svg>
+            Save on server
+          </button>
+        </div>
+        <p class="msg" id="msg" role="status"></p>
+      </div>
+    </section>
+
+    <section class="card" aria-labelledby="saved-title">
+      <div class="panel-head">
+        <h2 id="saved-title">Saved reports</h2>
+        <span class="meta" id="saved-meta"></span>
+      </div>
+      <ul class="saved" id="saved"></ul>
+    </section>
+  </div>
+</main>
+
+<script src="/static/report-builder/report-builder.js"></script>
+</body>
+</html>

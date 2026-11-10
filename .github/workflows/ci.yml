@@ -1,0 +1,65 @@
+# Checks every pull request and every push to main. No NVR, Telegram or mail
+# contact: the tests use tests/fake_nvr.py on 127.0.0.1 and need no secrets.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Tests (Python 3.12)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r backend/requirements-dev.txt
+      - run: python -m pytest -q backend/tests
+
+  image:
+    name: Docker test image and compose file
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      # The same test image scripts/deploy_check.sh runs on the server.
+      - run: docker build -f deploy/Dockerfile --target test -t nvr-track:test .
+      - run: docker run --rm nvr-track:test
+      - run: docker build -f deploy/Dockerfile -t nvr-track:local .
+      - name: compose.yaml is valid (placeholder settings, not real ones)
+        run: |
+          printf 'DASHBOARD_USERNAME=ci\nDASHBOARD_PASSWORD=ci-placeholder-not-a-secret\n' > .env
+          docker compose config --quiet
+
+  dependencies:
+    name: Known vulnerabilities in pinned packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Reported, but a new advisory does not block a pull request.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit
+      - run: pip-audit -r backend/requirements.txt

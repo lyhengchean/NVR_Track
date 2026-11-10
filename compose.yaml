@@ -2,6 +2,7 @@ services:
   nvr-report:
     build:
       context: .
+      dockerfile: deploy/Dockerfile
     image: nvr-track:local
     # No privilege gain through setuid programs (none are needed).
     security_opt:
@@ -26,11 +27,12 @@ services:
   nvr-report-all:
     build:
       context: .
+      dockerfile: deploy/Dockerfile
     image: nvr-track:local
     # No privilege gain through setuid programs (none are needed).
     security_opt:
       - no-new-privileges:true
-    entrypoint: ["python", "-m", "scripts.run_all_nvr_reports"]
+    entrypoint: ["python", "-m", "nvr_track.cli.run_all_nvr_reports"]
 
     env_file:
       - .env
@@ -48,11 +50,12 @@ services:
   nvr-dashboard:
     build:
       context: .
+      dockerfile: deploy/Dockerfile
     image: nvr-track:local
     # No privilege gain through setuid programs (none are needed).
     security_opt:
       - no-new-privileges:true
-    entrypoint: ["python", "-m", "app.dashboard"]
+    entrypoint: ["python", "-m", "nvr_track.web.dashboard"]
 
     environment:
       TZ: Asia/Phnom_Penh
@@ -87,7 +90,7 @@ services:
     restart: unless-stopped
 
     healthcheck:
-      test: ["CMD", "python", "-m", "scripts.healthcheck", "dashboard"]
+      test: ["CMD", "python", "-m", "nvr_track.services.healthcheck", "dashboard"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -98,11 +101,12 @@ services:
   nvr-scanner:
     build:
       context: .
+      dockerfile: deploy/Dockerfile
     image: nvr-track:local
     # No privilege gain through setuid programs (none are needed).
     security_opt:
       - no-new-privileges:true
-    entrypoint: ["python", "-m", "scripts.scan_worker"]
+    entrypoint: ["python", "-m", "nvr_track.services.scan_worker"]
 
     env_file:
       - .env
@@ -123,7 +127,7 @@ services:
     restart: unless-stopped
 
     healthcheck:
-      test: ["CMD", "python", "-m", "scripts.healthcheck", "heartbeat", "/app/state/scan/status.json", "120"]
+      test: ["CMD", "python", "-m", "nvr_track.services.healthcheck", "heartbeat", "/app/state/scan/status.json", "120"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -136,11 +140,12 @@ services:
   nvr-telegram:
     build:
       context: .
+      dockerfile: deploy/Dockerfile
     image: nvr-track:local
     # No privilege gain through setuid programs (none are needed).
     security_opt:
       - no-new-privileges:true
-    entrypoint: ["python", "-m", "scripts.telegram_bot"]
+    entrypoint: ["python", "-m", "nvr_track.bot.telegram_bot"]
 
     environment:
       TZ: Asia/Phnom_Penh
@@ -186,7 +191,7 @@ services:
     restart: unless-stopped
 
     healthcheck:
-      test: ["CMD", "python", "-m", "scripts.healthcheck", "heartbeat", "/app/state/telegram/heartbeat", "600"]
+      test: ["CMD", "python", "-m", "nvr_track.services.healthcheck", "heartbeat", "/app/state/telegram/heartbeat", "600"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -198,11 +203,12 @@ services:
   nvr-events:
     build:
       context: .
+      dockerfile: deploy/Dockerfile
     image: nvr-track:local
     # No privilege gain through setuid programs (none are needed).
     security_opt:
       - no-new-privileges:true
-    entrypoint: ["python", "-m", "scripts.event_listener"]
+    entrypoint: ["python", "-m", "nvr_track.services.event_listener"]
 
     env_file:
       - .env
@@ -219,7 +225,7 @@ services:
     restart: unless-stopped
 
     healthcheck:
-      test: ["CMD", "python", "-m", "scripts.healthcheck", "heartbeat", "/app/state/events/status.json", "180"]
+      test: ["CMD", "python", "-m", "nvr_track.services.healthcheck", "heartbeat", "/app/state/events/status.json", "180"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -232,11 +238,12 @@ services:
   nvr-live:
     build:
       context: .
+      dockerfile: deploy/Dockerfile
     image: nvr-track:local
     # No privilege gain through setuid programs (none are needed).
     security_opt:
       - no-new-privileges:true
-    entrypoint: ["python", "-m", "scripts.live_status"]
+    entrypoint: ["python", "-m", "nvr_track.services.live_status"]
 
     env_file:
       - .env
@@ -253,7 +260,7 @@ services:
     restart: unless-stopped
 
     healthcheck:
-      test: ["CMD", "python", "-m", "scripts.healthcheck", "heartbeat", "/app/state/live/service.json", "120"]
+      test: ["CMD", "python", "-m", "nvr_track.services.healthcheck", "heartbeat", "/app/state/live/service.json", "120"]
       interval: 60s
       timeout: 10s
       retries: 3

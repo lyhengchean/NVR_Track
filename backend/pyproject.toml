@@ -1,0 +1,6 @@
+# Tool settings for the backend. Dependencies are pinned in requirements.txt
+# (the Docker image installs exactly those). Run the tests from the repository
+# root with:  python -m pytest -q backend/tests
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -59,7 +59,7 @@ else
 fi
 
 section "3. Tests (isolated test image, no NVR contact)"
-if docker build -q --target test -t nvr-track:test . >/dev/null; then
+if docker build -q -f deploy/Dockerfile --target test -t nvr-track:test . >/dev/null; then
     RESULT=$(docker run --rm nvr-track:test 2>&1 | tail -1)
     echo "  $RESULT"
     if echo "$RESULT" | grep -q "passed" && ! echo "$RESULT" | grep -qE "failed|error"; then
@@ -142,7 +142,7 @@ fi
 
 section "5. Fresh report for every NVR (read-only, no email)"
 IPS=$(docker compose run --rm -T --entrypoint python nvr-report </dev/null -c \
-    "from app.config import load_inventory
+    "from nvr_track.core.config import load_inventory
 for n in load_inventory('config/nvrs.local.json'): print(n.ip)" 2>/dev/null)
 COUNT=$(echo "$IPS" | grep -c .)
 echo "  NVRs in inventory: $COUNT. Checked one at a time; each can take up to"
@@ -168,7 +168,7 @@ done
 section "6. Dashboard data (what the web page shows)"
 DASH=$(docker compose exec -T nvr-dashboard python - 2>&1 <<'PY'
 from collections import Counter
-from app.dashboard import read_dashboard_data
+from nvr_track.web.dashboard import read_dashboard_data
 
 data = read_dashboard_data()
 s = data["summary"]
@@ -221,7 +221,7 @@ fi
     || warn "$UNVERIFIED camera recording checks unverified/failed (usually network loss)"
 
 section "7. Container health, automatic scans and email"
-# Docker healthchecks (scripts/healthcheck.py; local only). A new container
+# Docker healthchecks (backend/nvr_track/services/healthcheck.py; local only). A new container
 # is "starting" until its first check, about a minute after it started.
 for svc in $SERVICES; do
     CID=$(docker compose ps -q "$svc" 2>/dev/null)
@@ -241,7 +241,7 @@ done
 # Real-time event streams (nvr-events): one per NVR in NVR_EVENT_NVR_IDS.
 if echo " $SERVICES " | grep -q " nvr-events "; then
     STREAMS=$(docker compose exec -T nvr-events python - 2>/dev/null <<'PY'
-from app import events
+from nvr_track.nvr import events
 for nvr, state in sorted((events.read_status().get("nvrs") or {}).items()):
     if state.get("connected"):
         print(f"UP {nvr}")
@@ -264,7 +264,7 @@ fi
 if echo " $SERVICES " | grep -q " nvr-live "; then
     sleep 20
     LIVE=$(docker compose exec -T nvr-dashboard python - 2>/dev/null <<'PY'
-from app import live
+from nvr_track.monitoring import live
 service, entries = live.read_all()
 print("ALIVE=" + ("yes" if live.service_alive(service) else "no"))
 for nvr in service.get("nvrs") or []:
@@ -296,7 +296,7 @@ PY
     done <<< "$(echo "$LIVE" | grep -E '^(OK|BAD|WAIT) ')"
 fi
 SCAN=$(docker compose exec -T nvr-dashboard python - 2>/dev/null <<'PY'
-from app.dashboard import read_scan_status
+from nvr_track.web.dashboard import read_scan_status
 s = read_scan_status()
 print("AVAILABLE=" + ("yes" if s["available"] else "no"))
 print("TIMES=" + ",".join(s["scan_times"]))
