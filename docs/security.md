@@ -18,7 +18,7 @@ history (120 commits, all branches).
 | 8 | Low-Medium | Containers run as root; every `env_file` service gets the whole `.env` | Partly fixed (PR #46): `no-new-privileges`. Open: non-root user, split secrets |
 | 9 | Low | `DASHBOARD_BIND_IP=0.0.0.0` exposes the dashboard on every interface; Docker-published ports bypass UFW | **Server setting**: the server's LAN IP |
 | 10 | Low | Deploy runs whatever is on GitHub `main` as root | Open: GitHub 2FA, branch protection on `main`, pin the base image digest |
-| 11 | Low | Deploy backups (with `.env`) were created world-readable before `chmod 600`, and are never rotated | Fixed (PR #46): created 600. Open: delete old backups |
+| 11 | Low | Deploy backups (with `.env`) were created world-readable before `chmod 600`, and are never rotated | Fixed: created 600 (PR #46); one backup kept, replaced by each deploy |
 | 12 | Info | Real NVR IP, site and camera names in docs and diagnostics | Fixed (restructure): diagnostics ask for `--ip`; docs use example addresses |
 
 Checked without findings: no `.env`, inventory, token or real password in any
@@ -71,4 +71,3 @@ To change them: edit `.env` (keep `chmod 600`), then
 4. **NVR HTTPS** — per-NVR opt-in after a read-only probe on one NVR.
 5. **Supply chain** — 2FA on GitHub, branch protection on `main` (pull request
    required), pin `python:3.12-slim` by digest, `pip install --require-hashes`.
-6. **Backups** — remove `/root/nvr-track-backup-*.tgz` older than you need.

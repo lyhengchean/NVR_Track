@@ -179,7 +179,7 @@ class DeploymentSettingsTests(unittest.TestCase):
 
     def test_backup_and_log_are_private_from_the_start(self):
         script = (ROOT / "scripts" / "deploy_check.sh").read_text(encoding="utf-8")
-        self.assertIn('(umask 077 && tar --exclude=./reports -czf "$BACKUP"', script)
+        self.assertIn('(umask 077 && tar --exclude=./reports -czf "$NEW"', script)   # Then moved into place.
         self.assertIn('(umask 077 && : > "$LOG")', script)
         self.assertNotRegex(script, r"(?m)^umask ")       # Pulled source files keep normal modes.
 

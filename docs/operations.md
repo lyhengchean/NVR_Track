@@ -34,8 +34,10 @@ private inventory, while the dashboard only mounts `reports/` read-only.
   that address out for 10 minutes (HTTP 429; the log names the address).
   The same old password repeated by an open tab counts once. Idle
   connections are closed after 30 s.
-- Every container runs with `no-new-privileges`. Deploy backups in `/root`
-  hold `.env` and are private (600) from creation; delete old ones yourself.
+- Every container runs with `no-new-privileges`. The deploy keeps one backup,
+  `/root/nvr-track-backup.tgz` (holds `.env`; 600): each deploy writes a new one,
+  checks it, replaces the old one and removes older dated backups. Restore:
+  `sudo tar -xzf /root/nvr-track-backup.tgz -C /opt/NVR_Track` (reports are not in it).
 
 ### Storage alerts: detected disks versus undetected slots
 
