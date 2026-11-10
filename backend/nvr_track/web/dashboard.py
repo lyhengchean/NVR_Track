@@ -739,6 +739,25 @@ def _public_live(raw: object) -> dict | None:
             "channels_used": raw.get("channels_used") is True, "storage_used": raw.get("storage_used") is True}
 
 
+def _whole(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def missing_cameras(nvr: dict) -> dict:
+    """Expected cameras without a row, by reason.
+
+    not_configured: the NVR listed all its channels but has fewer than the
+    inventory expects (a channel was removed on the NVR, or expected_channels
+    is out of date). not_listed: the report could not list them (NVR
+    unreachable, or only the status list came back). Never "unreachable" for
+    an NVR that answered.
+    """
+    expected, configured = nvr.get("expected_channels"), nvr.get("configured_channels")
+    missing = max(expected - len(nvr["channels"]), 0) if _whole(expected) else 0
+    not_configured = min(missing, max(expected - configured, 0)) if missing and _whole(configured) else 0
+    return {"not_configured": not_configured, "not_listed": missing - not_configured}
+
+
 def read_dashboard_data() -> dict:
     """Read saved reports and annotate newer failed fleet attempts."""
     latest: dict[str, tuple[int, dict, Path]] = {}
@@ -800,6 +819,7 @@ def read_dashboard_data() -> dict:
             nvrs.append(placeholder)
     nvrs.sort(key=lambda item: item["id"])
     for nvr in nvrs:
+        nvr["missing_cameras"] = missing_cameras(nvr)
         nvr["stale"] = bool(nvr["last_run_failed"] or not nvr["last_check"]
                             or not _is_fresh(nvr["last_check"], stale_cutoff))
     events = _attach_events(nvrs)
@@ -837,12 +857,13 @@ def read_dashboard_data() -> dict:
         "recording_unverified": sum(s in UNVERIFIED_STATUSES for s in rec_statuses),
         "recording_errors": rec_statuses.count("CHECK_ERROR"),
         "recording_not_checked": sum(s in {"NOT_CHECKED", "NOT_CONFIGURED"} for s in rec_statuses),
-        # Expected cameras the latest report could not list at all (NVR
-        # unreachable). They have no recording result and must stay visible.
-        "cameras_without_result": sum(
-            max(nvr["expected_channels"] - len(nvr["channels"]), 0)
-            for nvr in current_nvrs if isinstance(nvr["expected_channels"], int)
-        ),
+        # Expected cameras (inventory) without a row in the latest report. They
+        # have no recording result and must stay visible, with the real reason:
+        # not listed (NVR unreachable or list incomplete) or not configured on
+        # the NVR (it has fewer channels than the inventory expects).
+        "cameras_without_result": sum(sum(nvr["missing_cameras"].values()) for nvr in current_nvrs),
+        "cameras_not_listed": sum(nvr["missing_cameras"]["not_listed"] for nvr in current_nvrs),
+        "cameras_not_configured": sum(nvr["missing_cameras"]["not_configured"] for nvr in current_nvrs),
         "online_missing_expected": sum(
             ch["reported_status"] == "ONLINE" and ch["recording_expectation"] == "continuous"
             and ch["recording_result"]["status"] == "NO_RECENT_RECORDING_EVIDENCE"

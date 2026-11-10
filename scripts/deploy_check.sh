@@ -175,8 +175,9 @@ s = data["summary"]
 for key in ("total_nvrs", "latest_run_reporting", "healthy", "warning", "critical",
             "cameras_online", "cameras_offline", "cameras_unknown",
             "recording_evidence", "recording_no_evidence", "recording_unverified",
-            "recording_errors", "recording_not_checked", "cameras_without_result",
-            "offline_with_evidence", "storage_warnings", "storage_critical", "stale_reports"):
+            "recording_errors", "recording_not_checked", "cameras_not_listed", "cameras_not_configured",
+            "offline_with_evidence", "storage_warnings", "storage_critical", "smart_problems",
+            "camera_changes", "stale_reports"):
     print(f"  {key:24} {s.get(key)}")
 print()
 print(f"  {'NVR':7} {'OVERALL':9} {'STORAGE':9} {'ROWS':>7}  {'KEPT':7} RECORDING RESULTS")
@@ -192,8 +193,18 @@ for nvr in data["nvrs"]:
         (f"{k['typical']}+" if k["typical"] >= k["window"] else str(k["typical"]))
         + (f"/{k['fewest']}" if k["fewest"] < k["typical"] else ""))
     print(f"  {nvr['id']:7} {nvr['overall_status']:9} {nvr['storage_status']:9} {rows:>3}/{expected!s:<3}  {kept:7} {text}")
-    if not isinstance(expected, int) or rows < expected:
+    # Missing camera rows, with the real reason (nvr_track.web.dashboard.missing_cameras).
+    gone = nvr.get("missing_cameras") or {}
+    if not isinstance(expected, int):
         problems += 1
+        reason = "failed" if nvr.get("last_run_failed") else "noexpected"
+        print(f"CHECK missing={nvr['id']} {reason} 0 {nvr.get('last_run_failure_code') or '-'} -")
+    elif rows < expected:
+        problems += 1
+        if gone.get("not_configured"):
+            print(f"CHECK missing={nvr['id']} config {gone['not_configured']} {nvr.get('configured_channels')} {expected}")
+        if gone.get("not_listed"):
+            print(f"CHECK missing={nvr['id']} unlisted {gone['not_listed']} - {expected}")
 fleet = data.get("fleet_duplicates") or []
 print()
 print(f"  Cameras recorded by more than one NVR: {len(fleet)}")
@@ -203,19 +214,24 @@ print()
 print(f"CHECK total_nvrs={s.get('total_nvrs')}")
 print(f"CHECK incomplete_nvrs={problems}")
 print(f"CHECK unverified={s.get('recording_unverified', 0)}")
-print(f"CHECK no_result={s.get('cameras_without_result', 0)}")
 PY
 )
 echo "$DASH" | grep -v '^CHECK '
 TOTAL=$(echo "$DASH" | sed -n 's/^CHECK total_nvrs=//p')
 INCOMPLETE=$(echo "$DASH" | sed -n 's/^CHECK incomplete_nvrs=//p')
 UNVERIFIED=$(echo "$DASH" | sed -n 's/^CHECK unverified=//p')
-NORESULT=$(echo "$DASH" | sed -n 's/^CHECK no_result=//p')
 [ "${TOTAL:-0}" = "12" ] && pass "All 12 NVRs are on the dashboard" || fail "Dashboard shows ${TOTAL:-0} NVRs, expected 12"
 if [ "${INCOMPLETE:-1}" = "0" ]; then
     pass "Every NVR has a row for every expected camera"
 else
-    warn "$INCOMPLETE NVR(s) missing camera rows ($NORESULT cameras with no result) - NVR unreachable; see section 9"
+    while read -r ID KIND N A B; do
+        case "$KIND" in
+            config) warn "$ID has $A channels configured, the inventory expects $B: $N expected camera(s) not on the NVR. Removed on purpose? Then set expected_channels to $A for $ID in config/nvrs.local.json" ;;
+            unlisted) warn "$ID: $N of $B expected cameras not in the latest report (NVR unreachable or channel list incomplete); see section 5" ;;
+            failed) warn "$ID: latest scan failed ($A) and there is no saved report" ;;
+            noexpected) warn "$ID has no expected_channels in config/nvrs.local.json; missing cameras cannot be detected" ;;
+        esac
+    done <<< "$(echo "$DASH" | sed -n 's/^CHECK missing=//p')"
 fi
 [ "${UNVERIFIED:-1}" = "0" ] && pass "No unverified or failed recording checks" \
     || warn "$UNVERIFIED camera recording checks unverified/failed (usually network loss)"
@@ -242,11 +258,16 @@ done
 if echo " $SERVICES " | grep -q " nvr-events "; then
     STREAMS=$(docker compose exec -T nvr-events python - 2>/dev/null <<'PY'
 from nvr_track.nvr import events
-for nvr, state in sorted((events.read_status().get("nvrs") or {}).items()):
+from nvr_track.core.config import load_inventory
+streams = events.read_status().get("nvrs") or {}
+for nvr, state in sorted(streams.items()):
     if state.get("connected"):
         print(f"UP {nvr}")
     else:
         print(f"DOWN {nvr} {events.reason_text(state.get('last_error'))}")
+for nvr in load_inventory("config/nvrs.local.json"):
+    if nvr.id not in streams:
+        print(f"OFF {nvr.id}")
 PY
 )
     UP=$(echo "$STREAMS" | grep -c '^UP ')
@@ -259,6 +280,8 @@ PY
             [ -n "$ID" ] && warn "$ID real-time event stream not connected: $WHY"
         done <<< "$(echo "$STREAMS" | sed -n 's/^DOWN //p')"
     fi
+    OFF=$(echo "$STREAMS" | sed -n 's/^OFF //p' | tr '\n' ' ')
+    [ -n "${OFF// /}" ] && echo "  No real-time events (not in NVR_EVENT_NVR_IDS): $OFF"
 fi
 # Live status (nvr-live): first check runs right after start.
 if echo " $SERVICES " | grep -q " nvr-live "; then
