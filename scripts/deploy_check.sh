@@ -17,7 +17,7 @@ if [ -n "${NVR_DEPLOY_CHECK_LOG:-}" ]; then
     LOG=$NVR_DEPLOY_CHECK_LOG  # Restarted after updating itself; output is already logged.
 else
     LOG=/root/nvr-track-check-$STAMP.txt
-    : > "$LOG" && chmod 600 "$LOG"
+    (umask 077 && : > "$LOG") && chmod 600 "$LOG"
     exec > >(tee -a "$LOG") 2>&1
 fi
 
@@ -28,7 +28,8 @@ section() { echo; echo "== $* =="; }
 
 section "1. Backup"
 BACKUP=/root/nvr-track-backup-$STAMP.tgz
-if tar --exclude=./reports -czf "$BACKUP" -C "$APP_DIR" . 2>/dev/null; then
+# The backup holds .env: private (600) from its first byte, not only after chmod.
+if (umask 077 && tar --exclude=./reports -czf "$BACKUP" -C "$APP_DIR" .) 2>/dev/null; then
     chmod 600 "$BACKUP"; pass "Backup saved to $BACKUP (permissions 600)"
 else
     fail "Backup failed; stopping before any change"; exit 1

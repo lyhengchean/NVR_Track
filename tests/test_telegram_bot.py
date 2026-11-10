@@ -272,6 +272,22 @@ class AlertTests(Fixture):
             self.bot.check_alerts()
         self.assertIn("Stopped recording", self.alerts()[0])
 
+    def test_only_admins_switch_alerts_for_a_group(self):
+        """One member of the staff group must not silence the group's alerts (review, Nov 2026)."""
+        self.report(channels=[channel(1)])
+        refused = self.message(222, "/alerts off", chat=-100900, chat_type="supergroup")
+        self.assertIn("Only administrators", refused[0]["text"])
+        self.assertIn(-100900, self.bot.recipients())
+        refused = self.message(222, "/alerts on", chat=-100500, chat_type="group")
+        self.assertIn("Only administrators", refused[0]["text"])
+        self.assertNotIn(-100500, self.bot.recipients())
+        shown = self.message(222, "/alerts", chat=-100900, chat_type="supergroup")
+        self.assertIn("Alerts in this chat are <b>on</b>", shown[0]["text"])    # Asking is fine.
+        self.message(111, "/alerts off", chat=-100900, chat_type="supergroup")
+        self.assertNotIn(-100900, self.bot.recipients())
+        self.message(111, "/alerts on", chat=-100900, chat_type="supergroup")
+        self.assertIn(-100900, self.bot.recipients())
+
     def test_subscriptions_and_daily_digest(self):
         self.report(channels=[channel(1)])
         self.message(222, "/alerts on")
