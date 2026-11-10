@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0e1a2b">
+<title>NVR Track</title>
+<link rel="stylesheet" href="/static/dashboard/dashboard.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div><h1>NVR Track</h1><p>Recording assurance for Hikvision NVRs, read-only</p></div>
+    </div>
+    <div class="freshness" id="freshness" aria-live="polite">
+      <span class="pulse" id="pulse"></span>
+      <div><strong id="fresh-main">Loading reports</strong><span class="detail" id="fresh-detail">Saved JSON snapshots</span></div>
+    </div>
+    <span class="scan-chip" id="scan-chip" aria-live="polite"><i aria-hidden="true"></i><span id="scan-chip-text"></span></span>
+    <div class="scanwrap">
+      <button type="button" class="btn" id="scan-btn" aria-expanded="false" aria-controls="scan-panel" title="Scan NVRs now">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 12l5.5-5.5"/><circle cx="12" cy="12" r="1.8" fill="currentColor"/></svg>
+        <span class="label">Scan</span>
+      </button>
+      <div class="scan-panel" id="scan-panel" hidden role="dialog" aria-labelledby="scan-title">
+        <h2 id="scan-title">Scan now</h2>
+        <p>Checks the NVRs straight away and saves new reports, read-only. Use it after adding or fixing a camera.</p>
+        <button type="button" class="btn primary" id="scan-all">Scan all NVRs</button>
+        <div class="scan-row">
+          <select id="scan-select" class="control" aria-label="NVR to scan"></select>
+          <button type="button" class="btn" id="scan-one">Scan this NVR</button>
+        </div>
+        <p class="scan-msg" id="scan-msg" role="status"></p>
+        <p class="scan-meta" id="scan-meta"></p>
+      </div>
+    </div>
+    <a class="btn" id="reports-link" href="/reports" title="Build, save and download your own reports" aria-label="Reports">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h7M9 17h5"/></svg>
+      <span class="label">Reports</span>
+    </a>
+    <button type="button" class="btn primary" id="refresh" title="Reload the latest saved reports (R)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg>
+      <span class="label">Refresh</span>
+    </button>
+    <button type="button" class="btn icon" id="theme" title="Theme: follow system" aria-label="Change colour theme">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17a8.5 8.5 0 0 0 0-17z" fill="currentColor"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="banners"></div>
+
+  <section class="hero" aria-labelledby="headline">
+    <div>
+      <h2 class="headline" id="headline">Reading saved reports…</h2>
+      <p class="subline" id="subline"></p>
+    </div>
+    <div>
+      <div class="condbar" id="condbar" role="img" aria-label="Camera conditions across all NVRs"></div>
+      <div class="legend" id="legend" aria-label="Filter cameras by condition"></div>
+    </div>
+  </section>
+
+  <div class="facts" id="facts" aria-label="Fleet facts"></div>
+
+  <div class="toolbar" id="toolbar">
+    <div class="tools" role="search">
+      <div class="field">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="search" class="control" type="search" autocomplete="off" spellcheck="false" placeholder="Search NVRs, cameras, channels, IPs" aria-label="Search NVRs and cameras">
+        <span class="kbd" aria-hidden="true">/</span>
+      </div>
+      <select id="overall-filter" class="control" aria-label="NVR health">
+        <option value="">All NVR health</option><option value="CRITICAL">Critical</option><option value="WARNING">Warning</option><option value="HEALTHY">Healthy</option><option value="UNKNOWN">Unknown</option><option value="ERROR">Report failed</option>
+      </select>
+      <select id="live-filter" class="control" aria-label="Camera live status">
+        <option value="">All live statuses</option><option value="ONLINE">Online</option><option value="OFFLINE">Offline</option><option value="UNKNOWN">Unknown</option><option value="NOT_RETURNED">Not returned</option>
+      </select>
+      <select id="condition-filter" class="control" aria-label="Camera condition">
+        <option value="">All conditions</option><option value="NO_FOOTAGE_30">No footage 30+ days</option><option value="NOT_RECORDING">Stopped recording</option><option value="CHECK_FAILED">Check failed</option><option value="GAPS">Gaps</option><option value="BELOW_RETENTION">Below required days</option><option value="BAD_PICTURE">Picture problem</option><option value="OFFLINE_RECORDING">Offline, still recording</option><option value="SHORT_HISTORY">Short history</option><option value="KNOWN_ISSUE">Known issue</option><option value="NO_RECENT_EVENTS">No recent events</option><option value="NOT_MONITORED">Not monitored</option><option value="OK">OK</option>
+      </select>
+      <select id="recording-filter" class="control" aria-label="Recording check result">
+        <option value="">All recording results</option><option value="EVIDENCE">Recorded in window</option><option value="NO_RECENT_RECORDING_EVIDENCE">No recent evidence</option><option value="OFFLINE_EVIDENCE">Offline, footage stored (recent or older)</option><option value="FAILED">Failed or unverified</option><option value="NOT_CHECKED">Not checked or not enabled</option>
+      </select>
+      <select id="storage-filter" class="control" aria-label="Storage health">
+        <option value="">All storage</option><option value="CRITICAL">Storage critical</option><option value="WARNING">Storage warning</option><option value="HEALTHY">Storage healthy</option><option value="UNKNOWN">Storage unknown</option>
+      </select>
+    </div>
+    <div class="tools2">
+      <label class="toggle"><input id="only-problems" type="checkbox"> Problems only</label>
+      <label class="toggle"><input id="all-columns" type="checkbox"> All columns</label>
+      <select id="sort" class="control" aria-label="Sort NVRs">
+        <option value="priority">Most urgent first</option><option value="id">NVR ID</option><option value="recent">Latest report first</option><option value="cameras">Most cameras with problems</option>
+      </select>
+      <button type="button" class="btn" id="csv" title="Download the cameras in this view as CSV">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+        <span class="label">CSV</span>
+      </button>
+      <button type="button" class="linkbtn" id="clear" hidden>Clear filters</button>
+      <span class="count" id="count" aria-live="polite"></span>
+    </div>
+  </div>
+
+  <section class="list" id="nvr-list" aria-label="NVRs">
+    <div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>
+  </section>
+
+  <section class="monthly" id="monthly" hidden aria-label="Monthly reports"></section>
+  <footer id="footer">Read-only. The dashboard shows the latest saved report for each NVR, with newer camera and disk states from the live check where it is enabled, and never queries devices itself. A camera without footage in the search window is not proof it never recorded; failed, unverified and disabled checks are never counted as recording.</footer>
+</main>
+<div id="tip" role="tooltip"></div>
+
+<script src="/static/dashboard/dashboard.js"></script>
+</body>
+</html>

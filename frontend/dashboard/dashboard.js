@@ -1,0 +1,1267 @@
+"use strict";
+const $ = id => document.getElementById(id);
+const TZ = "Asia/Phnom_Penh";
+const EVIDENCE = new Set(["RECORDING", "RECORDING_EVIDENCE_WITH_ANOMALY"]);
+const FAILED_CHECKS = new Set(["TRACK_NOT_FOUND", "TRACK_MAPPING_UNVERIFIED", "CHECK_INCONCLUSIVE", "CHECK_ERROR"]);
+const NOT_RUN = new Set(["NOT_CHECKED", "NOT_CONFIGURED"]);
+const PROBLEMS = new Set(["NO_FOOTAGE_30", "NOT_RECORDING", "CHECK_FAILED", "GAPS", "BELOW_RETENTION", "BAD_PICTURE", "OFFLINE_RECORDING"]);
+// Display order: urgent first, so a thin red slice is never hidden at the end.
+const CONDITIONS = [
+  ["NO_FOOTAGE_30", "No footage 30+ days"], ["NOT_RECORDING", "Stopped recording"],
+  ["CHECK_FAILED", "Check failed"], ["GAPS", "Gaps"], ["BELOW_RETENTION", "Below required days"],
+  ["BAD_PICTURE", "Picture problem"],
+  ["OFFLINE_RECORDING", "Offline, still recording"],
+  ["SHORT_HISTORY", "Short history"], ["KNOWN_ISSUE", "Known issue"], ["NO_RECENT_EVENTS", "No recent events"],
+  ["NOT_MONITORED", "Not monitored"], ["OK", "OK"]
+];
+const CONDITION_LABEL = Object.fromEntries(CONDITIONS);
+const HEALTH_RANK = {ERROR: 0, CRITICAL: 1, WARNING: 2, UNKNOWN: 3, HEALTHY: 4};
+const LABELS = {
+  HEALTHY: "Healthy", WARNING: "Warning", CRITICAL: "Critical", ERROR: "Report failed", UNKNOWN: "Unknown",
+  ONLINE: "Online", OFFLINE: "Offline", NOT_RETURNED: "Not returned",
+  RECORDING: "Recorded", RECORDING_EVIDENCE_WITH_ANOMALY: "Recorded, time anomaly",
+  NO_RECENT_RECORDING_EVIDENCE: "No recent evidence", CHECK_ERROR: "Search error",
+  CHECK_INCONCLUSIVE: "Inconclusive", TRACK_NOT_FOUND: "Track not found",
+  TRACK_MAPPING_UNVERIFIED: "Track unverified", NOT_CHECKED: "Not checked", NOT_CONFIGURED: "Not enabled",
+  HISTORICAL_RECORDING_FOUND: "Older footage found", NO_HISTORICAL_EVIDENCE_IN_WINDOW: "No older footage found",
+  HISTORICAL_CHECK_INCONCLUSIVE: "Inconclusive", HISTORICAL_CHECK_ERROR: "Search error",
+  HISTORICAL_NOT_CHECKED: "Not checked", HISTORICAL_NOT_NEEDED: "Not needed (recording now)",
+  HISTORICAL_NOT_CONFIGURED: "Not enabled",
+  RETENTION_VERIFIED: "Verified", RETENTION_PARTIAL: "Partial", RETENTION_PENDING: "Pending",
+  RETENTION_STALE: "Previous scan", RETENTION_UNSUPPORTED: "Not supported", RETENTION_ERROR: "Query error",
+  RETENTION_INCONCLUSIVE: "Inconclusive", RETENTION_UNVERIFIED: "Unverified track", RETENTION_NOT_CONFIGURED: "Not enabled",
+  PICTURE_OK: "Picture OK", PICTURE_BLACK: "Black", PICTURE_UNIFORM: "Flat / covered", PICTURE_FROZEN: "Frozen",
+  PICTURE_VIEW_CHANGED: "View changed", PICTURE_VIEW_CHECKING: "View re-check", PICTURE_UNAVAILABLE: "No picture", PICTURE_NOT_CHECKED: "Not checked",
+  PICTURE_NOT_CONFIGURED: "Not enabled", UNVERIFIED: "Unverified"
+};
+const STORAGE_LABEL = {HEALTHY: "Storage healthy", WARNING: "Storage warning", CRITICAL: "Storage critical", UNKNOWN: "Storage unknown"};
+
+const state = {data: null, nvrs: [], open: new Map(), closed: new Set(), sort: new Map(), hit: null, timer: null, loadedAt: null, firstPaint: true};
+
+// ---------- small helpers; device text is only ever assigned as textContent ----------
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined && text !== null) node.textContent = String(text);
+  return node;
+}
+function label(code) { return LABELS[code] || String(code || "Unknown").replaceAll("_", " ").toLowerCase().replace(/^./, c => c.toUpperCase()); }
+function pill(code, text, extra) {
+  const node = el("span", "pill " + (/^[A-Z_]+$/.test(String(code)) ? code : "") + (extra ? " " + extra : ""), text || label(code));
+  node.title = String(code || "");
+  return node;
+}
+function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
+function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+const dateFmt = new Intl.DateTimeFormat("en-GB", {timeZone: TZ, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false});
+const timeFmt = new Intl.DateTimeFormat("en-GB", {timeZone: TZ, hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false});
+const dayFmt = new Intl.DateTimeFormat("en-CA", {timeZone: TZ});
+function parse(value) { if (!value) return null; const d = new Date(value); return Number.isNaN(d.valueOf()) ? null : d; }
+function stamp(value) { const d = parse(value); return d ? dateFmt.format(d) : (value ? String(value) : "—"); }
+function ago(value) {
+  const d = parse(value); if (!d) return "";
+  const s = Math.round((Date.now() - d.getTime()) / 1000);
+  if (s < 0) return "in the future";
+  if (s < 90) return "just now";
+  if (s < 5400) return Math.round(s / 60) + " min ago";
+  if (s < 172800) return Math.round(s / 3600) + " h ago";
+  return Math.round(s / 86400) + " days ago";
+}
+function stamped(value, cls) {
+  const node = el("span", cls || "", stamp(value));
+  const rel = ago(value);
+  if (rel) node.append(el("span", "sub", rel));
+  if (value) node.title = String(value);
+  return node;
+}
+function isStale(nvr) {
+  if (nvr.last_run_failed) return true;
+  if (typeof nvr.stale === "boolean") return nvr.stale;  // Server rule: follows the scan schedule.
+  const d = parse(nvr.last_check);
+  return !d || Date.now() - d.getTime() > 26 * 3600 * 1000;
+}
+function nvrTitle(nvr) { return nvr.name || nvr.id; }
+function windowText(minutes) {
+  const m = Number(minutes);
+  if (!Number.isInteger(m) || m <= 0) return "the search window";
+  if (m % 60 === 0) return m === 60 ? "the last hour" : "the last " + (m / 60) + " hours";
+  return "the last " + m + " minutes";
+}
+function cond(ch) { return ch.condition || {code: "CHECK_FAILED", label: "Check failed", severity: "warning", rank: 2, detail: ""}; }
+
+// ---------- filtering ----------
+function filters() {
+  return {
+    query: $("search").value.trim().toLowerCase(),
+    overall: $("overall-filter").value, live: $("live-filter").value,
+    condition: $("condition-filter").value, recording: $("recording-filter").value,
+    storage: $("storage-filter").value, problems: $("only-problems").checked
+  };
+}
+function recordingMatches(ch, want) {
+  const s = ch.recording_result.status;
+  if (want === "EVIDENCE") return EVIDENCE.has(s);
+  if (want === "OFFLINE_EVIDENCE") return ch.reported_status === "OFFLINE" && (EVIDENCE.has(s) || ch.historical_recording_result.status === "HISTORICAL_RECORDING_FOUND");
+  if (want === "FAILED") return FAILED_CHECKS.has(s);
+  if (want === "NOT_CHECKED") return NOT_RUN.has(s);
+  return s === want;
+}
+function nvrText(nvr) { return [nvr.id, nvr.name, nvr.ip, nvr.model, nvr.firmware_version].join(" ").toLowerCase(); }
+function cameraText(ch) { return [ch.channel_id, "ch" + ch.channel_id, ch.name, ch.camera_ip, cond(ch).label].join(" ").toLowerCase(); }
+function select() {
+  const f = filters();
+  const cameraFilter = Boolean(f.live || f.condition || f.recording || f.problems);
+  const rows = [];
+  for (const nvr of state.nvrs) {
+    if (f.overall && nvr.overall_status !== f.overall) continue;
+    if (f.storage && nvr.storage_status !== f.storage) continue;
+    const nvrHit = !f.query || nvrText(nvr).includes(f.query);
+    const match = new Set();
+    for (const ch of nvr.channels) {
+      const code = cond(ch).code;
+      if (f.query && !nvrHit && !cameraText(ch).includes(f.query)) continue;
+      if (f.live && ch.reported_status !== f.live) continue;
+      if (f.condition && code !== f.condition) continue;
+      if (f.recording && !recordingMatches(ch, f.recording)) continue;
+      if (f.problems && !PROBLEMS.has(code)) continue;
+      match.add(ch);
+    }
+    const narrowed = cameraFilter || (f.query && !nvrHit);
+    if (narrowed && !match.size) continue;
+    rows.push({nvr, match, narrowed, cameraFilter});
+  }
+  const sort = $("sort").value;
+  const problemCount = r => r.nvr.channels.filter(ch => PROBLEMS.has(cond(ch).code)).length;
+  rows.sort((a, b) => {
+    if (sort === "id") return a.nvr.id.localeCompare(b.nvr.id, undefined, {numeric: true});
+    if (sort === "recent") return (parse(b.nvr.last_check)?.getTime() || 0) - (parse(a.nvr.last_check)?.getTime() || 0);
+    if (sort === "cameras") return problemCount(b) - problemCount(a) || a.nvr.id.localeCompare(b.nvr.id, undefined, {numeric: true});
+    return (HEALTH_RANK[a.nvr.overall_status] ?? 3) - (HEALTH_RANK[b.nvr.overall_status] ?? 3)
+      || problemCount(b) - problemCount(a) || a.nvr.id.localeCompare(b.nvr.id, undefined, {numeric: true});
+  });
+  return {rows, f, active: Boolean(f.query || f.overall || f.storage || cameraFilter)};
+}
+
+// ---------- header, banners, hero, facts ----------
+function renderFreshness() {
+  const s = state.data?.summary || {};
+  const pulse = $("pulse");
+  const last = s.last_successful_report;
+  const stale = num(s.stale_reports) > 0 || num(s.latest_run_failed) > 0;
+  pulse.className = "pulse " + (state.error ? "error" : stale ? "stale" : last ? "fresh" : "");
+  $("fresh-main").textContent = state.error ? "Refresh failed" : last ? "Reports from " + stamp(last) : "No reports yet";
+  const loaded = state.loadedAt ? "Loaded " + timeFmt.format(state.loadedAt) : "";
+  const every = num(state.data?.refresh_seconds) > 0 ? ", reloads every " + Math.max(15, num(state.data.refresh_seconds)) + " s" : "";
+  $("fresh-detail").textContent = loaded + every;
+}
+function renderBanners() {
+  const host = $("banners");
+  host.replaceChildren();
+  const s = state.data?.summary || {};
+  const add = (kind, strong, text, retry) => {
+    const b = el("div", "banner " + kind);
+    b.setAttribute("role", kind === "crit" ? "alert" : "status");
+    const body = el("div");
+    body.append(el("b", "", strong), " " + text);
+    b.append(body);
+    if (retry) { const btn = el("button", "btn", "Try again"); btn.type = "button"; btn.addEventListener("click", refresh); b.append(btn); }
+    host.append(b);
+  };
+  if (state.scanNotice) {
+    add(state.scanNotice.kind, state.scanNotice.strong, state.scanNotice.text);
+    const dismiss = el("button", "btn", "Dismiss");
+    dismiss.type = "button";
+    dismiss.addEventListener("click", () => setNotice(null));
+    host.lastChild.append(dismiss);
+  }
+  if (state.error) add("crit", "Could not reload reports.", state.error + " The last loaded results stay on screen.", true);
+  if (num(s.latest_run_failed) > 0)
+    add("crit", "Latest fleet run failed for " + plural(num(s.latest_run_failed), "NVR") + ".",
+      "Their cameras are left out of the fleet totals; each card shows the last successful report for reference.");
+  const staleOnly = num(s.stale_reports) - num(s.latest_run_failed);
+  if (staleOnly > 0) {
+    const slot = parse(s.stale_slot);
+    if (slot) add("warn", plural(staleOnly, "NVR report") + " older than the " + timeFmt.format(slot).slice(0, 5) + " scheduled scan.",
+      "Automatic scans may have stopped. On the server run: docker compose logs --tail 50 nvr-scanner");
+    else add("warn", plural(staleOnly, "NVR report") + " older than 26 hours.", "No automatic scan schedule is known; check that scans still run.");
+  }
+  if (num(state.data?.report_errors) > 0)
+    add("warn", plural(num(state.data.report_errors), "report file") + " could not be read.", "Other reports are shown normally.");
+}
+function renderHero() {
+  const s = state.data?.summary || {};
+  const c = s.condition_counts || {};
+  const total = CONDITIONS.reduce((sum, [code]) => sum + num(c[code]), 0);
+  const stopped = num(c.NOT_RECORDING) + num(c.NO_FOOTAGE_30);
+  const failed = num(c.CHECK_FAILED), unmonitored = num(c.NOT_MONITORED), quiet = num(c.NO_RECENT_EVENTS);
+  const knownStopped = num(s.known_not_recording);
+  const headline = $("headline");
+  let text, good = false;
+  if (!state.nvrs.length) text = "No saved reports yet";
+  else if (stopped) text = plural(stopped, "camera is", "cameras are") + " not recording";
+  else if (failed) text = plural(failed, "camera", "cameras") + " could not be checked";
+  // Known-issue cameras may still be dark: never claim that every camera records.
+  else if (total > unmonitored) { text = knownStopped ? "No camera needs action" : quiet ? "No monitored camera has stopped recording" : "Every monitored camera is recording"; good = true; }
+  else text = "No cameras are monitored yet";
+  headline.textContent = text;
+  headline.className = "headline " + (good ? "good" : "bad");
+  const parts = [];
+  if (total) parts.push(num(s.recording_evidence) + " of " + total + " cameras recorded video in " + windowText(s.window_minutes) + ".");
+  if (num(c.GAPS)) parts.push(plural(num(c.GAPS), "camera has", "cameras have") + " missing days in the 30-day calendar.");
+  if (quiet) parts.push(plural(quiet, "event-recording camera", "event-recording cameras") + " had no events in " + windowText(s.window_minutes) + ", which is normal for a quiet area.");
+  if (stopped && failed) parts.push(plural(failed, "check") + " could not be completed.");
+  if (knownStopped) parts.push(plural(knownStopped, "camera with a known issue is", "cameras with a known issue are") + " not recording (alerts paused).");
+  if (unmonitored) parts.push(plural(unmonitored, "camera is", "cameras are") + " on NVRs without per-camera checks.");
+  if (num(s.cameras_without_result)) parts.push(plural(num(s.cameras_without_result), "expected camera has", "expected cameras have") + " no result because the NVR was unreachable.");
+  if (!state.nvrs.length) parts.push("Run the reporter once, then refresh: docker compose run --rm nvr-report-all");
+  $("subline").textContent = parts.join(" ");
+
+  const bar = $("condbar");
+  bar.replaceChildren();
+  const legend = $("legend");
+  legend.replaceChildren();
+  const active = $("condition-filter").value;
+  for (const [code, name] of CONDITIONS) {
+    const n = num(c[code]);
+    if (n) {
+      const seg = el("span", "k-" + code);
+      seg.style.flexGrow = state.firstPaint ? "0" : String(n);
+      seg.dataset.n = n;
+      seg.title = name + ": " + n;
+      bar.append(seg);
+    }
+    const b = el("button", "");
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(active === code));
+    b.disabled = !n && active !== code;
+    b.append(el("span", "swatch k-" + code), name, el("b", "", n));
+    b.addEventListener("click", () => {
+      $("condition-filter").value = active === code ? "" : code;
+      state.closed.clear();
+      render();
+      if (active !== code) $("toolbar").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start"});
+    });
+    legend.append(b);
+  }
+  bar.setAttribute("aria-label", "Camera conditions: " + CONDITIONS.filter(([k]) => num(c[k])).map(([k, n]) => n + " " + num(c[k])).join(", "));
+  if (state.firstPaint && total) {
+    state.firstPaint = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      for (const seg of bar.children) seg.style.flexGrow = seg.dataset.n;
+    }));
+  }
+}
+function renderFacts() {
+  const s = state.data?.summary || {};
+  const host = $("facts");
+  host.replaceChildren();
+  const group = (title, rows) => {
+    const sec = el("section");
+    sec.append(el("h2", "", title));
+    const dl = el("dl");
+    for (const [name, value, tone, always] of rows) {
+      if (!always && !num(value)) continue;
+      const dt = el("dt");
+      dt.append(el("span", "dot " + (tone || "")), name);
+      const dd = el("dd", typeof value === "number" && !value ? "zero" : "", value ?? 0);
+      dl.append(dt, dd);
+    }
+    sec.append(dl);
+    host.append(sec);
+  };
+  group("NVRs", [
+    ["Reporting", (s.latest_run_reporting ?? s.total_nvrs ?? 0) + " of " + (s.total_nvrs ?? 0), num(s.latest_run_failed) ? "crit" : "ok", true],
+    ["Healthy", num(s.healthy), "ok", true], ["Warning", num(s.warning), "warn", true],
+    ["Critical", num(s.critical), "crit", true], ["Latest run failed", num(s.latest_run_failed), "crit"],
+    ["Restarted since last scan", num(s.restarts), "warn"], ["Camera list changes", num(s.camera_changes), "warn"],
+    ["Real-time events (24 h)", num(s.events_24h), "info"], ["Event streams down", num(s.event_streams_down), "crit"],
+    ["Known issues (alerts paused)", num(s.known_issues), ""]
+  ]);
+  group("Cameras live", [
+    ["Online", num(s.cameras_online), "ok", true], ["Offline", num(s.cameras_offline), "crit", true],
+    ["Unknown", num(s.cameras_unknown), "warn", true], ["No result (NVR unreachable)", num(s.cameras_without_result), "crit"]
+  ]);
+  const failedChecks = Math.max(0, num(s.recording_unverified) - num(s.recording_not_checked));
+  group("Recording in " + windowText(s.window_minutes), [
+    ["Footage found", num(s.recording_evidence), "ok", true],
+    ["No recent evidence", num(s.recording_no_evidence), "crit", true],
+    ["Offline, still recording", num(s.offline_recording_now ?? s.offline_with_evidence), "info", true],
+    ["Offline, footage stored (incl. older)", num(s.offline_with_evidence), "info"],
+    ["Failed or unverified checks", failedChecks, "violet", true],
+    ["Not checked or not enabled", num(s.recording_not_checked), ""],
+    ["Historical pending (no recent)", num(s.historical_pending_no_recent), "warn"],
+    ["Calendars pending", num(s.retention_pending), "warn"]
+  ]);
+  group("Storage", [
+    ["Critical", num(s.storage_critical), "crit", true], ["Warning", num(s.storage_warnings), "warn", true],
+    ["Disk SMART problems", num(s.smart_problems), "crit"],
+    ["Calendar errors", num(s.retention_errors) + num(s.retention_partial), "warn"],
+    ["Failed history searches", num(s.historical_errors), "crit"]
+  ]);
+}
+
+// ---------- NVR cards ----------
+function wall(nvr, match, narrowed) {
+  const box = el("div", "wall" + (nvr.last_run_failed ? " stale" : ""));
+  box.setAttribute("role", "img");
+  const counts = nvr.condition_counts || {};
+  box.setAttribute("aria-label", "Camera wall for " + nvrTitle(nvr) + ": " +
+    CONDITIONS.filter(([k]) => num(counts[k])).map(([k, n]) => num(counts[k]) + " " + n).join(", "));
+  const ordered = [...nvr.channels].sort((a, b) => num(a.channel_id) - num(b.channel_id));
+  for (const ch of ordered) {
+    const c = cond(ch);
+    const live = ch.reported_status;
+    const cell = el("span", "cell k-" + c.code + (live === "OFFLINE" ? " offline" : live !== "ONLINE" ? " liveunknown" : "") + (narrowed && !match.has(ch) ? " dim" : ""));
+    cell.dataset.nvr = nvr.id;
+    cell.dataset.ch = ch.channel_id;
+    box.append(cell);
+  }
+  const missing = Number.isInteger(nvr.expected_channels) ? Math.max(0, nvr.expected_channels - nvr.channels.length) : 0;
+  for (let i = 0; i < missing; i++) {
+    const ghost = el("span", "cell ghost");
+    ghost.dataset.ghost = "1";
+    box.append(ghost);
+  }
+  return box;
+}
+function card(row) {
+  const {nvr, match, narrowed} = row;
+  const counts = nvr.condition_counts || {};
+  const art = el("article", "nvr s-" + nvr.overall_status);
+  art.dataset.nvrId = nvr.id;
+  const head = el("div", "nvr-head");
+  const top = el("div", "nvr-row");
+  const name = el("div", "nvr-name");
+  name.append(el("h3", "", nvrTitle(nvr)));
+  const meta = el("div", "meta");
+  if (nvr.name) meta.append(el("span", "id", nvr.id));
+  if (nvr.ip) meta.append(el("span", "ip", nvr.ip));
+  if (nvr.model) meta.append(el("span", "", nvr.model));
+  if (nvr.firmware_version) meta.append(el("span", "", "Firmware " + nvr.firmware_version));
+  name.append(meta);
+  const pills = el("div", "pills");
+  pills.append(pill(nvr.overall_status));
+  pills.append(pill(nvr.storage_status, (nvr.last_run_failed ? "Last known: " : "") + (STORAGE_LABEL[nvr.storage_status] || "Storage " + label(nvr.storage_status).toLowerCase())));
+  top.append(name, pills);
+  head.append(top);
+  if (nvr.last_run_failed) {
+    head.append(el("p", "runfail", "Latest fleet check failed (" + (nvr.last_run_failure_code || "REPORT_UNAVAILABLE") +
+      "). Cameras and disks below are from the last successful report, " + (nvr.last_check ? stamp(nvr.last_check) : "none saved") + ", not current observations."));
+  }
+  head.append(wall(nvr, match, narrowed));
+
+  const foot = el("div", "nvr-foot");
+  const alerts = el("span", "alerts");
+  const items = [
+    [num(counts.NO_FOOTAGE_30), "no footage for 30+ days", true], [num(counts.NOT_RECORDING), "stopped recording", true],
+    [num(counts.CHECK_FAILED), "not checked", false], [num(counts.GAPS), "with missing days", false],
+    [num(counts.KNOWN_ISSUE), "with a known issue", false], [num(counts.NO_RECENT_EVENTS), "with no recent events", false],
+    [nvr.channels.filter(ch => ch.unstable).length, "with an unstable connection", false]
+  ].filter(([n]) => n > 0);
+  // "All recorded" only when every camera really has footage in the window.
+  const recorded = nvr.channels.filter(ch => EVIDENCE.has(ch.recording_result.status)).length;
+  if (items.length) {
+    items.forEach(([n, text, bad], i) => {
+      if (i) alerts.append(", ");
+      alerts.append(el("span", bad ? "bad" : "", plural(n, "camera") + " " + text));
+    });
+  } else if (nvr.channels.length && !num(counts.NOT_MONITORED)) {
+    alerts.append((recorded === nvr.channels.length ? "All cameras" : recorded + " of " + nvr.channels.length + " cameras")
+      + " recorded in " + windowText(nvr.per_camera_recording?.window_minutes));
+  } else if (num(counts.NOT_MONITORED)) {
+    alerts.append("Per-camera checks are not enabled for this NVR");
+  } else {
+    alerts.append("No camera list in this report");
+  }
+  const live = el("span", "livecounts");
+  const lv = (n, t) => { const s = el("span"); s.append(el("b", "", n), " " + t); return s; };
+  live.append(lv(num(nvr.online_channels), "online"), lv(num(nvr.offline_channels), "offline"));
+  if (num(nvr.unknown_channels)) live.append(lv(num(nvr.unknown_channels), "unknown"));
+  const chans = el("span", "", (nvr.configured_channels ?? "—") + " of " + (nvr.expected_channels ?? "—") + " channels");
+  const kept = el("span", "kept", "Footage kept " + keptText(nvr.kept_days, true));
+  kept.title = keptTitle(nvr.kept_days);
+  const when = el("span", "when" + (isStale(nvr) ? " stale" : ""), (nvr.last_run_failed ? "Last good report " : "Report ") + stamp(nvr.last_check));
+  when.title = (nvr.last_check || "") + (isStale(nvr) ? " (stale)" : "");
+  const btn = el("button", "expand", "Details");
+  btn.type = "button";
+  btn.setAttribute("aria-expanded", String(isOpen(row)));
+  btn.setAttribute("aria-controls", "drawer-" + nvr.id);
+  btn.addEventListener("click", () => toggle(nvr.id));
+  const scanBtn = el("button", "cardbtn scan-nvr", "Scan");
+  scanBtn.type = "button";
+  scanBtn.dataset.nvr = nvr.id;
+  scanBtn.title = "Scan " + nvrTitle(nvr) + " now";
+  scanBtn.addEventListener("click", () => requestScan(nvr.id));
+  foot.append(alerts, live, chans);
+  if (nvr.channels.length) foot.append(kept);
+  foot.append(when);
+  const lv2 = liveBadge(nvr.live);
+  if (lv2) foot.append(lv2);
+  foot.append(scanBtn, btn);
+  head.append(foot);
+  art.append(head);
+  if (isOpen(row)) art.append(drawer(row));
+  return art;
+}
+// Live check between scans (nvr-live): camera and disk states newer than the report.
+function liveBadge(lv) {
+  if (!lv) return null;
+  let node;
+  if (lv.reachable === false && lv.failures >= 2) node = el("span", "live-bad", "Not reachable since " + stamp(lv.down_since));
+  else if (!lv.fresh) node = el("span", "live-old", "Live check stopped " + stamp(lv.checked_at));
+  else if (lv.reachable !== true) node = el("span", "live-old", "Live check failed " + stamp(lv.checked_at));
+  else node = el("span", "live-ok", "Live " + stamp(lv.checked_at));
+  node.title = "Camera online/offline and disk states are checked between scans" + (lv.error ? " (" + lv.error + ")" : "");
+  return node;
+}
+// Camera filters open the matching NVRs, unless the user closed one.
+function isOpen(row) {
+  return state.open.has(row.nvr.id) || (row.cameraFilter && !state.closed.has(row.nvr.id));
+}
+function toggle(id) {
+  const row = select().rows.find(r => r.nvr.id === id);
+  if (row && isOpen(row)) { state.open.delete(id); state.closed.add(id); }
+  else { state.open.set(id, state.open.get(id) || "cameras"); state.closed.delete(id); }
+  render();
+}
+
+// ---------- drawer ----------
+function drawer(row) {
+  const {nvr} = row;
+  const box = el("div", "drawer");
+  box.id = "drawer-" + nvr.id;
+  const active = state.open.get(nvr.id) || "cameras";
+  const findings = nvr.critical_reasons.length + nvr.warnings.length + nvr.unknown_checks.length;
+  const tabs = el("div", "tabs");
+  tabs.setAttribute("role", "tablist");
+  const defs = [["cameras", "Cameras", row.narrowed ? row.match.size + " of " + nvr.channels.length : nvr.channels.length],
+                ["storage", "Storage", nvr.disks.length], ["findings", "Findings", findings]];
+  for (const [key, name, n] of defs) {
+    const t = el("button", "tab", name);
+    t.type = "button";
+    t.setAttribute("role", "tab");
+    t.setAttribute("aria-selected", String(key === active));
+    t.tabIndex = key === active ? 0 : -1;
+    t.append(el("span", "n", n));
+    t.addEventListener("click", () => { state.open.set(nvr.id, key); render(); });
+    t.addEventListener("keydown", e => {
+      const i = defs.findIndex(d => d[0] === key);
+      const next = e.key === "ArrowRight" ? defs[(i + 1) % defs.length] : e.key === "ArrowLeft" ? defs[(i + defs.length - 1) % defs.length] : null;
+      if (next) { e.preventDefault(); state.open.set(nvr.id, next[0]); render(); document.querySelector(`#drawer-${CSS.escape(nvr.id)} .tab[aria-selected="true"]`)?.focus(); }
+    });
+    tabs.append(t);
+  }
+  const panel = el("div", "panel");
+  panel.setAttribute("role", "tabpanel");
+  if (active === "storage") panel.append(storagePanel(nvr));
+  else if (active === "findings") panel.append(findingsPanel(nvr));
+  else panel.append(cameraPanel(row));
+  box.append(tabs, panel);
+  return box;
+}
+function lastVideo(ch) {
+  const r = ch.recording_result, h = ch.historical_recording_result, c = cond(ch);
+  const pick = r.most_recent_segment_end ? [r.most_recent_segment_end, r.latest_segment_complete]
+    : h.most_recent_segment_end ? [h.most_recent_segment_end, h.latest_segment_complete] : null;
+  if (pick) {
+    const node = stamped(pick[0]);
+    if (pick[1] === false) {
+      node.firstChild.textContent = stamp(pick[0]) + " or later";
+      node.title = "The NVR listed only part of the footage; the newest segment ends at or after this time.";
+    }
+    return node;
+  }
+  if (c.code === "NO_FOOTAGE_30") return el("span", "bad", "None in 30 days");
+  if (c.last_day) return el("span", "", "On " + c.last_day);
+  if (c.code === "NOT_MONITORED") return "—";
+  if (c.code === "CHECK_FAILED") return el("span", "", "Not checked");
+  return el("span", "", "None in " + windowText(r.window_minutes));
+}
+function lastVideoTime(ch) {
+  return parse(ch.recording_result.most_recent_segment_end || ch.historical_recording_result.most_recent_segment_end)?.getTime()
+    || (cond(ch).last_day ? Date.parse(cond(ch).last_day) : 0);
+}
+function recordedDays(t) {
+  if (!Number.isInteger(t?.days_with_footage)) return "—";
+  const wrap = el("span");
+  const count = el("span", "", t.days_with_footage + " / " + (t.window_days ?? "—"));
+  count.title = "Days with any footage in the " + (t.window_days ?? "") + "-day calendar, as of " + (t.as_of_date || "unknown") +
+    (t.status === "RETENTION_STALE" ? " (previous scan)" : "") + ". Hover the strip for each day.";
+  wrap.append(count);
+  if (Array.isArray(t.calendar) && t.calendar.length) {
+    const strip = el("span", "cal");
+    strip.setAttribute("aria-hidden", "true");
+    strip.dataset.asOf = t.as_of_date || "";
+    if (t.status === "RETENTION_STALE") strip.dataset.stale = "1";
+    t.calendar.forEach((day, i) => {
+      const kind = day.has_recording === true ? "y" : day.has_recording === false ? "n" : "";
+      const square = el("i", kind);
+      square.dataset.date = day.date;
+      square.dataset.state = kind || "u";
+      square.dataset.pos = (i + 1) + " of " + t.calendar.length;
+      strip.append(square);
+    });
+    // Today so far: shown after a small gap, never counted in the 30 days.
+    const todayIso = dayFmt.format(new Date());
+    if (t.today && t.today.date === todayIso) {
+      const kind = t.today.has_recording === true ? "y" : t.today.has_recording === false ? "n" : "";
+      const square = el("i", (kind ? kind + " " : "") + "today");
+      square.dataset.date = t.today.date;
+      square.dataset.state = kind || "u";
+      square.dataset.pos = "today";
+      strip.dataset.checked = t.checked_at || "";
+      strip.append(square);
+    }
+    wrap.append(strip);
+    // The strip ends the day before its scan. Say so when that is not yesterday.
+    const last = t.calendar[t.calendar.length - 1]?.date;
+    const yesterday = dayFmt.format(new Date(Date.now() - 864e5));
+    if (last && last < yesterday) {
+      const lastDate = new Date(last + "T00:00:00Z");
+      wrap.append(el("span", "sub", "Calendar up to " + (Number.isNaN(lastDate.valueOf()) ? last : shortDay.format(lastDate))));
+    }
+  }
+  return wrap;
+}
+function conditionCell(c) {
+  const node = el("span", "cond");
+  node.append(el("span", "swatch k-" + c.code), c.label + (c.code === "GAPS" ? " (" + c.missing_days + " days)" : c.code === "SHORT_HISTORY" || c.code === "BELOW_RETENTION" ? " (" + c.history_days + " days)" : ""));
+  node.title = c.detail || "";
+  return node;
+}
+function cameraPanel(row) {
+  const {nvr} = row;
+  const full = $("all-columns").checked;
+  const frag = document.createDocumentFragment();
+  const pc = nvr.per_camera_recording || {};
+  const notes = [];
+  notes.push(pc.enabled ? "Recording is checked in " + windowText(pc.window_minutes) + " on each camera's verified recording track." : "Per-camera recording checks are not enabled for this NVR; add it to NVR_PER_CAMERA_RECORDING_IDS once its track mapping is verified.");
+  if (pc.enabled && pc.track_mapping_status && pc.track_mapping_status !== "VERIFIED") notes.push("Track list: " + label(pc.track_mapping_status) + ".");
+  if (nvr.channel_source === "CHANNEL_STATUS_FALLBACK") notes.push("Camera names and IPs are missing because the channel list request failed; rows come from the status list.");
+  if (row.narrowed) notes.push("Showing " + row.match.size + " of " + nvr.channels.length + " cameras that match the filters.");
+  frag.append(el("p", "note", notes.join(" ")));
+
+  const sortKey = state.sort.get(nvr.id) || ["condition", 1];
+  const cols = [
+    ["ch", "Ch.", ch => el("span", "chan", ch.channel_id), (a, b) => num(a.channel_id) - num(b.channel_id)],
+    ["name", "Camera", ch => ch.name || "—", (a, b) => (a.name || "").localeCompare(b.name || "", undefined, {numeric: true})],
+    ["ip", "Camera IP", ch => el("span", "ip", ch.camera_ip || "—"), null],
+    ["condition", "Condition", ch => conditionCell(cond(ch)), (a, b) => cond(a).rank - cond(b).rank || num(a.channel_id) - num(b.channel_id)],
+    ["live", "Live", ch => pill(ch.reported_status), (a, b) => String(a.reported_status).localeCompare(String(b.reported_status))],
+    ["last", "Last video", lastVideo, (a, b) => lastVideoTime(a) - lastVideoTime(b)],
+    ["days", "Recorded days", ch => recordedDays(ch.retention_result), (a, b) => num(a.retention_result.days_with_footage) - num(b.retention_result.days_with_footage)]
+  ];
+  if (full) {
+    const r = ch => ch.recording_result, h = ch => ch.historical_recording_result;
+    const notNeeded = ch => EVIDENCE.has(r(ch).status) && h(ch).status === "HISTORICAL_NOT_CHECKED" && !h(ch).checked_at;
+    cols.push(
+      ["recent", "Recent check", ch => pill(r(ch).status), null],
+      ["matches", "Segments", ch => r(ch).num_matches == null ? "—" : r(ch).num_matches + (r(ch).more_available ? "+" : ""), null],
+      ["track", "Track", ch => r(ch).track_id ?? "—", null],
+      ["checked", "Checked", ch => r(ch).checked_at ? stamped(r(ch).checked_at) : "—", null],
+      ["hist", "History", ch => pill(notNeeded(ch) ? "HISTORICAL_NOT_NEEDED" : h(ch).status), null],
+      ["histwhen", "History checked", ch => h(ch).checked_at ? stamp(h(ch).checked_at) + (h(ch).from_cache ? " (cached)" : "") : "—", null],
+      ["cal", "Calendar", ch => pill(ch.retention_result.status), null],
+      ["expect", "Expectation", ch => ch.recording_expectation, null],
+      ["pic", "Picture", ch => pictureCell(nvr, ch), null]
+    );
+  }
+  cols.push(["why", "Why", ch => {
+    const c = cond(ch), r = ch.recording_result, h = ch.historical_recording_result;
+    const parts = [c.detail];
+    if (full) {
+      if (r.message && r.message !== c.detail) parts.push(r.message);
+      if (h.message && h.status !== "HISTORICAL_NOT_CHECKED" && h.status !== "HISTORICAL_NOT_CONFIGURED") parts.push(h.message);
+      if (r.anomalies?.length) parts.push("Anomalies: " + r.anomalies.join(", "));
+    }
+    const box = el("span", "", parts.filter(Boolean).join(" "));
+    for (const note of ch.duplicate_notes || []) box.append(el("span", "note-line known", note));
+    for (const note of ch.fleet_notes || []) box.append(el("span", "note-line", note));
+    if (ch.unstable) box.append(el("span", "note-line known", "Unstable connection: " + plural(ch.unstable.changes, "online/offline change") +
+      " in " + ch.unstable.hours + " h (last " + stamp(ch.unstable.last_change) + ")"));
+    if (ch.known_issue && cond(ch).code !== "KNOWN_ISSUE")
+      box.append(el("span", "note-line known", "Known issue" + (ch.known_issue.until ? " until " + ch.known_issue.until : "") + ": " + ch.known_issue.reason));
+    for (const n of (ch.notes || []).slice(0, full ? 3 : 1))
+      box.append(el("span", "note-line", stamp(n.at) + " · " + n.text + (n.by ? " (" + n.by + ")" : "")));
+    return box;
+  }, null]);
+  cols.push(["act", "", ch => {
+    const b = el("button", "rowbtn", "Notes…");
+    b.type = "button";
+    b.title = "Known issue, fixed, repair note" + (ch.snapshot_result?.has_image ? ", picture" : "");
+    b.addEventListener("click", () => openCameraDialog(nvr, ch));
+    return b;
+  }, null]);
+
+  const source = row.narrowed ? nvr.channels.filter(ch => row.match.has(ch)) : nvr.channels;
+  const sorter = cols.find(c => c[0] === sortKey[0])?.[3] || cols[3][3];
+  const rows = [...source].sort((a, b) => sortKey[1] * sorter(a, b));
+
+  const scroller = el("div", "scroller");
+  scroller.tabIndex = 0;
+  scroller.setAttribute("role", "region");
+  scroller.setAttribute("aria-label", "Cameras on " + nvrTitle(nvr));
+  const table = el("table", "cam");
+  const thead = el("thead"), hr = el("tr");
+  for (const [key, title, , cmp] of cols) {
+    const th = el("th");
+    th.scope = "col";
+    if (cmp) {
+      const b = el("button", "", title);
+      b.type = "button";
+      b.addEventListener("click", () => {
+        const cur = state.sort.get(nvr.id) || ["condition", 1];
+        state.sort.set(nvr.id, [key, cur[0] === key ? -cur[1] : 1]);
+        render();
+      });
+      th.append(b);
+      if (sortKey[0] === key) th.setAttribute("aria-sort", sortKey[1] > 0 ? "ascending" : "descending");
+    } else th.textContent = title;
+    if (key === "matches" || key === "track") th.className = "num";
+    hr.append(th);
+  }
+  thead.append(hr);
+  const tbody = el("tbody");
+  if (!rows.length) {
+    const tr = el("tr"), td = el("td", "empty", nvr.channels.length ? "No cameras match these filters." : "This report has no camera list, usually because the NVR could not be reached.");
+    td.colSpan = cols.length;
+    tr.append(td);
+    tbody.append(tr);
+  }
+  for (const ch of rows) {
+    const c = cond(ch);
+    const tr = el("tr", "sev-" + c.severity + (state.hit && state.hit[0] === nvr.id && state.hit[1] === String(ch.channel_id) ? " hit" : ""));
+    tr.dataset.ch = ch.channel_id;
+    for (const [key, , render] of cols) {
+      const td = el("td", key === "why" ? "why" : key === "matches" || key === "track" ? "num" : "");
+      const v = render(ch);
+      if (v instanceof Node) td.append(v); else td.textContent = String(v ?? "—");
+      tr.append(td);
+    }
+    tbody.append(tr);
+  }
+  table.append(thead, tbody);
+  scroller.append(table);
+  frag.append(scroller);
+  return frag;
+}
+function pictureCell(nvr, ch) {
+  const s = ch.snapshot_result || {status: "PICTURE_NOT_CONFIGURED"};
+  const p = pill(s.status);
+  if (s.message) p.title = s.message;
+  if (!s.has_image) return p;
+  const wrap = el("span");
+  const b = el("button", "rowbtn", "View");
+  b.type = "button";
+  b.addEventListener("click", () => openCameraDialog(nvr, ch, true));
+  wrap.append(p, " ", b);
+  return wrap;
+}
+function closeDialog() { document.querySelector(".modal-back")?.remove(); }
+function openCameraDialog(nvr, ch, pictureFirst) {
+  closeDialog();
+  const back = el("div", "modal-back");
+  const box = el("div", "modal");
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-modal", "true");
+  const title = ch ? (ch.name || "Channel " + ch.channel_id) + " · ch" + ch.channel_id : "Whole NVR";
+  box.append(el("h3", "", title), el("div", "sub", nvrTitle(nvr) + (ch ? " · " + cond(ch).label : "")));
+  if (ch && ch.snapshot_result?.has_image) {
+    const img = el("img");
+    img.alt = "Latest picture from " + title;
+    img.src = "/api/snapshot?nvr=" + encodeURIComponent(nvr.id) + "&ch=" + encodeURIComponent(ch.channel_id) + "&t=" + Date.now();
+    box.append(img, el("div", "sub", label(ch.snapshot_result.status) + " · " + stamp(ch.snapshot_result.checked_at) + " · " + (ch.snapshot_result.message || "")));
+    if (ch.snapshot_result.has_reference) {
+      const ref = el("img");
+      ref.alt = "Picture from before the view changed, " + title;
+      ref.src = "/api/snapshot?nvr=" + encodeURIComponent(nvr.id) + "&ch=" + encodeURIComponent(ch.channel_id) + "&ref=1&t=" + Date.now();
+      box.append(el("label", "", "Before the view changed"), ref,
+        el("div", "sub", stamp(ch.snapshot_result.reference_at) + " · if both show the same place, mark it fixed to accept the view."));
+    }
+  }
+  const issue = ch ? ch.known_issue : nvr.nvr_known_issue;
+  if (issue) box.append(el("p", "", "Known issue" + (issue.until ? " until " + issue.until : " until marked fixed") + ": " + issue.reason));
+  const notes = ch ? ch.notes || [] : nvr.nvr_notes || [];
+  if (notes.length) {
+    const ul = el("ul");
+    for (const n of notes) ul.append(el("li", "", stamp(n.at) + " · " + n.text + (n.by ? " (" + n.by + ")" : "")));
+    box.append(el("label", "", "Recent notes"), ul);
+  }
+  const textLabel = el("label", "", "Reason or note");
+  const text = el("textarea");
+  text.maxLength = 300;
+  text.placeholder = "e.g. Cable cut, technician on Friday";
+  textLabel.htmlFor = text.id = "dlg-text";
+  const untilLabel = el("label", "", "Pause alerts for");
+  const until = el("select", "control");
+  until.id = untilLabel.htmlFor = "dlg-until";
+  for (const [v, n] of [["1d", "1 day"], ["3d", "3 days"], ["7d", "7 days"], ["14d", "14 days"], ["30d", "30 days"], ["", "Until marked fixed"]]) {
+    const o = el("option", "", n); o.value = v; until.append(o);
+  }
+  until.value = "7d";
+  const msg = el("p", "msg");
+  msg.setAttribute("role", "status");
+  const send = async (action) => {
+    msg.className = "msg"; msg.textContent = "Saving…";
+    try {
+      const r = await fetch("/api/notes", {method: "POST", cache: "no-store", credentials: "same-origin",
+        headers: {"Content-Type": "application/json", "X-NVR-Track": "notes"},
+        body: JSON.stringify({action, nvr: nvr.id, channel: ch ? ch.channel_id : null, text: text.value, until: until.value})});
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || "HTTP " + r.status);
+      closeDialog(); refresh();
+    } catch (e) { msg.className = "msg err"; msg.textContent = e.message; }
+  };
+  const row = el("div", "row");
+  const known = el("button", "btn primary", "Mark known issue"); known.type = "button"; known.addEventListener("click", () => send("known"));
+  const fixed = el("button", "btn", "Mark fixed"); fixed.type = "button"; fixed.addEventListener("click", () => send("fixed"));
+  const note = el("button", "btn", "Add note"); note.type = "button"; note.addEventListener("click", () => send("note"));
+  const close = el("button", "btn", "Close"); close.type = "button"; close.addEventListener("click", closeDialog);
+  row.append(known, fixed, note, close);
+  box.append(textLabel, text, untilLabel, until, row, msg,
+    el("p", "sub", "A known issue pauses alerts and shows the camera as Known issue. Marking fixed resumes alerts and accepts the camera's current view as its reference picture."));
+  back.append(box);
+  back.addEventListener("click", e => { if (e.target === back) closeDialog(); });
+  back.addEventListener("keydown", e => { if (e.key === "Escape") closeDialog(); });
+  document.body.append(back);
+  (pictureFirst ? close : text).focus();
+}
+function space(mb) {
+  const n = Number(mb);
+  if (mb === null || mb === undefined || mb === "" || !Number.isFinite(n)) return "—";
+  if (n >= 1e6) return (n / 1e6).toFixed(2) + " TB";
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + " GB";
+  return n + " MB";
+}
+// Days of footage kept: the median camera recording now (verified 30-day calendar).
+function fewestList(k) {
+  const more = (k.fewest_count || 0) - k.fewest_channels.length;
+  return k.fewest_channels.map(c => "ch" + c).join(", ") + (more > 0 ? " +" + more + " more" : "");
+}
+function keptText(k, short) {
+  if (!k || !k.cameras || k.typical === null || k.typical === undefined) return short ? "unknown" : "unknown (no verified calendar)";
+  const d = n => n >= k.window ? n + "+ days" : plural(n, "day");
+  return d(k.typical) + (!short && k.fewest < k.typical ? " (fewest " + k.fewest + ": " + fewestList(k) + ")" : "");
+}
+function keptTitle(k) {
+  if (!k || !k.cameras) return "No camera recording now has a verified 30-day calendar.";
+  return "Typical (median) days of footage on the " + plural(k.cameras, "camera") + " recording now with a verified calendar" +
+    (k.fewest < k.typical ? "; fewest " + k.fewest + " (" + fewestList(k) + "), possibly a camera added recently" : "") +
+    ". " + k.window + "+ means at least the " + k.window + " days the calendar covers.";
+}
+function storagePanel(nvr) {
+  const frag = document.createDocumentFragment();
+  frag.append(el("p", "note", nvr.storage_message || "No storage message in this report."));
+  if (nvr.channels.length) frag.append(el("p", "note", "Footage kept: " + keptText(nvr.kept_days, false) + ". " + keptTitle(nvr.kept_days)));
+  if (nvr.smart && nvr.smart.status !== "NOT_CONFIGURED")
+    frag.append(el("p", "note", "Disk SMART: " + label(nvr.smart.status) + (nvr.smart.message ? " — " + nvr.smart.message : "") +
+      (nvr.smart.checked_at ? " (checked " + stamp(nvr.smart.checked_at) + (nvr.smart.from_cache ? ", cached" : "") + ")" : "")));
+  const scroller = el("div", "scroller");
+  const table = el("table");
+  const thead = el("thead"), hr = el("tr");
+  ["Disk", "Name", "Type", "State", "Capacity", "Free", "Used", "Property", "Group", "SMART", "Temp."].forEach(t => { const th = el("th", "", t); th.scope = "col"; hr.append(th); });
+  thead.append(hr);
+  const tbody = el("tbody");
+  if (!nvr.disks.length) {
+    const tr = el("tr"), td = el("td", "empty", "No disks were returned in this report.");
+    td.colSpan = 11; tr.append(td); tbody.append(tr);
+  }
+  const clean = v => v && v !== "NOT_RETURNED" ? v : "—";
+  for (const d of nvr.disks) {
+    const tr = el("tr");
+    const state_ = String(d.reported_status || "unknown").toLowerCase();
+    const tone = ["ok", "normal", "idle"].includes(state_) ? "HEALTHY" : state_ === "notexist" ? "UNKNOWN" : "CRITICAL";
+    const used = el("span");
+    const cap = Number(d.capacity_mb), free = Number(d.free_space_mb);
+    if (Number.isFinite(cap) && cap > 0 && Number.isFinite(free)) {
+      const pct = Math.min(100, Math.max(0, Math.round((cap - free) / cap * 100)));
+      used.append(pct + "%");
+      const bar = el("span", "bar"), fill = el("i", pct >= 99 ? "full" : "");
+      fill.style.width = pct + "%";
+      bar.append(fill); used.append(bar);
+      if (pct >= 99) used.title = "Full. NVRs normally overwrite the oldest footage when full; confirm the overwrite policy.";
+    } else used.append("—");
+    const sm = d.smart;
+    const smartCell = sm ? pill(sm.status === "HEALTHY" ? "HEALTHY" : sm.status, label(sm.status)) : "—";
+    if (sm && sm.message) smartCell.title = sm.message;
+    const temp = sm && Number.isFinite(sm.temperature_c) ? sm.temperature_c + " °C" : "—";
+    const cells = [d.id, clean(d.name), clean(d.type), pill(tone, state_ === "notexist" ? "Not detected" : d.reported_status), space(d.capacity_mb), space(d.free_space_mb), used, clean(d.property), clean(d.group), smartCell, temp];
+    for (const v of cells) { const td = el("td"); if (v instanceof Node) td.append(v); else td.textContent = String(v); tr.append(td); }
+    tbody.append(tr);
+  }
+  table.append(thead, tbody);
+  scroller.append(table);
+  frag.append(scroller);
+  return frag;
+}
+function findingsPanel(nvr) {
+  const grid = el("div", "findings");
+  const list = el("section");
+  list.append(el("h4", "", "Health findings"));
+  const ul = el("ul");
+  nvr.critical_reasons.forEach(t => ul.append(el("li", "c", "Critical: " + t)));
+  nvr.warnings.forEach(t => ul.append(el("li", "w", "Warning: " + t)));
+  nvr.unknown_checks.forEach(t => ul.append(el("li", "u", "Unverified: " + t)));
+  (nvr.info || []).forEach(t => ul.append(el("li", "", "Note: " + t)));
+  if (Number.isInteger(nvr.configured_channels) && Number.isInteger(nvr.expected_channels) && nvr.configured_channels !== nvr.expected_channels)
+    ul.append(el("li", "w", "Inventory mismatch: " + nvr.configured_channels + " configured, " + nvr.expected_channels + " expected."));
+  if (!ul.children.length) ul.append(el("li", "", "No findings in this report."));
+  list.append(ul);
+  const extra = [];
+  const changes = nvr.inventory_changes?.changes || [];
+  if (changes.length) {
+    const sec = el("section"), cl = el("ul");
+    sec.append(el("h4", "", "Camera list changes since " + stamp(nvr.inventory_changes.compared_with)));
+    const kind = {added: "Added", removed: "Removed", renamed: "Renamed", ip_changed: "IP changed"};
+    for (const c of changes) cl.append(el("li", "w", kind[c.type] + ": ch" + c.channel_id + " " + [c.old, c.new].filter(Boolean).join(" → ")));
+    sec.append(cl); extra.push(sec);
+  }
+  const evs = nvr.events || [];
+  if (evs.length || nvr.event_stream) {
+    const sec = el("section"), cl = el("ul");
+    const st = nvr.event_stream;
+    sec.append(el("h4", "", "Real-time events (24 h)" + (st ? (st.connected ? " · stream connected" : " · stream DOWN (" + (st.last_error_text || st.last_error || "?") + ")") : "")));
+    for (const e of evs) cl.append(el("li", e.severity === "critical" ? "c" : "w", stamp(e.at) + " · " + e.label + (e.channel ? " · ch" + e.channel : "") + (e.description ? " — " + e.description : "")));
+    if (!evs.length) cl.append(el("li", "", "No events in the last 24 hours."));
+    sec.append(cl); extra.push(sec);
+  }
+  if (nvr.nvr_known_issue || (nvr.nvr_notes || []).length) {
+    const sec = el("section"), cl = el("ul");
+    sec.append(el("h4", "", "NVR notes"));
+    if (nvr.nvr_known_issue) cl.append(el("li", "w", "Known issue for the whole NVR" + (nvr.nvr_known_issue.until ? " until " + nvr.nvr_known_issue.until : "") + ": " + nvr.nvr_known_issue.reason));
+    for (const n of nvr.nvr_notes || []) cl.append(el("li", "", stamp(n.at) + " · " + n.text + (n.by ? " (" + n.by + ")" : "")));
+    sec.append(cl); extra.push(sec);
+  }
+  const facts = el("section");
+  facts.append(el("h4", "", "Report details"));
+  const dl = el("dl", "kv");
+  const pc = nvr.per_camera_recording || {};
+  const add = (k, v) => { dl.append(el("dt", "", k), el("dd", "", v)); };
+  add("Report time", stamp(nvr.last_check));
+  if (nvr.last_run_failed) add("Latest run", "Failed: " + (nvr.last_run_failure_code || "REPORT_UNAVAILABLE"));
+  add("NVR-wide probe", label(nvr.recording_status) + (nvr.recording_track_id ? " (track " + nvr.recording_track_id + ")" : "") + ". One track only, never used for camera status.");
+  add("Per-camera checks", pc.enabled ? "Enabled, " + windowText(pc.window_minutes) : "Not enabled");
+  add("Track list", label(pc.track_mapping_status || "NOT_CONFIGURED"));
+  if (Number.isInteger(pc.nvr_clock_offset_seconds_approx)) add("NVR clock offset", pc.nvr_clock_offset_seconds_approx + " s");
+  add("Camera list source", nvr.channel_source === "CHANNEL_STATUS_FALLBACK" ? "Status list (channel list failed)" : "Channel inventory");
+  add("Ports", "HTTP " + (nvr.http_port ?? "—") + ", server " + (nvr.server_port ?? "—"));
+  if (Number.isFinite(nvr.uptime_seconds)) add("NVR uptime", Math.floor(nvr.uptime_seconds / 86400) + " d " + Math.floor(nvr.uptime_seconds % 86400 / 3600) + " h" + (nvr.restart?.detected ? " (restarted since the previous scan)" : ""));
+  if (Number.isFinite(nvr.cpu_percent)) add("NVR CPU", nvr.cpu_percent + "%");
+  add("Snapshots", nvr.snapshots_enabled ? "Enabled" : "Not enabled");
+  add("Report file", nvr.report_file || "—");
+  facts.append(dl);
+  const whole = el("button", "rowbtn", "NVR known issue / note…");
+  whole.type = "button";
+  whole.addEventListener("click", () => openCameraDialog(nvr, null));
+  facts.append(el("p", "", ""), whole);
+  grid.append(list, facts, ...extra);
+  return grid;
+}
+
+// ---------- list ----------
+function render() {
+  const {rows, active} = select();
+  const list = $("nvr-list");
+  const scrollers = new Map([...list.querySelectorAll(".nvr")].map(a => [a.dataset.nvrId, a.querySelector(".scroller")?.scrollLeft || 0]));
+  list.replaceChildren();
+  if (!state.nvrs.length && state.data) {
+    const z = el("div", "zero-state");
+    z.append(el("p", "", "No NVR reports were found in the reports folder."), el("p", "", "Run all reports once on the server, then press Refresh:"), el("code", "", "cd /opt/NVR_Track && docker compose run --rm -T nvr-report-all"));
+    list.append(z);
+  } else if (!rows.length && state.data) {
+    const z = el("div", "zero-state");
+    z.append(el("p", "", "Nothing matches these filters."));
+    const b = el("button", "btn", "Clear filters");
+    b.type = "button";
+    b.addEventListener("click", clearFilters);
+    z.append(b);
+    list.append(z);
+  }
+  for (const row of rows) {
+    const art = card(row);
+    list.append(art);
+    const left = scrollers.get(row.nvr.id);
+    if (left) { const sc = art.querySelector(".scroller"); if (sc) sc.scrollLeft = left; }
+  }
+  const cams = rows.reduce((n, r) => n + (r.narrowed ? r.match.size : r.nvr.channels.length), 0);
+  $("count").textContent = plural(rows.length, "NVR") + " and " + plural(cams, "camera") + " in view";
+  $("clear").hidden = !active;
+  for (const id of ["overall-filter", "live-filter", "condition-filter", "recording-filter", "storage-filter"]) $(id).classList.toggle("active", Boolean($(id).value));
+  renderHero();
+}
+function clearFilters() {
+  $("search").value = "";
+  for (const id of ["overall-filter", "live-filter", "condition-filter", "recording-filter", "storage-filter"]) $(id).value = "";
+  $("only-problems").checked = false;
+  render();
+}
+
+// ---------- data ----------
+async function refresh() {
+  const btn = $("refresh");
+  btn.disabled = true;
+  btn.classList.add("spin");
+  try {
+    const response = await fetch("/api/dashboard", {cache: "no-store", credentials: "same-origin"});
+    if (!response.ok) throw new Error("The server answered HTTP " + response.status + ".");
+    const data = await response.json();
+    if (!Array.isArray(data.nvrs) || typeof data.summary !== "object") throw new Error("The server sent an unexpected response.");
+    state.data = data;
+    state.nvrs = data.nvrs;
+    state.error = null;
+    applyScan(data.scan || null, true);
+    state.loadedAt = new Date();
+    clearTimeout(state.timer);
+    const secs = num(data.refresh_seconds);
+    if (secs > 0) state.timer = setTimeout(refresh, Math.max(15, secs) * 1000);
+  } catch (error) {
+    state.error = error instanceof TypeError ? "The dashboard server could not be reached." : error.message;
+    clearTimeout(state.timer);
+    state.timer = setTimeout(refresh, 60000);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("spin");
+  }
+  renderFreshness();
+  renderBanners();
+  renderFacts();
+  render();
+  renderScan();
+  renderMonthly();
+}
+
+// ---------- monthly PDF reports (made by nvr-scanner on the 1st, or by hand) ----------
+function renderMonthly() {
+  const box = $("monthly");
+  const list = (state.data && state.data.monthly_reports) || [];
+  box.replaceChildren();
+  box.hidden = !list.length;
+  if (!list.length) return;
+  box.append(el("strong", "", "Monthly reports (PDF)"));
+  for (const r of list) {
+    const a = el("a", "", new Date(r.period + "-15T00:00:00Z").toLocaleDateString("en-GB", {month: "short", year: "numeric", timeZone: "UTC"}));
+    a.href = "/api/report.pdf?period=" + encodeURIComponent(r.period);
+    a.title = "Created " + stamp(r.created_at) + " · " + r.size_kb + " KB";
+    a.setAttribute("download", "NVR-Track-" + r.period + ".pdf");
+    box.append(a);
+  }
+}
+
+// ---------- scan now (the nvr-scanner service does the work) ----------
+function scanBusy(s) { return Boolean(s && (s.current || s.queued)); }
+function targetName(target) {
+  if (target === "all") return "all NVRs";
+  const nvr = state.nvrs.find(n => n.id === target);
+  return nvr && nvr.name ? nvr.name + " (" + target + ")" : String(target);
+}
+function scanBlocked() {
+  const s = state.scan;
+  return !s || !s.available || !s.on_demand_enabled || scanBusy(s) || num(s.cooldown_seconds) > 0 || state.scanPending;
+}
+function scanNotice(last) {
+  const name = targetName(last.target);
+  const when = last.finished_at ? " at " + timeFmt.format(new Date(last.finished_at)).slice(0, 5) : "";
+  const email = last.email ? " Email: " + (last.email_result || "unknown").toLowerCase() + "." : "";
+  if (last.result === "OK") {
+    return {kind: "ok", strong: "Scan of " + name + " finished" + when + ".",
+      text: (last.overall ? "Status: " + label(last.overall) + ". " : "") + "New reports are loaded." + email};
+  }
+  if (last.result === "ERRORS") {
+    return {kind: "warn", strong: "Scan of " + name + " finished" + when + ".",
+      text: plural(num(last.execution_errors), "NVR") + " could not be checked; see their cards." + email};
+  }
+  if (last.result === "BUSY") {
+    return {kind: "warn", strong: name + " was already being scanned.", text: "Another run had it locked. Try again in a minute."};
+  }
+  const why = {TIMEOUT: "it took too long and was stopped", INTERRUPTED: "the scanner restarted during it", FAILED: "no report was saved"}[last.result] || "it did not complete";
+  return {kind: "crit", strong: "Scan of " + name + " failed" + when + ":", text: why + ". Check: docker compose logs nvr-scanner"};
+}
+// Green notices close themselves after 10 s; warnings and failures stay until dismissed.
+const NOTICE_SECONDS = 10;
+function setNotice(notice) {
+  clearTimeout(state.noticeTimer);
+  state.scanNotice = notice;
+  if (notice && notice.kind === "ok") {
+    state.noticeTimer = setTimeout(() => {
+      if (state.scanNotice === notice) { state.scanNotice = null; renderBanners(); }
+    }, NOTICE_SECONDS * 1000);
+  }
+  renderBanners();
+}
+function applyScan(s, fromRefresh) {
+  const wasBusy = scanBusy(state.scan);
+  state.scan = s;
+  if (wasBusy && !scanBusy(s) && s && s.last) {
+    setNotice(scanNotice(s.last));
+    if (!fromRefresh) refresh();
+    else renderBanners();
+  }
+  renderScan();
+  clearTimeout(state.scanTimer);
+  state.scanTimer = setTimeout(loadScan, scanBusy(s) ? 3000 : 30000);
+}
+async function loadScan() {
+  try {
+    const response = await fetch("/api/scan", {cache: "no-store", credentials: "same-origin"});
+    if (!response.ok) throw new Error();
+    applyScan(await response.json(), false);
+  } catch (e) {
+    clearTimeout(state.scanTimer);
+    state.scanTimer = setTimeout(loadScan, 30000);
+  }
+}
+async function requestScan(target) {
+  state.scanPending = true;
+  state.scanError = null;
+  renderScan();
+  try {
+    const response = await fetch("/api/scan", {
+      method: "POST", cache: "no-store", credentials: "same-origin",
+      headers: {"Content-Type": "application/json", "X-NVR-Track": "scan"},
+      body: JSON.stringify({target})
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) state.scanError = data.error || "The server answered HTTP " + response.status + ".";
+    else setNotice({kind: "ok", strong: "Scan of " + targetName(target) + " requested.", text: "It starts within a few seconds; new results load automatically."});
+    state.scanPending = false;
+    if (data.scan) applyScan(data.scan, false);
+  } catch (e) {
+    state.scanError = "The dashboard server could not be reached.";
+  } finally {
+    state.scanPending = false;
+    renderScan();
+    renderBanners();
+  }
+}
+function renderScan() {
+  const s = state.scan;
+  const busy = scanBusy(s);
+  const chip = $("scan-chip");
+  chip.classList.toggle("on", busy);
+  if (s && s.current) {
+    const p = s.current.progress || {};
+    $("scan-chip-text").textContent = s.current.target === "all"
+      ? (p.nvr ? "Scanning " + p.nvr + ", " + p.done + " of " + p.total : "Scanning all NVRs")
+      : "Scanning " + targetName(s.current.target);
+    chip.title = (s.current.trigger === "schedule" ? "Automatic scan" : "Requested scan") + " started " + stamp(s.current.started_at);
+  } else if (s && s.queued) {
+    $("scan-chip-text").textContent = "Starting scan of " + targetName(s.queued.target);
+  }
+  const blocked = scanBlocked();
+  $("scan-all").disabled = blocked;
+  $("scan-one").disabled = blocked || !$("scan-select").value;
+  // NVR list for the picker (keep the current choice).
+  const select = $("scan-select");
+  const chosen = select.value;
+  const ids = [...state.nvrs].sort((a, b) => a.id.localeCompare(b.id, undefined, {numeric: true}));
+  if (select.options.length !== ids.length || [...select.options].some((o, i) => o.value !== ids[i].id)) {
+    select.replaceChildren(...ids.map(n => { const o = el("option", "", n.name ? n.id + "  " + n.name : n.id); o.value = n.id; return o; }));
+    if (chosen) select.value = chosen;
+  }
+  const msg = $("scan-msg");
+  let text = "", err = false;
+  if (state.scanError) { text = state.scanError; err = true; }
+  else if (!s) text = "Checking the scanner service…";
+  else if (!s.available) { text = "The scanner service is not running. On the server run: docker compose up -d nvr-scanner"; err = true; }
+  else if (!s.on_demand_enabled) text = "Scan requests are turned off (NVR_ON_DEMAND_SCANS=false).";
+  else if (busy) text = "A scan is in progress. You can start another when it finishes.";
+  else if (num(s.cooldown_seconds) > 0) text = "Next scan possible in " + s.cooldown_seconds + " s.";
+  else if (s.rejected) { text = "Last request was refused: " + s.rejected.reason; err = true; }
+  msg.textContent = text;
+  msg.classList.toggle("err", err);
+  const meta = [];
+  if (s && s.scan_times.length) {
+    meta.push("Automatic scans at " + s.scan_times.join(", ") + ".");
+    if (s.email_times.length) meta.push("Email from the " + s.email_times.join(", ") + " scan.");
+    if (s.next_scheduled_at) meta.push("Next: " + stamp(s.next_scheduled_at) + ".");
+  } else if (s && s.available) meta.push("No automatic scans are set (NVR_SCAN_TIMES).");
+  if (s && s.last && s.last.finished_at) meta.push("Last scan: " + targetName(s.last.target) + ", " + stamp(s.last.finished_at) + ".");
+  $("scan-meta").textContent = meta.join(" ");
+  const scanningId = s && s.current ? (s.current.target === "all" ? s.current.progress?.nvr : s.current.target) : null;
+  for (const b of document.querySelectorAll(".scan-nvr")) {
+    const running = b.dataset.nvr === scanningId;
+    b.disabled = blocked;
+    b.classList.toggle("running", running);
+    b.textContent = running ? "Scanning…" : "Scan";
+  }
+}
+function closeScanPanel(focus) {
+  if ($("scan-panel").hidden) return;
+  $("scan-panel").hidden = true;
+  $("scan-btn").setAttribute("aria-expanded", "false");
+  if (focus) $("scan-btn").focus();
+}
+
+function csvCell(value) {
+  let text = String(value ?? "");
+  if (/^[=+\-@\t\r]/.test(text)) text = "'" + text; // keep spreadsheet formulas inert
+  return /[",\n\r]/.test(text) ? '"' + text.replaceAll('"', '""') + '"' : text;
+}
+function downloadCsv() {
+  const {rows} = select();
+  const lines = [["NVR", "NVR name", "NVR IP", "Channel", "Camera", "Camera IP", "Live", "Condition", "Recording check", "Last video", "Days with footage", "Track", "Detail", "Report time"]];
+  for (const {nvr, match, narrowed} of rows) {
+    for (const ch of nvr.channels) {
+      if (narrowed && !match.has(ch)) continue;
+      const r = ch.recording_result, c = cond(ch);
+      lines.push([nvr.id, nvr.name, nvr.ip, ch.channel_id, ch.name, ch.camera_ip, ch.reported_status, c.label, r.status,
+        r.most_recent_segment_end || ch.historical_recording_result.most_recent_segment_end || "", ch.retention_result.days_with_footage ?? "",
+        r.track_id ?? "", c.detail, nvr.last_check]);
+    }
+  }
+  const blob = new Blob(["﻿" + lines.map(l => l.map(csvCell).join(",")).join("\r\n")], {type: "text/csv;charset=utf-8"});
+  const a = el("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "nvr-cameras-" + dayFmt.format(new Date()) + ".csv";
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ---------- camera wall: hover card and click-through ----------
+const tip = $("tip");
+function findCamera(nvrId, ch) {
+  const nvr = state.nvrs.find(n => n.id === nvrId);
+  return nvr ? [nvr, nvr.channels.find(c => String(c.channel_id) === ch)] : [null, null];
+}
+document.addEventListener("pointerover", e => {
+  const cell = e.target.closest?.(".cell");
+  if (!cell) return;
+  tip.replaceChildren();
+  if (cell.dataset.ghost) {
+    tip.append(el("b", "", "No result"), "Expected camera missing from this report; the NVR could not be reached.");
+  } else {
+    const [nvr, ch] = findCamera(cell.dataset.nvr, cell.dataset.ch);
+    if (!ch) return;
+    const c = cond(ch);
+    tip.append(el("b", "", ch.name || "Channel " + ch.channel_id),
+      "Channel " + ch.channel_id + ", " + c.label.toLowerCase() + ", " + label(ch.reported_status).toLowerCase(), el("br"), c.detail || "");
+  }
+  placeTip(cell.getBoundingClientRect());
+});
+function placeTip(r) {
+  tip.classList.add("on");
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + "px";
+  tip.style.top = (r.top - h - 8 < 8 ? r.bottom + 8 : r.top - h - 8) + "px";
+}
+// Recorded-days strip: each day is only 4 px wide, so show the day nearest
+// the pointer anywhere over the strip, and mark it.
+const shortDay = new Intl.DateTimeFormat("en-GB", {timeZone: "UTC", day: "2-digit", month: "short"});
+const longDay = new Intl.DateTimeFormat("en-GB", {timeZone: "UTC", weekday: "short", day: "2-digit", month: "short", year: "numeric"});
+const DAY_STATE = {y: "Footage recorded this day", n: "No footage this day", u: "Not reported by the NVR (unknown)"};
+const TODAY_STATE = {y: "Footage recorded today so far", n: "No footage yet today", u: "Today not reported by the NVR yet"};
+let hoveredDay = null;
+function clearDay() {
+  hoveredDay?.classList.remove("hover");
+  hoveredDay = null;
+  tip.classList.remove("on");
+}
+function showDay(e) {
+  const strip = e.target.closest?.(".cal");
+  if (!strip) return;
+  let best = null, gap = Infinity;
+  for (const square of strip.children) {
+    const r = square.getBoundingClientRect();
+    const d = Math.abs(e.clientX - (r.left + r.width / 2));
+    if (d < gap) { gap = d; best = square; }
+  }
+  if (!best || best === hoveredDay) return;
+  hoveredDay?.classList.remove("hover");
+  hoveredDay = best;
+  best.classList.add("hover");
+  const date = new Date(best.dataset.date + "T00:00:00Z");
+  const title = Number.isNaN(date.valueOf()) ? best.dataset.date : longDay.format(date);
+  if (best.dataset.pos === "today") {
+    const checked = parse(strip.dataset.checked);
+    tip.replaceChildren(
+      el("b", "", title + " (today)"),
+      TODAY_STATE[best.dataset.state] || TODAY_STATE.u, el("br"),
+      "So far, from the calendar check at " + (checked ? timeFmt.format(checked).slice(0, 5) : "the last scan") + ". Not counted in the 30 days."
+    );
+  } else {
+    tip.replaceChildren(
+      el("b", "", title),
+      DAY_STATE[best.dataset.state] || DAY_STATE.u, el("br"),
+      "Day " + best.dataset.pos + (strip.dataset.asOf ? ", calendar as of " + strip.dataset.asOf : "") +
+        (strip.dataset.stale ? " (previous scan)" : "")
+    );
+  }
+  placeTip(best.getBoundingClientRect());
+}
+document.addEventListener("pointermove", showDay);
+document.addEventListener("pointerdown", showDay);
+document.addEventListener("pointerout", e => {
+  if (e.target.closest?.(".cell")) tip.classList.remove("on");
+  const strip = e.target.closest?.(".cal");
+  if (strip && !strip.contains(e.relatedTarget)) clearDay();
+});
+// Capture phase: also hide when the camera table itself scrolls.
+document.addEventListener("scroll", clearDay, {passive: true, capture: true});
+document.addEventListener("click", e => {
+  const cell = e.target.closest?.(".cell");
+  if (!cell || cell.dataset.ghost) return;
+  tip.classList.remove("on");
+  state.hit = [cell.dataset.nvr, cell.dataset.ch];
+  const [nvr, ch] = findCamera(cell.dataset.nvr, cell.dataset.ch);
+  // Make sure the clicked camera is visible in the table even if filters hide it.
+  const shown = select().rows.find(r => r.nvr.id === cell.dataset.nvr);
+  if (shown && shown.narrowed && ch && !shown.match.has(ch)) clearFilters();
+  state.open.set(cell.dataset.nvr, "cameras");
+  state.closed.delete(cell.dataset.nvr);
+  render();
+  const row = document.querySelector(`#drawer-${CSS.escape(cell.dataset.nvr)} tr[data-ch="${CSS.escape(cell.dataset.ch)}"]`);
+  row?.scrollIntoView({block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth"});
+});
+
+// ---------- controls ----------
+let debounce = null;
+for (const id of ["search", "overall-filter", "live-filter", "condition-filter", "recording-filter", "storage-filter", "only-problems", "all-columns", "sort"]) {
+  $(id).addEventListener(id === "search" ? "input" : "change", () => {
+    if (id !== "all-columns" && id !== "sort") state.closed.clear();
+    clearTimeout(debounce);
+    debounce = setTimeout(render, id === "search" ? 120 : 0);
+  });
+}
+$("refresh").addEventListener("click", refresh);
+$("scan-btn").addEventListener("click", () => {
+  const opening = $("scan-panel").hidden;
+  $("scan-panel").hidden = !opening;
+  $("scan-btn").setAttribute("aria-expanded", String(opening));
+  if (opening) { state.scanError = null; renderScan(); loadScan(); }
+});
+$("scan-all").addEventListener("click", () => requestScan("all"));
+$("scan-one").addEventListener("click", () => { if ($("scan-select").value) requestScan($("scan-select").value); });
+$("scan-select").addEventListener("change", renderScan);
+document.addEventListener("pointerdown", e => { if (!e.target.closest?.(".scanwrap")) closeScanPanel(false); });
+$("csv").addEventListener("click", downloadCsv);
+$("clear").addEventListener("click", clearFilters);
+document.addEventListener("keydown", e => {
+  const typing = /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement?.tagName || "");
+  if (e.key === "/" && !typing) { e.preventDefault(); $("search").focus(); }
+  else if (e.key === "Escape" && !$("scan-panel").hidden) closeScanPanel(true);
+  else if (e.key === "Escape" && document.activeElement === $("search")) { $("search").value = ""; render(); }
+  else if ((e.key === "r" || e.key === "R") && !typing && !e.ctrlKey && !e.metaKey && !e.altKey) refresh();
+});
+try { $("all-columns").checked = localStorage.getItem("nvrtrack.allColumns") === "1"; } catch (e) {}
+$("all-columns").addEventListener("change", () => { try { localStorage.setItem("nvrtrack.allColumns", $("all-columns").checked ? "1" : "0"); } catch (e) {} });
+
+const THEMES = ["auto", "light", "dark"];
+function applyTheme(mode) {
+  if (mode === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", mode);
+  $("theme").title = "Theme: " + (mode === "auto" ? "follow system" : mode);
+}
+let theme = "auto";
+try { theme = THEMES.includes(localStorage.getItem("nvrtrack.theme")) ? localStorage.getItem("nvrtrack.theme") : "auto"; } catch (e) {}
+applyTheme(theme);
+$("theme").addEventListener("click", () => {
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  applyTheme(theme);
+  try { localStorage.setItem("nvrtrack.theme", theme); } catch (e) {}
+});
+const toolbar = $("toolbar");
+new IntersectionObserver(([entry]) => toolbar.classList.toggle("stuck", entry.intersectionRatio < 1), {rootMargin: "-61px 0px 0px 0px", threshold: [1]}).observe(toolbar);
+setInterval(renderFreshness, 30000);
+refresh();

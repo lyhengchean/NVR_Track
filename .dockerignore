@@ -14,3 +14,7 @@ reports/
 state/
 *.log
 .vscode/
+
+# Not needed in the image
+docs/
+.github/

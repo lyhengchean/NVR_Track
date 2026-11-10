@@ -51,7 +51,7 @@ docker compose up -d --force-recreate nvr-dashboard >/dev/null 2>&1 && echo "  D
 echo
 echo "== 3. Fill calendars (read-only, no email) =="
 IPS=$(docker compose run --rm -T --entrypoint python nvr-report </dev/null -c \
-    "from app.config import load_inventory
+    "from nvr_track.core.config import load_inventory
 for n in load_inventory('config/nvrs.local.json'): print(n.ip)" 2>/dev/null)
 TODO=$IPS
 for pass in 1 2 3 4; do
