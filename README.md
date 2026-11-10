@@ -23,7 +23,15 @@ private inventory, while the dashboard only mounts `reports/` read-only.
   NVR settings or recording files.
 - Dashboard Basic Authentication must remain configured. It is HTTP Basic;
   restrict access to the trusted management network or place it behind your
-  existing HTTPS reverse proxy without changing other services.
+  existing HTTPS reverse proxy without changing other services. Bind it to
+  the server's LAN address (`DASHBOARD_BIND_IP=<server LAN IP>`), not
+  `0.0.0.0`: ports published by Docker bypass UFW.
+- Ten different wrong passwords from one address within 10 minutes lock
+  that address out for 10 minutes (HTTP 429; the log names the address).
+  The same old password repeated by an open tab counts once. Idle
+  connections are closed after 30 s.
+- Every container runs with `no-new-privileges`. Deploy backups in `/root`
+  hold `.env` and are private (600) from creation; delete old ones yourself.
 
 ### Storage alerts: detected disks versus undetected slots
 
@@ -586,7 +594,8 @@ unknown groups are ignored.
 `ch5`, camera IP, or `nvr-01 5`; in a private chat just type the name),
 `/offline`, `/storage`, `/firmware`, `/scanner`, `/scan` (admins: buttons for
 all or one NVR, confirmed before it starts; the bot reports back when the
-scan ends), `/alerts on|off` (alerts in this chat), `/myid`, `/help`.
+scan ends), `/alerts on|off` (alerts in this chat; in a group only admins
+can switch them), `/myid`, `/help`.
 
 Add-on commands: `/known`, `/fixed`, `/note`, `/notes`, `/events`, `/uptime`, `/snapshot` (see *Add-ons* below).
 

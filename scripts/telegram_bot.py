@@ -65,7 +65,7 @@ COMMANDS = [
     ("events", "Real-time NVR events, last 24 h"),
     ("uptime", "Uptime: /uptime [days|YYYY-MM]"),
     ("snapshot", "Latest picture: /snapshot nvr-01 5 (admins)"),
-    ("alerts", "Alerts in this chat: /alerts on|off"),
+    ("alerts", "Alerts in this chat: /alerts on|off (groups: admins)"),
     ("myid", "Show your Telegram ID"),
     ("help", "Commands"),
 ]
@@ -451,7 +451,7 @@ class Bot:
         elif command == "scan":
             self.start_scan(chat_id, user_id, who, args.strip())
         elif command == "alerts":
-            self.set_alerts(chat_id, args.strip().lower())
+            self.set_alerts(chat_id, args.strip().lower(), who, private)
         elif command in {"known", "fixed", "note", "notes", "events", "uptime", "snapshot"}:
             self.addon_command(chat_id, command, args.strip(), who, by_name(user))
         elif command in {"status", "problems", "nvrs", "nvr", "camera", "offline", "storage", "firmware", "scanner"}:
@@ -626,8 +626,13 @@ class Bot:
         subs = self.subscriptions()
         return (self.settings["alert_chats"] | subs["on"]) - subs["off"]
 
-    def set_alerts(self, chat_id: int, choice: str) -> None:
+    def set_alerts(self, chat_id: int, choice: str, who: str, private: bool) -> None:
         subs = self.subscriptions()
+        if choice in {"on", "off"} and not private and who != "admin":
+            # One group member must not silence (or start) alerts for the whole group.
+            self.send(chat_id, "Only administrators can turn alerts on or off for a group. "
+                      "In a private chat with the bot you can change your own alerts.")
+            return
         if choice == "on" and chat_id not in subs["on"] and len(subs["on"]) >= MAX_SUBSCRIBERS:
             self.send(chat_id, "Too many chats already receive alerts; ask an administrator.")
             return

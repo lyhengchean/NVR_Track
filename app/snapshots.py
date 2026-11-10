@@ -90,19 +90,35 @@ def stream_id(channel_id: str, track_id: object) -> int | None:
     return int(channel_id) * 100 + 1 if str(channel_id).isdigit() and int(channel_id) > 0 else None
 
 
+def open_jpeg(data: bytes):
+    """Decode camera pictures as JPEG only.
+
+    Image.open() otherwise tries every format Pillow knows, so a crafted reply
+    (pictures come over plain HTTP) could reach a rarely used, less safe decoder.
+    """
+    from PIL import Image
+    return Image.open(io.BytesIO(data), formats=["JPEG"])
+
+
+def _pixels(image) -> list:
+    """Pixel values in order; getdata() is deprecated from Pillow 12.1."""
+    flat = getattr(image, "get_flattened_data", None)
+    return list(flat() if flat else image.getdata())
+
+
 def analyze(jpeg: bytes) -> dict:
     """Brightness, contrast, day/night mode and a 64-bit difference hash."""
-    from PIL import Image, ImageStat  # Imported here: only needed when enabled.
-    with Image.open(io.BytesIO(jpeg)) as image:
+    from PIL import ImageStat  # Imported here: only needed when enabled.
+    with open_jpeg(jpeg) as image:
         image.load()
         rgb = image.convert("RGB")
     small = rgb.resize((64, 48))
     grey = small.convert("L")
     stat = ImageStat.Stat(grey)
-    pixels = list(small.getdata())
+    pixels = _pixels(small)
     colour = sum(abs(p[0] - p[1]) + abs(p[1] - p[2]) + abs(p[0] - p[2]) for p in pixels) / (3 * len(pixels))
     tiny = rgb.convert("L").resize((9, 8))
-    values = list(tiny.getdata())
+    values = _pixels(tiny)
     bits = 0
     for row in range(8):
         for col in range(8):
@@ -275,8 +291,7 @@ def _write_atomic(path: Path, data: bytes) -> None:
 
 
 def thumbnail(jpeg: bytes) -> bytes:
-    from PIL import Image
-    with Image.open(io.BytesIO(jpeg)) as image:
+    with open_jpeg(jpeg) as image:
         image = image.convert("RGB")
         image.thumbnail(THUMB_SIZE)
         out = io.BytesIO()

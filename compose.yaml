@@ -3,6 +3,9 @@ services:
     build:
       context: .
     image: nvr-track:local
+    # No privilege gain through setuid programs (none are needed).
+    security_opt:
+      - no-new-privileges:true
 
     env_file:
       - .env
@@ -24,6 +27,9 @@ services:
     build:
       context: .
     image: nvr-track:local
+    # No privilege gain through setuid programs (none are needed).
+    security_opt:
+      - no-new-privileges:true
     entrypoint: ["python", "-m", "scripts.run_all_nvr_reports"]
 
     env_file:
@@ -43,6 +49,9 @@ services:
     build:
       context: .
     image: nvr-track:local
+    # No privilege gain through setuid programs (none are needed).
+    security_opt:
+      - no-new-privileges:true
     entrypoint: ["python", "-m", "app.dashboard"]
 
     environment:
@@ -90,6 +99,9 @@ services:
     build:
       context: .
     image: nvr-track:local
+    # No privilege gain through setuid programs (none are needed).
+    security_opt:
+      - no-new-privileges:true
     entrypoint: ["python", "-m", "scripts.scan_worker"]
 
     env_file:
@@ -125,6 +137,9 @@ services:
     build:
       context: .
     image: nvr-track:local
+    # No privilege gain through setuid programs (none are needed).
+    security_opt:
+      - no-new-privileges:true
     entrypoint: ["python", "-m", "scripts.telegram_bot"]
 
     environment:
@@ -184,6 +199,9 @@ services:
     build:
       context: .
     image: nvr-track:local
+    # No privilege gain through setuid programs (none are needed).
+    security_opt:
+      - no-new-privileges:true
     entrypoint: ["python", "-m", "scripts.event_listener"]
 
     env_file:
@@ -215,6 +233,9 @@ services:
     build:
       context: .
     image: nvr-track:local
+    # No privilege gain through setuid programs (none are needed).
+    security_opt:
+      - no-new-privileges:true
     entrypoint: ["python", "-m", "scripts.live_status"]
 
     env_file:

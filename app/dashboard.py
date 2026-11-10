@@ -8,6 +8,7 @@ import os
 import re
 import tempfile
 import threading
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -35,6 +36,74 @@ PORT = int(os.environ.get("DASHBOARD_PORT", "8080"))
 
 DASHBOARD_USERNAME = os.environ.get("DASHBOARD_USERNAME", "")
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
+
+# An idle or slow connection is closed after this; without it every open
+# connection kept a server thread forever, before any password check.
+REQUEST_TIMEOUT_SECONDS = 30
+# Password guessing: this many DIFFERENT wrong logins from one address within
+# the window lock that address out (correct logins too). A stale password
+# repeated by an open tab counts once.
+LOGIN_MAX_FAILURES = 10
+LOGIN_WINDOW_SECONDS = 600
+LOGIN_LOCK_SECONDS = 600
+
+
+class LoginGuard:
+    """Wrong Basic-auth logins per client address, in memory only."""
+
+    MAX_ADDRESSES = 4096
+
+    def __init__(self, clock=time.monotonic):
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._failures: dict[str, dict[str, float]] = {}
+        self._locked_until: dict[str, float] = {}
+
+    def locked_for(self, address: str) -> int:
+        """Seconds this address stays locked out (0: not locked)."""
+        with self._lock:
+            remaining = self._locked_until.get(address, 0.0) - self._clock()
+            if remaining <= 0:
+                self._locked_until.pop(address, None)
+                return 0
+            return max(1, int(remaining + 0.999))
+
+    def failed(self, address: str, credential: str) -> bool:
+        """Record one wrong login; True when it locks the address out."""
+        # Only a short hash of the wrong login is kept, never the text.
+        key = hashlib.sha256(credential.encode("utf-8", "replace")).hexdigest()[:16]
+        with self._lock:
+            now = self._clock()
+            recent = {k: t for k, t in self._failures.get(address, {}).items()
+                      if now - t < LOGIN_WINDOW_SECONDS}
+            recent[key] = now
+            if len(recent) >= LOGIN_MAX_FAILURES:
+                self._failures.pop(address, None)
+                self._trim(self._locked_until, now)
+                self._locked_until[address] = now + LOGIN_LOCK_SECONDS
+                return True
+            self._failures.pop(address, None)
+            self._trim(self._failures, now)
+            self._failures[address] = recent
+            return False
+
+    def succeeded(self, address: str) -> None:
+        with self._lock:
+            self._failures.pop(address, None)
+
+    def _trim(self, table: dict, now: float) -> None:
+        """Bounded memory: drop expired entries, then the oldest."""
+        if len(table) < self.MAX_ADDRESSES:
+            return
+        for address in [a for a, v in table.items()
+                        if (all(now - t >= LOGIN_WINDOW_SECONDS for t in v.values())
+                            if isinstance(v, dict) else v <= now)]:
+            del table[address]
+        while len(table) >= self.MAX_ADDRESSES:
+            del table[next(iter(table))]
+
+
+LOGIN_GUARD = LoginGuard()
 
 
 HTML = (Path(__file__).with_name("dashboard_ui.html")
@@ -1029,6 +1098,7 @@ def custom_report_action(body: dict) -> tuple[int, dict]:
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "NVRDashboard"
     sys_version = ""
+    timeout = REQUEST_TIMEOUT_SECONDS
 
     def log_message(self, fmt: str, *args: object) -> None:
         # Do not log request headers or credentials.
@@ -1083,9 +1153,36 @@ class DashboardHandler(BaseHTTPRequestHandler):
                                           DASHBOARD_PASSWORD.encode("utf-8"))
         return username_ok and password_ok
 
+    def _too_many(self, seconds: int) -> None:
+        minutes = max(1, (seconds + 59) // 60)
+        body = f"Too many wrong passwords from this address. Try again in {minutes} min.\n".encode("utf-8")
+        self.send_response(429)
+        self.send_header("Retry-After", str(seconds))
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _login_ok(self) -> bool:
+        """Logged in, or answered 401/429. Wrong logins are counted per address."""
+        address = str(self.client_address[0])
+        wait = LOGIN_GUARD.locked_for(address)
+        if wait:
+            self._too_many(wait)
+            return False
+        if self._authorized():
+            LOGIN_GUARD.succeeded(address)
+            return True
+        presented = self.headers.get("Authorization")
+        if presented and LOGIN_GUARD.failed(address, presented):
+            print(f"dashboard: {LOGIN_MAX_FAILURES} wrong logins from {address}; "
+                  f"locked out for {LOGIN_LOCK_SECONDS // 60} min", flush=True)
+        self._unauthorized()
+        return False
+
     def do_GET(self) -> None:
-        if not self._authorized():
-            self._unauthorized()
+        if not self._login_ok():
             return
 
         path = urlsplit(self.path).path
@@ -1215,8 +1312,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self) -> None:
-        if not self._authorized():
-            self._unauthorized()
+        if not self._login_ok():
             return
         route = urlsplit(self.path).path
         if route not in {"/api/scan", "/api/notes", "/api/custom-reports"}:
