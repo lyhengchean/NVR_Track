@@ -12,9 +12,8 @@ WORKDIR /app
 # Every service runs as this unprivileged user (UID/GID 10001), not root.
 # On the server, scripts/container_files.sh (run by deploy_check.sh) gives it
 # reports/ and state/, and read access to the inventory and the HTTPS key.
-RUN groupadd --system --gid 10001 nvrtrack \
- && useradd --system --uid 10001 --gid 10001 --home-dir /app --no-create-home \
-      --shell /usr/sbin/nologin nvrtrack
+RUN groupadd --gid 10001 nvrtrack \
+ && useradd --uid 10001 --gid 10001 --home-dir /app --no-create-home --shell /usr/sbin/nologin nvrtrack
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/nvr_track/ ./backend/nvr_track/

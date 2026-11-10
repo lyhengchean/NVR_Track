@@ -21,7 +21,7 @@ class ImageTests(unittest.TestCase):
         if not DOCKERFILE.exists():
             self.skipTest("deploy/Dockerfile is not part of this test image")
         text = DOCKERFILE.read_text(encoding="utf-8")
-        self.assertIn("useradd --system --uid 10001 --gid 10001", text)
+        self.assertIn("useradd --uid 10001 --gid 10001", text)
         stages = re.split(r"(?m)^FROM ", text)[1:]
         names = [stage.split("\n", 1)[0].split(" AS ")[-1] for stage in stages]
         self.assertEqual(names, ["base", "test", "runtime"])
