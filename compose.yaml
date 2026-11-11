@@ -4,9 +4,12 @@ services:
       context: .
       dockerfile: deploy/Dockerfile
     image: nvr-track:local
-    # No privilege gain through setuid programs (none are needed).
+    # Runs as UID 10001 (deploy/Dockerfile) with no Linux capabilities and no
+    # privilege gain through setuid programs (none are needed).
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
 
     env_file:
       - .env
@@ -29,9 +32,12 @@ services:
       context: .
       dockerfile: deploy/Dockerfile
     image: nvr-track:local
-    # No privilege gain through setuid programs (none are needed).
+    # Runs as UID 10001 (deploy/Dockerfile) with no Linux capabilities and no
+    # privilege gain through setuid programs (none are needed).
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     entrypoint: ["python", "-m", "nvr_track.cli.run_all_nvr_reports"]
 
     env_file:
@@ -52,9 +58,12 @@ services:
       context: .
       dockerfile: deploy/Dockerfile
     image: nvr-track:local
-    # No privilege gain through setuid programs (none are needed).
+    # Runs as UID 10001 (deploy/Dockerfile) with no Linux capabilities and no
+    # privilege gain through setuid programs (none are needed).
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     entrypoint: ["python", "-m", "nvr_track.web.dashboard"]
 
     environment:
@@ -108,9 +117,12 @@ services:
       context: .
       dockerfile: deploy/Dockerfile
     image: nvr-track:local
-    # No privilege gain through setuid programs (none are needed).
+    # Runs as UID 10001 (deploy/Dockerfile) with no Linux capabilities and no
+    # privilege gain through setuid programs (none are needed).
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     entrypoint: ["python", "-m", "nvr_track.services.scan_worker"]
 
     env_file:
@@ -147,9 +159,12 @@ services:
       context: .
       dockerfile: deploy/Dockerfile
     image: nvr-track:local
-    # No privilege gain through setuid programs (none are needed).
+    # Runs as UID 10001 (deploy/Dockerfile) with no Linux capabilities and no
+    # privilege gain through setuid programs (none are needed).
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     entrypoint: ["python", "-m", "nvr_track.bot.telegram_bot"]
 
     environment:
@@ -210,9 +225,12 @@ services:
       context: .
       dockerfile: deploy/Dockerfile
     image: nvr-track:local
-    # No privilege gain through setuid programs (none are needed).
+    # Runs as UID 10001 (deploy/Dockerfile) with no Linux capabilities and no
+    # privilege gain through setuid programs (none are needed).
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     entrypoint: ["python", "-m", "nvr_track.services.event_listener"]
 
     env_file:
@@ -245,9 +263,12 @@ services:
       context: .
       dockerfile: deploy/Dockerfile
     image: nvr-track:local
-    # No privilege gain through setuid programs (none are needed).
+    # Runs as UID 10001 (deploy/Dockerfile) with no Linux capabilities and no
+    # privilege gain through setuid programs (none are needed).
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
     entrypoint: ["python", "-m", "nvr_track.services.live_status"]
 
     env_file:

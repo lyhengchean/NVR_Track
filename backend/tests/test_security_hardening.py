@@ -175,7 +175,10 @@ class DeploymentSettingsTests(unittest.TestCase):
         services = re.split(r"\n  (?=nvr-[a-z-]+:\n)", path.read_text(encoding="utf-8"))[1:]
         self.assertEqual(len(services), 7)
         for block in services:
-            self.assertIn("no-new-privileges:true", block, block.split(":", 1)[0])
+            name = block.split(":", 1)[0]
+            self.assertIn("no-new-privileges:true", block, name)
+            self.assertIn("cap_drop:\n      - ALL", block, name)
+            self.assertNotRegex(block, r"(?m)^    (user|privileged|cap_add):", name)
 
     def test_backup_and_log_are_private_from_the_start(self):
         script = (ROOT / "scripts" / "deploy_check.sh").read_text(encoding="utf-8")

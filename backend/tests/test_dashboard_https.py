@@ -4,6 +4,7 @@ fail closed without a certificate, healthcheck and deploy settings.
 Uses a throw-away self-signed certificate for 127.0.0.1; no network beyond it."""
 import base64
 import http.client
+import io
 import json
 import os
 import shutil
@@ -14,6 +15,7 @@ import tempfile
 import threading
 import time
 import unittest
+from contextlib import redirect_stdout
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
@@ -139,6 +141,19 @@ class FailClosedTests(unittest.TestCase):
                 patch.object(dashboard, "ThreadingHTTPServer", side_effect=AssertionError("must not listen")):
             self.assertEqual(dashboard.main(), 2)            # Never falls back to plain HTTP.
 
+    def test_unreadable_key_names_the_fix(self):
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as temp, redirect_stdout(out), \
+                patch.object(dashboard, "DASHBOARD_USERNAME", USER), \
+                patch.object(dashboard, "DASHBOARD_PASSWORD", PASSWORD), \
+                patch.object(dashboard, "DASHBOARD_TLS", True), \
+                patch.object(dashboard, "REPORTS_DIR", Path(temp)), \
+                patch.object(dashboard, "tls_context", side_effect=PermissionError(13, "Permission denied")), \
+                patch.object(dashboard, "ThreadingHTTPServer", side_effect=AssertionError("must not listen")):
+            self.assertEqual(dashboard.main(), 2)
+        self.assertIn("PermissionError). Let the dashboard read them: sudo bash scripts/container_files.sh",
+                      out.getvalue())
+
 
 class SettingsTests(unittest.TestCase):
     def test_compose_and_git(self):
@@ -164,7 +179,8 @@ class SettingsTests(unittest.TestCase):
         self.assertIn("openssl x509 -checkend", text)
         cert = (PROJECT_ROOT / "scripts" / "dashboard_cert.sh").read_text(encoding="utf-8")
         self.assertIn("subjectAltName=IP:$IP", cert)
-        self.assertIn('chmod 600 "$KEY.new"', cert)
+        self.assertIn('chown root:10001 "$KEY.new"', cert)    # Readable by the dashboard's group only.
+        self.assertIn('chmod 640 "$KEY.new"', cert)
 
 
 if __name__ == "__main__":
