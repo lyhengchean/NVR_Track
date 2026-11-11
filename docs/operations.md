@@ -61,6 +61,61 @@ start (it never falls back to plain HTTP). The deploy check tests the login,
 the redirect and warns 30 days before the certificate expires; renew with
 `sudo bash scripts/dashboard_cert.sh --renew` and recreate nvr-dashboard.
 
+### Separate NVR login without configuration rights (one NVR first)
+
+NVR_Track only reads, so it does not need an admin login. On the NVR's own web
+page, as admin (NVR_Track never changes users), add a user in *User
+Management*: type **Operator**, a new username (for example `nvrtrack`) and a
+strong password. Give it only remote log search / working status, and for
+every camera remote live view and remote playback. Leave everything else off
+(parameter settings, camera management, upgrade/format, shutdown/reboot, PTZ,
+two-way audio, alarm output, video export).
+
+Try it on that NVR (nothing saved, `.env` not changed; run **without** `-T`
+so the password is typed hidden):
+
+```bash
+cd /opt/NVR_Track
+sudo docker compose build nvr-report
+sudo docker compose run --rm --entrypoint python nvr-report -m nvr_track.cli.probe_nvr_features --nvr-id nvr-02 --ask-login
+```
+
+Step 1 stops at a wrong password, so failed logins cannot lock the server out
+of the NVR. Step 5 runs one full read-only scan with the typed login into a
+temporary folder and lists every NVR answer 401/403 by check (for example
+*recording search (playback right): HTTP 403 x12*), and any check left
+unverified that the last saved scan of this NVR did not have. Only when it
+ends with *This login can do every check the scanner runs on this NVR*, add
+to `.env` (`sudo nano .env`; per-NVR lines win over `NVR_USERNAME` /
+`NVR_PASSWORD`):
+
+```
+NVR_02_USERNAME=nvrtrack
+NVR_02_PASSWORD=<the new password>
+```
+
+Then `sudo bash scripts/deploy_check.sh` (its fresh scan uses the new login)
+and check that NVR on the dashboard. Delete the two lines to go back. Then the
+next NVR, one at a time.
+
+### HTTPS to an NVR (probe first)
+
+Scans use plain HTTP with Digest login. To see whether one NVR's HTTPS can be
+used (GET only, nothing saved):
+
+```bash
+cd /opt/NVR_Track
+sudo docker compose run --rm -T --entrypoint python nvr-report -m nvr_track.cli.probe_nvr_features --nvr-id nvr-02 --https
+```
+
+Add `--https-port <port>` if it is not 443. Step 6 prints the TLS version,
+the certificate's SHA-256 fingerprint and expiry, then repeats two GETs over
+HTTPS that accept only that exact certificate (NVR certificates are
+self-signed, so the fingerprint pin replaces a CA check). If HTTPS is off on
+the NVR, turning it on is a change you make in the NVR's web page, not
+NVR_Track. Scanning over HTTPS (per NVR, with that fingerprint in
+`config/nvrs.local.json`) is the next stage, after the probe works.
+
 ### Storage alerts: detected disks versus undetected slots
 
 Storage monitoring uses read-only `GET /ISAPI/ContentMgmt/Storage/hdd` responses.
