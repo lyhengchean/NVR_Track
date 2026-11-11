@@ -6,6 +6,8 @@ import hmac
 import json
 import os
 import re
+import socket
+import ssl
 import tempfile
 import threading
 import time
@@ -23,7 +25,7 @@ from nvr_track.monitoring import notes as notes_store
 from nvr_track.monitoring.camera_condition import CONDITIONS, classify, kept_days, known_condition
 from nvr_track.monitoring.duplicates import fleet_info, fleet_notes, find_fleet_duplicates, notes_by_channel
 from nvr_track.nvr.snapshots import STATUSES as PICTURE_STATUSES
-from nvr_track.core.paths import FRONTEND_DIR
+from nvr_track.core.paths import FRONTEND_DIR, PROJECT_ROOT
 
 
 REPORTS_DIR = Path(os.environ.get("REPORTS_DIR", "reports"))
@@ -37,6 +39,11 @@ PORT = int(os.environ.get("DASHBOARD_PORT", "8080"))
 
 DASHBOARD_USERNAME = os.environ.get("DASHBOARD_USERNAME", "")
 DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "")
+# HTTPS (opt-in): DASHBOARD_TLS=true in .env and a certificate in config/tls
+# (scripts/dashboard_cert.sh). Plain http:// on the same port is redirected.
+DASHBOARD_TLS = os.environ.get("DASHBOARD_TLS", "false").strip().lower() in {"1", "true", "yes", "on"}
+DASHBOARD_TLS_CERT = Path(os.environ.get("DASHBOARD_TLS_CERT") or PROJECT_ROOT / "config" / "tls" / "dashboard.crt")
+DASHBOARD_TLS_KEY = Path(os.environ.get("DASHBOARD_TLS_KEY") or PROJECT_ROOT / "config" / "tls" / "dashboard.key")
 
 # An idle or slow connection is closed after this; without it every open
 # connection kept a server thread forever, before any password check.
@@ -1118,6 +1125,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "NVRDashboard"
     sys_version = ""
     timeout = REQUEST_TIMEOUT_SECONDS
+    scheme = "http"
 
     def log_message(self, fmt: str, *args: object) -> None:
         # Do not log request headers or credentials.
@@ -1335,20 +1343,34 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _discard_body(self) -> None:
+        """Read a request body we refused without reading (bounded), so closing
+        the connection cannot reset it before the client reads the answer."""
+        self.close_connection = True
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if 0 < length <= 65_536:
+                self.rfile.read(length)
+        except (ValueError, OSError):
+            pass
+
     def do_POST(self) -> None:
         if not self._login_ok():
+            self._discard_body()
             return
         route = urlsplit(self.path).path
         if route not in {"/api/scan", "/api/notes", "/api/custom-reports"}:
             self._send(404, "text/plain; charset=utf-8", b"Not found.\n")
+            self._discard_body()
             return
         # Cross-site protection: browsers cannot send this header or a JSON
         # body cross-origin without a CORS preflight, which is never granted.
         origin = self.headers.get("Origin")
         if (self.headers.get("X-NVR-Track") != route.rsplit("/", 1)[-1]
                 or not self.headers.get("Content-Type", "").startswith("application/json")
-                or (origin and origin != f"http://{self.headers.get('Host', '')}")):
+                or (origin and origin != f"{self.scheme}://{self.headers.get('Host', '')}")):
             self._json(403, {"error": "Request refused."})
+            self._discard_body()
             return
         try:
             length = int(self.headers.get("Content-Length", "0"))
@@ -1384,6 +1406,84 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._json(code, data)
 
 
+
+# ---------- HTTPS ----------
+HOST_HEADER = re.compile(r"(?:[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*|\[[0-9A-Fa-f:.]+\])(?::\d{1,5})?")
+
+
+def tls_context(cert: Path, key: Path) -> ssl.SSLContext:
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context.load_cert_chain(cert, key)
+    return context
+
+
+class TLSDashboardHandler(DashboardHandler):
+    """The dashboard over HTTPS.
+
+    The TLS handshake runs in the request's own thread with the 30 s timeout,
+    so a silent or slow client cannot hold up other users. A plain http://
+    request on the same port is answered with a redirect to https://.
+    """
+    scheme = "https"
+    tls: ssl.SSLContext | None = None
+
+    def setup(self) -> None:
+        self.plain_http = self.dropped = False
+        self.request.settimeout(self.timeout)
+        try:
+            first = self.request.recv(1, socket.MSG_PEEK)
+            if first == b"\x16":                       # TLS handshake record.
+                self.request = self.tls.wrap_socket(self.request, server_side=True)
+            elif first:
+                self.plain_http = True
+            else:
+                self.dropped = True                     # Closed without a byte.
+        except (OSError, ValueError):                   # Bad handshake, timeout, reset.
+            self.dropped = True
+        if not self.dropped:
+            super().setup()
+
+    def handle(self) -> None:
+        if self.dropped:
+            return
+        if self.plain_http:
+            self._redirect_to_https()
+            return
+        super().handle()
+
+    def finish(self) -> None:
+        try:
+            if not self.dropped:
+                super().finish()
+        finally:
+            if isinstance(self.request, ssl.SSLSocket):
+                try:
+                    self.request.close()
+                except OSError:
+                    pass
+
+    def _redirect_to_https(self) -> None:
+        try:
+            self.raw_requestline = self.rfile.readline(8193)
+            if not self.raw_requestline or not self.parse_request():
+                return                                  # parse_request() answered 400 itself.
+        except OSError:
+            return
+        host = self.headers.get("Host", "")
+        if not HOST_HEADER.fullmatch(host):
+            self.send_error(400, "Bad Host header")
+            return
+        path = self.path if re.fullmatch(r"/[\x21-\x7e]*", self.path) else "/"
+        self.send_response(301)
+        self.send_header("Location", f"https://{host}{path}")
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+
 def main() -> int:
     if not DASHBOARD_USERNAME or not DASHBOARD_PASSWORD:
         raise SystemExit(
@@ -1396,9 +1496,20 @@ def main() -> int:
         )
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    server = ThreadingHTTPServer((HOST, PORT), DashboardHandler)
+    handler: type[DashboardHandler] = DashboardHandler
+    if DASHBOARD_TLS:
+        try:
+            TLSDashboardHandler.tls = tls_context(DASHBOARD_TLS_CERT, DASHBOARD_TLS_KEY)
+        except (OSError, ssl.SSLError, ValueError) as exc:
+            # Fail closed: never fall back to plain HTTP when HTTPS was asked for.
+            print(f"DASHBOARD_TLS=true but the certificate or key cannot be used "
+                  f"({DASHBOARD_TLS_CERT.name}, {DASHBOARD_TLS_KEY.name}: {type(exc).__name__}). "
+                  "Create them with: sudo bash scripts/dashboard_cert.sh", flush=True)
+            return 2
+        handler = TLSDashboardHandler
+    server = ThreadingHTTPServer((HOST, PORT), handler)
 
-    print(f"NVR dashboard listening on {HOST}:{PORT}")
+    print(f"NVR dashboard listening on {handler.scheme}://{HOST}:{PORT}")
     print(f"Reading reports from {REPORTS_DIR}")
 
     try:

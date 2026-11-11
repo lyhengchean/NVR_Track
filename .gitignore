@@ -15,6 +15,8 @@ htmlcov/
 # Real CCTV inventory — never commit
 config/nvrs.local.json
 config/nvrs.production.json
+# Dashboard HTTPS certificate and private key (scripts/dashboard_cert.sh)
+config/tls/
 
 # Runtime data
 logs/

@@ -9,6 +9,7 @@ Exit 0 = healthy, 1 = unhealthy (Docker shows it in `docker compose ps`).
 from __future__ import annotations
 
 import os
+import ssl
 import sys
 import time
 import urllib.error
@@ -21,15 +22,22 @@ def dashboard() -> tuple[bool, str]:
     port = os.environ.get("DASHBOARD_PORT", "8080").strip() or "8080"
     if not port.isdigit():
         return False, "DASHBOARD_PORT is not a number"
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))  # Never through a proxy.
+    handlers: list = [urllib.request.ProxyHandler({})]                     # Never through a proxy.
+    scheme = "http"
+    if os.environ.get("DASHBOARD_TLS", "false").strip().lower() in {"1", "true", "yes", "on"}:
+        # Its own HTTPS port on 127.0.0.1: the certificate names the LAN address,
+        # so only the answer matters here, not the name check.
+        scheme = "https"
+        handlers.append(urllib.request.HTTPSHandler(context=ssl._create_unverified_context()))
+    opener = urllib.request.build_opener(*handlers)
     try:
-        with opener.open(f"http://127.0.0.1:{port}/", timeout=5) as response:
+        with opener.open(f"{scheme}://127.0.0.1:{port}/", timeout=5) as response:
             code = response.status
     except urllib.error.HTTPError as exc:
         code = exc.code
     except (urllib.error.URLError, OSError) as exc:
         return False, f"dashboard not answering ({type(exc).__name__})"
-    return code < 500, f"dashboard HTTP {code}"
+    return code < 500, f"dashboard {scheme.upper()} {code}"
 
 
 def heartbeat(path: str, seconds: str) -> tuple[bool, str]:

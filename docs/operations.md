@@ -25,9 +25,8 @@ private inventory, while the dashboard only mounts `reports/` read-only.
   root-only folder. Never print secrets or commit real IP inventories.
 - Do not change unrelated services (including Traccar), networking, firewall,
   NVR settings or recording files.
-- Dashboard Basic Authentication must remain configured. It is HTTP Basic;
-  restrict access to the trusted management network or place it behind your
-  existing HTTPS reverse proxy without changing other services. Bind it to
+- Dashboard Basic Authentication must remain configured. Turn on HTTPS
+  (below) so the password never crosses the network in clear text. Bind it to
   the server's LAN address (`DASHBOARD_BIND_IP=<server LAN IP>`), not
   `0.0.0.0`: ports published by Docker bypass UFW.
 - Ten different wrong passwords from one address within 10 minutes lock
@@ -38,6 +37,29 @@ private inventory, while the dashboard only mounts `reports/` read-only.
   `/root/nvr-track-backup.tgz` (holds `.env`; 600): each deploy writes a new one,
   checks it, replaces the old one and removes older dated backups. Restore:
   `sudo tar -xzf /root/nvr-track-backup.tgz -C /opt/NVR_Track` (reports are not in it).
+
+### Dashboard HTTPS
+
+Off by default (`DASHBOARD_TLS=false`). To turn it on, once:
+
+```bash
+cd /opt/NVR_Track
+sudo bash scripts/dashboard_cert.sh        # self-signed, for DASHBOARD_BIND_IP, 825 days
+sudo nano .env                             # DASHBOARD_TLS=true
+docker compose up -d --force-recreate nvr-dashboard
+```
+
+Open `https://<server LAN IP>:8080`. Old `http://` links on the same port are
+redirected to `https://`. Each browser warns once about the self-signed
+certificate: compare the SHA-256 fingerprint the script printed with the one
+the browser shows, then continue. To stop the warning on a PC, import
+`config/tls/dashboard.crt` into *Trusted Root Certification Authorities*
+(Windows: double-click the file → Install Certificate → Local Machine), or use
+a certificate from your own CA with the same file names. If the certificate or
+key is missing or wrong while `DASHBOARD_TLS=true`, the dashboard does not
+start (it never falls back to plain HTTP). The deploy check tests the login,
+the redirect and warns 30 days before the certificate expires; renew with
+`sudo bash scripts/dashboard_cert.sh --renew` and recreate nvr-dashboard.
 
 ### Storage alerts: detected disks versus undetected slots
 
