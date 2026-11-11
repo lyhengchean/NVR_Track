@@ -275,11 +275,17 @@ def overlay(report: dict, entry: dict, now: datetime | None = None) -> dict:
         if offline:
             warnings.insert(0, offline_finding(offline))
         touched = True
-        old_flap = flap_warning(report.get("flapping"))
-        report["flapping"] = _merge_flapping(report.get("flapping"), entry, report)
+    if isinstance(report.get("flapping"), dict):
+        # The live change history counts whether or not the newest live check is
+        # newer than the scan: right after a scan it is not, and dropping it then
+        # gave a false "no longer going offline and online" until the next check.
+        old_flap = flap_warning(report["flapping"])
+        report["flapping"] = _merge_flapping(report["flapping"], entry, report, now)
         new_flap = flap_warning(report["flapping"])
         if old_flap != new_flap:
             warnings = [w for w in warnings if w != old_flap] + ([new_flap] if new_flap else [])
+            touched = True
+    _status_since(report, entry, report_time)
     if storage_newer:
         per_camera = report.get("per_camera_recording") or {}
         writing = (per_camera.get("enabled") and isinstance(per_camera.get("evidence"), int)
@@ -308,18 +314,38 @@ def _local(value: object) -> str:
     return moment.astimezone(LOCAL_TZ).strftime("%Y-%m-%d %H:%M") if moment else "an unknown time"
 
 
-def _merge_flapping(flapping: object, entry: dict, report: dict) -> dict:
+def _status_since(report: dict, entry: dict, report_time: datetime | None) -> None:
+    """status_since on each row: when its shown ONLINE/OFFLINE state began, if a
+    live check saw that change (ISO, UTC). No value: no change within the window."""
+    states = entry.get("channels") if isinstance(entry.get("channels"), dict) else {}
+    changes = entry.get("changes") if isinstance(entry.get("changes"), dict) else {}
+    for row in ((report.get("channel_inventory") or {}).get("channels")) or []:
+        if not isinstance(row, dict) or row.get("reported_status") not in LIVE:
+            continue
+        cid = str(row.get("channel_id"))
+        if states.get(cid) == row["reported_status"]:
+            times = [t for t in changes.get(cid) or [] if isinstance(t, str) and _when(t)]
+            if times:
+                row["status_since"] = _when(times[-1]).isoformat()
+        elif report_time is not None:
+            row["status_since"] = report_time.isoformat()  # The newer scan saw a change the live check had not.
+
+
+def _merge_flapping(flapping: object, entry: dict, report: dict, now: datetime | None = None) -> dict:
     """Cameras over the flapping threshold by scans or by live checks (the higher count)."""
     flapping = dict(flapping) if isinstance(flapping, dict) else {}
     needed = flapping.get("changes_needed")
     changes = entry.get("changes") if isinstance(entry.get("changes"), dict) else {}
     if type(needed) is not int or needed < 2 or not changes:
         return flapping
+    hours = flapping.get("hours") if type(flapping.get("hours")) is int and 1 <= flapping["hours"] <= 168 else 24
+    cutoff = (now or datetime.now(timezone.utc)).astimezone(timezone.utc) - timedelta(hours=hours)
     rows = {str(r.get("channel_id")): r for r in ((report.get("channel_inventory") or {}).get("channels")) or []
             if isinstance(r, dict)}
     cameras = {str(c.get("channel_id")): dict(c) for c in flapping.get("cameras") or [] if isinstance(c, dict)}
     for cid, times in changes.items():
-        times = [t for t in times if isinstance(t, str)] if isinstance(times, list) else []
+        times = [t for t in times if isinstance(t, str) and (_when(t) or cutoff) > cutoff] \
+            if isinstance(times, list) else []
         known = (cameras.get(cid) or {}).get("changes")
         if cid in rows and len(times) >= needed and len(times) > (known if type(known) is int else 0):
             cameras[cid] = {"channel_id": cid, "name": str(rows[cid].get("name") or "")[:80],

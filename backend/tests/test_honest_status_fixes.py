@@ -104,7 +104,13 @@ class NoFalseResolvedTests(NotesFixture):
     def test_quiet_event_camera_is_not_reported_as_recording_again(self):
         offline = {**channel(2, "NO_RECENT_RECORDING_EVIDENCE", live="OFFLINE"), "recording_expectation": "event"}
         self.report(channels=[channel(1), offline])
-        self.alerts()                                                     # Baseline: ch2 stopped.
+        self.alerts()                                                     # Baseline: ch2 offline.
+        # A "Stopped recording" still open from before (offline cameras no longer get one).
+        path = self.bot.state_dir / "alerts.json"
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        saved["state"]["cam:nvr-01:2:rec"] = {"severity": "critical", "text": "Stopped recording: ch2",
+                                              "resolved": "✅ Recording again: ch2", "value": ""}
+        path.write_text(json.dumps(saved), encoding="utf-8")
         quiet = {**channel(2, "NO_RECENT_RECORDING_EVIDENCE"), "recording_expectation": "event"}
         self.assertEqual(classify(quiet)["code"], "NO_RECENT_EVENTS")
         self.report(channels=[channel(1), quiet])

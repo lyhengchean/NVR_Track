@@ -435,8 +435,8 @@ class AddonBotTests(Fixture):
         self.assertIn("Known issues", self.message(222, "/problems")[0]["text"])
         self.assertIn("marked fixed", self.message(111, "/fixed nvr-01 2 spliced")[0]["text"])
         text = self.alerts()[0]                                                # Still broken: alerts again.
-        self.assertIn("Stopped recording", text)
         self.assertIn("Went offline", text)
+        self.assertNotIn("Stopped recording", text)                            # "Went offline" says it.
         notes_text = self.message(222, "/notes nvr-01 2")[0]["text"]
         self.assertIn("Fixed: spliced", notes_text)
 

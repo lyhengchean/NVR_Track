@@ -569,6 +569,7 @@ unknown groups are ignored.
 | `TELEGRAM_KNOWN_REMINDER` | Weekly list of open known issues to the alert chats, default `mon 09:00`; `off` turns it off. No message when none are open |
 | `NVR_KNOWN_REMINDER_DAYS` | Known issues open this many days are marked ⏳ in the reminder and *(review)* in the email (default 7) |
 | `TELEGRAM_SHOW_IPS` | `true` to include IP addresses; default `false` |
+| `TELEGRAM_OFFLINE_MINUTES` | A camera offline / back online or an NVR unreachable is posted once it lasted this long; default `5`, `0` = at once |
 | `NVR_CLOCK_DRIFT_WARN_SECONDS` | Alert when an NVR clock is off by more than this (default 120) |
 | `TELEGRAM_HTTPS_PROXY` | Only if the server reaches the internet through a proxy |
 
@@ -613,6 +614,22 @@ false "recording again". On first start the bot posts one hello with the
 current status instead of a flood of old problems. If Telegram cannot be
 reached, the alert is retried. The daily summary doubles as a heartbeat: if it
 stops arriving, the monitor itself is down.
+
+Short-lived changes stay on the dashboard and out of Telegram:
+
+- A camera going offline or back online, and an NVR becoming unreachable, is
+  posted once it has lasted `TELEGRAM_OFFLINE_MINUTES` (default 5; `0` = at
+  once), measured from the live check that first saw it. A camera back within
+  that time gets neither "Went offline" nor "Back online".
+- Half or more of the live-checked NVRs (at least 3) unreachable at the same
+  time is one line ("All 12 NVRs are not reachable since 16:08 … check the
+  server's own network first") and one "reachable again", not one pair per NVR.
+- "Stopped recording" is not posted for a camera that is offline ("Went
+  offline" says it); it is judged again once the camera is back.
+- "N camera checks could not be completed", and an NVR critical only because
+  the scan could not reach it (device information TIMEOUT / CONNECTION_ERROR),
+  are posted only if the next scan shows them too. While live checks find the
+  NVR down, the reachability alert says it instead.
 
 ## Required days of footage
 
@@ -703,7 +720,8 @@ in the camera's Why column, a count on the NVR card, a line in the email and
 Telegram `/problems`, and one Telegram alert. While it lasts, that camera's
 "Went offline" / "Back online" alerts are paused; "No longer going offline
 and online" follows when the changes drop below the limit. Drop-outs between
-two scans are not seen, so the count never overstates.
+two scans are not seen, so the count never overstates. With live checks the
+changes they saw count too, also right after a scan.
 
 **Uptime report** (on by default). Online % and recording % per camera and
 NVR, plus cameras that keep dropping on and off, from saved reports only.

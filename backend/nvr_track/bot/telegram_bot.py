@@ -133,6 +133,9 @@ def load_settings(env: dict | None = None) -> dict:
         "event_daily_limit": bounded(env.get("TELEGRAM_EVENT_DAILY_LIMIT"), 1, 1, 50),
         # A dropped event stream is alerted only after it stayed down this long.
         "stream_down_minutes": bounded(env.get("TELEGRAM_STREAM_DOWN_MINUTES"), 10, 0, 1440),
+        # A camera going offline or back online, or an NVR becoming unreachable, is
+        # posted only once it has lasted this long (0 = at once). The dashboard shows it at once.
+        "offline_minutes": bounded(env.get("TELEGRAM_OFFLINE_MINUTES"), 5, 0, 1440),
         "state_dir": Path(env.get("TELEGRAM_STATE_DIR", str(ROOT / "state" / "telegram"))),
         # Weekly list of open known issues: (weekday 0=Mon, "HH", "MM") or None (off).
         "known_reminder": weekly_time(env.get("TELEGRAM_KNOWN_REMINDER", "mon 09:00")),
@@ -661,7 +664,8 @@ class Bot:
         data = self.fresh_data()
         current, unknown, muted = views.alert_state(data, clock_drift_seconds=self.settings["drift"],
                                                     picture_alerts=self.settings.get("picture_alerts", False),
-                                                    stream_down_minutes=self.settings.get("stream_down_minutes", 10))
+                                                    stream_down_minutes=self.settings.get("stream_down_minutes", 10),
+                                                    change_minutes=self.settings.get("offline_minutes", 0))
         path = self.state_dir / "alerts.json"
         saved = read_state(path, None)
         if not isinstance(saved, dict) or not isinstance(saved.get("state"), dict):
@@ -675,6 +679,21 @@ class Bot:
             return
         known = {nvr["id"] for nvr in data.get("nvrs") or []}
         merged, opened, resolved = views.compare(saved["state"], current, unknown, known, muted)
+        # A new alert that carries "confirm" (the report it came from) waits for the
+        # next report: one failed camera check or one network blip during a scan is not posted.
+        pending = saved.get("pending") if isinstance(saved.get("pending"), dict) else {}
+        held = {}
+        for key, entry in list(merged.items()):
+            token = entry.get("confirm")
+            if not token or key in saved["state"]:
+                continue
+            if key in pending and pending[key] != token:
+                continue                                    # Seen in the previous report too: say it.
+            held[key] = pending.get(key, token)
+            del merged[key]
+            opened = [item for item in opened if item is not entry]
+        held.update({key: token for key, token in pending.items()
+                     if key not in held and key not in merged and any(key.startswith(p) for p in unknown)})
         # Event-stream drops: at most event_daily_limit alerts per NVR and day. One over
         # the limit stays quiet, and so does its "connected again".
         today, counts = self.daily_counts()
@@ -698,8 +717,8 @@ class Bot:
             if targets and not any(sent):
                 return  # Telegram unreachable: keep the old state and retry next time.
         self.save_daily_counts(today, counts)
-        if merged != saved["state"]:
-            write_state(path, {"schema_version": 1, "state": merged})
+        if merged != saved["state"] or held != pending:
+            write_state(path, {"schema_version": 1, "state": merged, "pending": held})
 
     def check_digest(self) -> None:
         if not self.settings["digest"]:

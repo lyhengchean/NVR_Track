@@ -231,8 +231,8 @@ class AlertTests(Fixture):
         self.report(channels=[channel(1), channel(2, "NO_RECENT_RECORDING_EVIDENCE", live="OFFLINE")],
                     storage="CRITICAL")
         text = self.alerts()[0]
-        self.assertIn("Stopped recording", text)
         self.assertIn("Went offline", text)
+        self.assertNotIn("Stopped recording", text)             # Offline: "Went offline" says it.
         self.assertIn("storage critical", text)
 
         # A failed check is unknown: no false "recording again".
@@ -242,8 +242,14 @@ class AlertTests(Fixture):
 
         self.report(channels=[channel(1), channel(2)])
         text = self.alerts()[0]
-        for expected in ("Recording again", "Back online", "storage healthy again"):
+        for expected in ("Back online", "storage healthy again"):
             self.assertIn(expected, text)
+
+        # Online but not recording: that is said, and so is its end.
+        self.report(channels=[channel(1), channel(2, "NO_RECENT_RECORDING_EVIDENCE")])
+        self.assertIn("Stopped recording", self.alerts()[0])
+        self.report(channels=[channel(1), channel(2)])
+        self.assertIn("Recording again", self.alerts()[0])
 
     def test_unreachable_nvr_and_scanner_alerts(self):
         self.report(channels=[channel(1, "NO_RECENT_RECORDING_EVIDENCE")])
