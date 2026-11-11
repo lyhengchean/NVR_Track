@@ -27,12 +27,41 @@ fail() { FAIL=$((FAIL + 1)); echo "  [FAIL] $*"; }
 section() { echo; echo "== $* =="; }
 
 section "1. Backup"
-BACKUP=/root/nvr-track-backup-$STAMP.tgz
-# The backup holds .env: private (600) from its first byte, not only after chmod.
-if (umask 077 && tar --exclude=./reports -czf "$BACKUP" -C "$APP_DIR" .) 2>/dev/null; then
-    chmod 600 "$BACKUP"; pass "Backup saved to $BACKUP (permissions 600)"
+# One backup, replaced by every deploy. It holds .env: private (600) from its
+# first byte. The new one is written beside the old one, checked, and only then
+# moved over it; older backups are removed once the new one is safe.
+BACKUP_DIR=${NVR_BACKUP_DIR:-/root}
+BACKUP=$BACKUP_DIR/nvr-track-backup.tgz
+prune_backups() {  # Remove every other NVR_Track backup; $1 is the one to keep.
+    find "$BACKUP_DIR" -maxdepth 1 -type f \( -name 'nvr-track-backup.tgz' -o -name 'nvr-track-backup-*.tgz' \) \
+        ! -path "$1" -delete
+}
+PREVIOUS=$(ls -t "$BACKUP_DIR"/nvr-track-backup.tgz "$BACKUP_DIR"/nvr-track-backup-*.tgz 2>/dev/null | head -1)
+if [ -n "${NVR_DEPLOY_CHECK_LOG:-}" ] && [ -n "$PREVIOUS" ] && gzip -t "$PREVIOUS" 2>/dev/null; then
+    # Restarted after the pull: keep the backup taken just before the pull.
+    [ "$PREVIOUS" = "$BACKUP" ] || mv -f "$PREVIOUS" "$BACKUP" 2>/dev/null || BACKUP=$PREVIOUS
+    prune_backups "$BACKUP"
+    pass "Backup from before the pull kept: $BACKUP"
 else
-    fail "Backup failed; stopping before any change"; exit 1
+    NEW=$(mktemp "$BACKUP_DIR/.nvr-track-backup.XXXXXX") || { fail "Cannot write a backup in $BACKUP_DIR; stopping before any change"; exit 1; }
+    if (umask 077 && tar --exclude=./reports -czf "$NEW" -C "$APP_DIR" .) 2>/dev/null && gzip -t "$NEW" 2>/dev/null; then
+        chmod 600 "$NEW"
+        if mv -f "$NEW" "$BACKUP" 2>/dev/null; then
+            prune_backups "$BACKUP"
+            pass "Backup saved to $BACKUP ($(du -h "$BACKUP" | cut -f1), permissions 600); older backups removed"
+        elif mv -f "$NEW" "$BACKUP_DIR/nvr-track-backup-$STAMP.tgz" 2>/dev/null; then
+            # Could not replace the old file: keep the new one under its own name instead.
+            BACKUP=$BACKUP_DIR/nvr-track-backup-$STAMP.tgz
+            prune_backups "$BACKUP"
+            pass "Backup saved to $BACKUP (permissions 600); older backups removed"
+        else
+            BACKUP=$NEW
+            warn "Backup saved as $NEW but could not be renamed; older backups kept"
+        fi
+    else
+        rm -f "$NEW"
+        fail "Backup failed (previous backup kept); stopping before any change"; exit 1
+    fi
 fi
 
 section "2. Source code"
