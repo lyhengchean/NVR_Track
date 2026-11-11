@@ -532,20 +532,75 @@ def _entry(severity: str, text: str, resolved: str, value: str = "", event: bool
 NVR_PREFIXES = ("nvr:{0}:", "cam:{0}:", "storage:{0}", "clock:{0}", "checks:{0}", "smart:{0}",
                 "events:{0}:", "change:{0}:", "restart:{0}:", "disk:{0}:", "live:{0}:")
 LIVE_REASON = {"TIMEOUT": "no answer", "CONNECTION_ERROR": "connection refused or network down"}
+# A scan that could not reach the NVR; the live checks tell more (and sooner).
+NETWORK_CRITICAL = ("Device-information check failed: TIMEOUT", "Device-information check failed: CONNECTION_ERROR")
+FLEET_MIN = 3                  # NVRs down at once that point to the server's own network.
+
+
+def _moment(value: object) -> datetime | None:
+    try:
+        moment = datetime.fromisoformat(str(value)[:40])
+    except ValueError:
+        return None
+    return moment.astimezone(timezone.utc) if moment.tzinfo else None
+
+
+def _young(since: object, now: datetime, minutes: int) -> bool:
+    """Did this begin less than `minutes` ago? (Unknown start: no.)"""
+    moment = _moment(since)
+    return minutes > 0 and moment is not None and now - moment < timedelta(minutes=minutes)
+
+
+def _is_down(live: dict | None) -> bool:
+    return bool(live) and live.get("fresh") is True and live.get("reachable") is False \
+        and (live.get("failures") or 0) >= DOWN_AFTER_FAILURES
+
+
+def _fleet_alert(data: dict, state: dict, unknown: list, now: datetime, change_minutes: int) -> bool:
+    """Many NVRs unreachable at the same time: one line instead of one per NVR.
+    Returns True while that is the case (the per-NVR lines then wait)."""
+    watched = [n for n in data.get("nvrs") or [] if n.get("live") and not n.get("nvr_known_issue")]
+    down = [n for n in watched if _is_down(n["live"])]
+    up = [n for n in watched if n["live"].get("fresh") is True and n["live"].get("reachable") is True]
+    needed = max(FLEET_MIN, -(-len(watched) // 2))
+    if len(down) < needed:
+        if len(watched) - len(up) >= needed:
+            unknown.append("fleet:")          # Too many unknown to say they are reachable again.
+        return False
+    since = sorted(_moment(n["live"].get("down_since")) or now for n in down)[needed - 1]
+    if _young(since.isoformat(), now, change_minutes):
+        unknown.append("fleet:")
+        return True
+    which = f"All {len(down)} NVRs" if len(down) == len(watched) else f"{len(down)} of {len(watched)} NVRs"
+    listed = "" if len(down) == len(watched) else ": " + ", ".join(esc(n["id"]) for n in down)
+    reason = LIVE_REASON.get(down[0]["live"].get("error"), down[0]["live"].get("error") or "no answer")
+    state["fleet:unreachable"] = _entry(
+        "critical", f"⛔ <b>{which} are not reachable</b> since {when(since.isoformat())} ({esc(reason)}){listed}. "
+        "All at the same time: check the server's own network first.",
+        "✅ <b>The NVRs are reachable again</b>")
+    return True
 
 
 def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: bool = True,
-                stream_down_minutes: int = 0) -> tuple[dict, list[str], list[str]]:
+                stream_down_minutes: int = 0, change_minutes: int = 0,
+                now: datetime | None = None) -> tuple[dict, list[str], list[str]]:
     """Current alert conditions, prefixes whose state is unknown, and muted prefixes.
 
     Keys under an unknown prefix keep their previous state, so a failed scan
     or a camera whose check failed never produces a false "resolved" (or a
     false new alert) message. Keys under a muted prefix (known issues,
     features switched off) are dropped silently.
+
+    change_minutes: a camera going offline or back online, and an NVR becoming
+    unreachable, is an alert only once it has lasted this long (live checks
+    give the start time); shorter drops stay on the dashboard. Entries with
+    "confirm" (a report time) are said only if the next report shows them too
+    (nvr_track.bot.telegram_bot.Bot.check_alerts).
     """
     state: dict[str, dict] = {}
     unknown: list[str] = []
     muted: list[str] = []
+    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     scan = data.get("scan") or {}
     if not scan.get("available"):
         state["scanner:down"] = _entry(
@@ -560,6 +615,11 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: b
             "warning", "⚠️ <b>Live checks stopped</b> — camera, disk and reachability alerts come only "
             "from the scans again. On the server: docker compose logs --tail 50 nvr-live",
             "✅ <b>Live checks running again</b>")
+    if live_service.get("nvrs") and not live_service.get("alive"):
+        unknown.append("fleet:")
+        wait = True               # Live checks stopped: no reachability news either way.
+    else:
+        wait = _fleet_alert(data, state, unknown, now, change_minutes)
     for nvr in data.get("nvrs") or []:
         nid = nvr["id"]
         title = nvr_title(nvr)
@@ -576,7 +636,8 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: b
                 "warning", f"📡 <b>{title}</b>: real-time event stream disconnected "
                 f"({esc(reason_text(stream.get('last_error')))})",
                 f"✅ <b>{title}</b>: real-time events connected again")
-        _live_alerts(nvr, title, state, unknown, muted)
+        live_down = _live_alerts(nvr, title, state, unknown, muted, now=now, change_minutes=change_minutes,
+                                 wait=wait)
         if nvr.get("last_run_failed") or nvr["overall_status"] == "ERROR":
             state[f"nvr:{nid}:failed"] = _entry(
                 "critical", f"⛔ <b>{title}</b> could not be scanned "
@@ -599,14 +660,16 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: b
         if nvr["overall_status"] == "CRITICAL":
             reasons = nvr.get("critical_reasons") or ["see /nvr " + nid]
             covered = ((STORAGE_CRITICAL,) if disk_alerts else ()) + \
-                ((DOWN_REASON,) if f"live:{nid}:down" in state else ())
+                ((DOWN_REASON,) + NETWORK_CRITICAL if live_down else ())
             other = [r for r in reasons if not str(r).startswith(covered or ("\0",))]
             if covered and not other:
                 muted.append(f"nvr:{nid}:critical")  # Disk or reachability alerts say it already.
             else:
-                state[f"nvr:{nid}:critical"] = _entry(
-                    "critical", f"🔴 <b>{title}</b> is critical: {esc((other or reasons)[0])}",
-                    f"✅ <b>{title}</b> is no longer critical")
+                entry = _entry("critical", f"🔴 <b>{title}</b> is critical: {esc((other or reasons)[0])}",
+                               f"✅ <b>{title}</b> is no longer critical")
+                if all(str(r).startswith(NETWORK_CRITICAL) for r in other or reasons):
+                    entry["confirm"] = str(nvr.get("last_check") or "")  # A blip during the scan, or not?
+                state[f"nvr:{nid}:critical"] = entry
         if not disk_alerts and nvr["storage_status"] in {"CRITICAL", "WARNING"}:
             icon = "🔴" if nvr["storage_status"] == "CRITICAL" else "🟡"
             state[f"storage:{nid}"] = _entry(
@@ -659,6 +722,8 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: b
             if code in {"CHECK_FAILED", "NOT_MONITORED"}:
                 failed_checks += code == "CHECK_FAILED"
                 unknown.append(key + "rec")
+            elif code in {"NOT_RECORDING", "NO_FOOTAGE_30"} and ch["reported_status"] == "OFFLINE":
+                unknown.append(key + "rec")  # "Went offline" says it; recording is judged once it is back.
             elif code in {"NOT_RECORDING", "NO_FOOTAGE_30"}:
                 state[key + "rec"] = _entry(
                     "critical", f"{CONDITION_ICON[code]} {esc(ch['condition']['label'])}: {camera}\n"
@@ -699,6 +764,9 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: b
                     "Offline alerts for it are paused meanwhile.",
                     f"✅ No longer going offline and online: {camera}")
                 muted.append(key + "off")
+            elif ch["reported_status"] in {"OFFLINE", "ONLINE"} and _young(ch.get("status_since"), now,
+                                                                          change_minutes):
+                unknown.append(key + "off")  # Said once it has lasted change_minutes.
             elif ch["reported_status"] == "OFFLINE":
                 state[key + "off"] = _entry("warning", f"📴 Went offline: {camera}", f"✅ Back online: {camera}")
             elif ch["reported_status"] != "ONLINE":
@@ -707,34 +775,41 @@ def alert_state(data: dict, *, clock_drift_seconds: int = 120, picture_alerts: b
             state[f"checks:{nid}"] = _entry(
                 "warning", f"🟣 <b>{title}</b>: {plural(failed_checks, 'camera check')} could not be completed",
                 f"✅ <b>{title}</b>: all camera checks completed again")
+            state[f"checks:{nid}"]["confirm"] = str(nvr.get("last_check") or "")  # Two scans in a row.
     return state, unknown, muted
 
 
-def _live_alerts(nvr: dict, title: str, state: dict, unknown: list, muted: list) -> None:
+def _live_alerts(nvr: dict, title: str, state: dict, unknown: list, muted: list, *,
+                 now: datetime | None = None, change_minutes: int = 0, wait: bool = False) -> bool:
     """NVR reachability from nvr-live, and whether its newest camera and disk
-    data can be trusted (a failed live check never resolves anything)."""
+    data can be trusted (a failed live check never resolves anything).
+    wait: say nothing new about it being down (one line covers many NVRs, or the
+    live service stopped). Returns True when the live checks find it down."""
     nid = nvr["id"]
     live = nvr.get("live")
     if not live:
         muted.append(f"live:{nid}:")  # Live checks not enabled for this NVR.
-        return
-    down = live.get("reachable") is False and (live.get("failures") or 0) >= DOWN_AFTER_FAILURES
+        return False
+    down = _is_down(live)
     if not live.get("fresh") or (live.get("reachable") is not True and not down):
         unknown.append(f"live:{nid}:")
+    elif down and (wait or _young(live.get("down_since"), now or datetime.now(timezone.utc), change_minutes)):
+        unknown.append(f"live:{nid}:")  # Said by the line for many NVRs, or once it has lasted.
     elif down:
         state[f"live:{nid}:down"] = _entry(
             "critical", f"⛔ <b>{title}</b> is not reachable since {when(live.get('down_since'))} "
             f"({esc(LIVE_REASON.get(live.get('error'), live.get('error') or 'no answer'))})",
             f"✅ <b>{title}</b> is reachable again")
     if not live.get("newer"):
-        return  # The saved report is newer than the last live check.
+        return down  # The saved report is newer than the last live check.
     if not live.get("fresh") or live.get("reachable") is not True:
         unknown += [f"cam:{nid}:", f"storage:{nid}", f"disk:{nid}:"]
-        return
+        return down
     if not live.get("channels_ok"):
         unknown.append(f"cam:{nid}:")
     if not live.get("storage_ok"):
         unknown += [f"storage:{nid}", f"disk:{nid}:"]
+    return down
 
 
 def _disk_alerts(nvr: dict, title: str, state: dict, unknown: list) -> int:

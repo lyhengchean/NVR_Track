@@ -409,6 +409,8 @@ def _public_report(report: dict, path: Path, notes: dict | None = None) -> dict:
                 "reported_status": str(
                     channel.get("reported_status", "UNKNOWN")
                 ),
+                # When a live check saw the online/offline state begin (nvr_track.monitoring.live).
+                "status_since": _timestamp(channel.get("status_since")),
                 "snapshot_result": _public_snapshot(channel.get("snapshot_result")),
             })
             channels[-1]["condition"] = classify(channels[-1])
@@ -744,6 +746,15 @@ def _public_live(raw: object) -> dict | None:
             "down_since": str(raw.get("down_since") or "")[:40] or None,
             "channels_ok": raw.get("channels_ok") is True, "storage_ok": raw.get("storage_ok") is True,
             "channels_used": raw.get("channels_used") is True, "storage_used": raw.get("storage_used") is True}
+
+
+def _timestamp(value: object) -> str | None:
+    """An ISO time with a time zone, or None."""
+    try:
+        moment = datetime.fromisoformat(str(value)[:40])
+    except ValueError:
+        return None
+    return moment.isoformat() if moment.tzinfo else None
 
 
 def _whole(value: object) -> bool:

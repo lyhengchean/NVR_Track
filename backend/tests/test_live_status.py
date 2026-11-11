@@ -253,6 +253,7 @@ class LiveAlertTests(Fixture):
         self.nvr.channels = {"1": ("Gate", True), "2": ("Yard", True)}
         live.write_service(["nvr-01"], 60)
         self.entry = None
+        self.settings["offline_minutes"] = 0          # Each change at once (the delay: LiveDelayTests).
         self.report(channels=[channel(1), channel(2)])
         self.assertIn("bot started", self.alerts())
 
