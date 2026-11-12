@@ -10,7 +10,7 @@ history (120 commits, all branches).
 |---|---|---|---|
 | 1 | High if `TELEGRAM_ACCESS=open` | Anyone on Telegram can find the bot and read offline / not-recording cameras, camera names, NVR models and firmware, events and notes, and subscribe a chat to alerts | **Server setting**: use `group` or `allowlist` |
 | 2 | Medium | Any member of an alert group could send `/alerts off` and silence the group | Fixed (PR #46): admins only in groups |
-| 3 | Medium | No socket timeout: idle connections held dashboard threads forever, before any login | Fixed (PR #46): 30 s |
+| 3 | Medium | No socket timeout: idle connections held dashboard threads forever, before any login | Fixed (PR #46): 30 s per read. The 30 s applied to each read, so a client sending a byte every few seconds still held a thread; now also 60 s to send the whole request and at most 64 requests at once (Nov 2026) |
 | 4 | Medium | Unlimited dashboard password guesses | Fixed (PR #46): 10 different wrong logins in 10 min lock the address for 10 min |
 | 5 | Medium | Dashboard is plain HTTP with Basic auth: the password crosses the LAN in clear text with every refresh | Available: `DASHBOARD_TLS` (opt-in; see docs/operations.md "Dashboard HTTPS") |
 | 6 | Medium | Pillow 11.3.0 had 73 published vulnerabilities and decodes pictures fetched over HTTP | Fixed (PR #46): Pillow 13.0.0, JPEG-only decoding |
@@ -20,6 +20,9 @@ history (120 commits, all branches).
 | 10 | Low | Deploy runs whatever is on GitHub `main` as root | Open: GitHub 2FA, branch protection on `main`, pin the base image digest |
 | 11 | Low | Deploy backups (with `.env`) were created world-readable before `chmod 600`, and are never rotated | Fixed: created 600 (PR #46); one backup kept, replaced by each deploy |
 | 12 | Info | Real NVR IP, site and camera names in docs and diagnostics | Fixed (restructure): diagnostics ask for `--ip`; docs use example addresses |
+| 13 | Medium | A chat that ran `/alerts on` kept getting alerts after the person was removed from the allowlist, blocked, or left the staff group | Fixed (Nov 2026): access is checked again before each alert |
+| 14 | Medium | Any viewer could run `/uptime 366` repeatedly; each one re-read every saved report and stalled the bot (alerts included) | Fixed (Nov 2026): over 31 days is admin-only; results cached per hour |
+| 15 | Low | `deploy_check.sh` rebuilt and restarted the containers even when the test suite failed | Fixed (Nov 2026): a failed test run stops the deploy |
 
 Checked without findings: no `.env`, inventory, token or real password in any
 commit; POST requests need a custom header and a JSON body (CSRF);
@@ -45,7 +48,7 @@ To change them: edit `.env` (keep `chmod 600`), then
 - NVRs are read-only: GET requests plus ISAPI recording search and
   `dailyDistribution` queries; Digest authentication.
 - Dashboard: Basic auth (password ≥ 16 characters), per-address login lockout,
-  30 s connection timeout, CSP `default-src 'none'` with scripts and styles
+  30 s per read and 60 s per request, at most 64 requests at once, CSP `default-src 'none'` with scripts and styles
   from the server only, `X-Frame-Options: DENY`, `nosniff`, `no-store`,
   whitelisted JSON fields (no raw report content, no credentials).
 - Separation: the dashboard and the bot have no NVR or SMTP credentials; they

@@ -109,16 +109,18 @@ class Listener:
         if events.is_heartbeat(event):
             return
         if event["type"] not in self.types:
-            ignored = self.state["ignored_types"]
-            if len(ignored) < 30 or event["type"] in ignored:
-                ignored[event["type"]] = ignored.get(event["type"], 0) + 1
+            with self.lock:  # The status writer copies this dict under the same lock.
+                ignored = self.state["ignored_types"]
+                if len(ignored) < 30 or event["type"] in ignored:
+                    ignored[event["type"]] = ignored.get(event["type"], 0) + 1
             return
         # NVR-level types are kept without a channel (as recorded), so a
         # restart recognises them in events.jsonl.
         key_event = {**event, "channel": event["channel"] if self.types[event["type"]][2] else ""}
         if not self.dedupe.accept(self.nvr.id, key_event, replay=replay):
             if replay:
-                self.state["replayed"] = self.state.get("replayed", 0) + 1
+                with self.lock:
+                    self.state["replayed"] = self.state.get("replayed", 0) + 1
             return
         with self.lock:
             try:
@@ -133,6 +135,19 @@ class Listener:
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def status_snapshot(listeners: list, lock: threading.Lock) -> dict:
+    """Every listener's state, copied under the lock, nested dicts included.
+
+    A listener thread adding an ignored event type while json.dump walked the
+    shared dict raised "dictionary changed size during iteration" and stopped
+    the status loop (review, Nov 2026).
+    """
+    with lock:
+        return {listener.nvr.id: {**listener.state,
+                                  "ignored_types": dict(listener.state.get("ignored_types") or {})}
+                for listener in listeners}
 
 
 def main() -> int:
@@ -165,10 +180,8 @@ def main() -> int:
     print(f"events: listening to {', '.join(n.id for n in nvrs)}; types: {', '.join(sorted(types))}", flush=True)
     while True:
         time.sleep(15)
-        with lock:
-            snapshot = {listener.nvr.id: dict(listener.state) for listener in listeners}
         try:
-            events.write_status(snapshot)
+            events.write_status(status_snapshot(listeners, lock))
         except OSError as exc:
             print(f"events: cannot write status ({type(exc).__name__})", file=sys.stderr, flush=True)
 

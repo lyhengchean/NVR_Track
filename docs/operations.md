@@ -685,7 +685,7 @@ unknown groups are ignored.
 `/offline`, `/storage`, `/firmware`, `/scanner`, `/scan` (admins: buttons for
 all or one NVR, confirmed before it starts; the bot reports back when the
 scan ends), `/alerts on|off` (alerts in this chat; in a group only admins
-can switch them), `/myid`, `/help`.
+can switch them; a private chat stops getting alerts once that person loses access), `/myid`, `/help`.
 
 Add-on commands: `/known`, `/fixed`, `/note`, `/notes`, `/events`, `/uptime`, `/snapshot` (see *Add-ons* below).
 
@@ -812,7 +812,8 @@ changes they saw count too, also right after a scan.
 NVR, plus cameras that keep dropping on and off, from saved reports only.
 Failed or disabled checks are left out, never counted either way.
 - Telegram `/uptime` (last 30 days), `/uptime 7`, `/uptime 2026-10`, with a CSV file;
-  a month (`/uptime 2026-10`) also gets the monthly PDF report.
+  a month (`/uptime 2026-10`) also gets the monthly PDF report. More than 31 days
+  (up to `/uptime 366`) is for admins only: each one reads every saved report in the range.
 - On the 1st, after the first scheduled scan, last month's report is emailed
   (CSV and PDF attached) and posted to the alert chats. `NVR_UPTIME_MONTHLY=false` turns it off.
 - By hand: `docker compose run --rm -T --entrypoint python nvr-report -m nvr_track.cli.uptime_report --month 2026-10 --pdf`

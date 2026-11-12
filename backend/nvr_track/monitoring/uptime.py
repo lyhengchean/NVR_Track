@@ -16,6 +16,8 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+from nvr_track.core.spreadsheet import csv_safe
+
 REPORT_NAME = re.compile(r"^(?P<id>[A-Za-z0-9][A-Za-z0-9_-]{0,63}?)_"
                          r"(?P<stamp>\d{8}T\d{6}(?:\d{1,6})?[+-]\d{4})\.json$")
 EVIDENCE = {"RECORDING", "RECORDING_EVIDENCE_WITH_ANOMALY"}
@@ -113,7 +115,7 @@ def to_csv(result: dict) -> str:
         row = [c["nvr"], c["nvr_name"], c["channel"], c["name"], c["samples"],
                "" if c["online_pct"] is None else c["online_pct"],
                "" if c["recording_pct"] is None else c["recording_pct"], c["checked"], c["flaps"]]
-        writer.writerow(["'" + v if isinstance(v, str) and v[:1] in "=+-@" else v for v in row])
+        writer.writerow([csv_safe(v) if isinstance(v, str) else v for v in row])
     return out.getvalue()
 
 
