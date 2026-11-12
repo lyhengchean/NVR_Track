@@ -94,10 +94,11 @@ if docker build -q -f deploy/Dockerfile --target test -t nvr-track:test . >/dev/
     if echo "$RESULT" | grep -q "passed" && ! echo "$RESULT" | grep -qE "failed|error"; then
         pass "Test suite passed"
     else
-        fail "Test suite did not pass"
+        # Stop before section 4: failing code must not replace the running containers.
+        fail "Test suite did not pass; nothing rebuilt or restarted"; exit 1
     fi
 else
-    fail "Test image build failed"
+    fail "Test image build failed; nothing rebuilt or restarted"; exit 1
 fi
 
 section "4. Build and restart dashboard and scanner"

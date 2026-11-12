@@ -46,6 +46,8 @@ MEMBER_CACHE_SECONDS = 600           # Group membership is re-checked every 10 m
 RATE_LIMIT = (20, 60)                # Non-admins: at most 20 commands per 60 s.
 DATA_CACHE_SECONDS = 15              # Reports are re-read at most this often.
 MAX_SUBSCRIBERS = 300                # /alerts on, per bot (open mode guard).
+VIEWER_UPTIME_DAYS = 31              # Longer /uptime ranges are for admins (each reads every report).
+UPTIME_CACHE_ENTRIES = 8
 
 COMMANDS = [
     ("status", "Fleet summary"),
@@ -626,8 +628,15 @@ class Bot:
         return {"on": set(subs.get("on", [])), "off": set(subs.get("off", []))}
 
     def recipients(self) -> set[int]:
+        """Configured alert chats, plus subscribed chats that still have access.
+
+        A private chat (chat id == user id) that ran /alerts on stops receiving
+        alerts once that person is removed from the allowlist, blocked, or
+        leaves the staff group (review, Nov 2026).
+        """
         subs = self.subscriptions()
-        return (self.settings["alert_chats"] | subs["on"]) - subs["off"]
+        allowed = {chat for chat in subs["on"] if chat < 0 or self.who(chat, chat) is not None}
+        return (self.settings["alert_chats"] | allowed) - subs["off"]
 
     def set_alerts(self, chat_id: int, choice: str, who: str, private: bool) -> None:
         subs = self.subscriptions()
@@ -768,7 +777,7 @@ class Bot:
             self.send(chat_id, views.events_text(data, nvr["id"] if nvr else None))
             return
         if command == "uptime":
-            self.send_uptime(chat_id, args)
+            self.send_uptime(chat_id, args, admin=who == "admin")
             return
         if command == "known" and not tokens:
             self.send(chat_id, views.known_list(data, notes_store.active_issues(notes_store.load())))
@@ -890,16 +899,21 @@ class Bot:
                 print(f"telegram: photo to {chat_id} failed: {exc}", flush=True)
 
     def uptime_result(self, start: datetime, end: datetime) -> dict:
+        """Cached for 30 minutes per (start, end hour); callers pass an hour-aligned start."""
         key = (start.isoformat(), end.isoformat()[:13])
-        cached = getattr(self, "_uptime_cache", None)
-        if cached and cached[0] == key and time.monotonic() - cached[1] < 1800:
-            return cached[2]
+        cache = self.__dict__.setdefault("_uptime_cache", {})
+        cached = cache.get(key)
+        if cached and time.monotonic() - cached[0] < 1800:
+            return cached[1]
         result = uptime_calc.compute(dashboard_data.REPORTS_DIR, start, end)
-        self._uptime_cache = (key, time.monotonic(), result)
+        cache.pop(key, None)
+        cache[key] = (time.monotonic(), result)
+        while len(cache) > UPTIME_CACHE_ENTRIES:
+            cache.pop(next(iter(cache)))
         return result
 
     def send_uptime(self, chat_id: int, args: str, title: str | None = None,
-                    result: dict | None = None, period: str | None = None) -> None:
+                    result: dict | None = None, period: str | None = None, admin: bool = True) -> None:
         now = datetime.now(views.LOCAL_TZ)
         if result is None:
             text = args.strip()
@@ -912,7 +926,13 @@ class Bot:
                 period = text
             else:
                 days = int(text) if text.isdigit() and 1 <= int(text) <= 366 else 30
-                start, end = now - timedelta(days=days), now
+                if days > VIEWER_UPTIME_DAYS and not admin:
+                    self.send(chat_id, f"Ranges over {VIEWER_UPTIME_DAYS} days are for administrators. "
+                              "Use /uptime 30 or a month, e.g. /uptime 2026-10.")
+                    return
+                # Hour-aligned start: repeated requests within the hour reuse the cached result
+                # instead of re-reading every saved report (review, Nov 2026).
+                start, end = (now - timedelta(days=days)).replace(minute=0, second=0, microsecond=0), now
                 period = f"last {days} days"
             self.send(chat_id, f"⏳ Calculating uptime for {views.esc(period)} from saved reports…")
             result = self.uptime_result(start, end)

@@ -30,6 +30,7 @@ from nvr_track.monitoring.camera_condition import CONDITIONS, calendar_facts
 from nvr_track.nvr.storage import ABSENT_DISK_STATES, NORMAL_DISK_STATES
 from nvr_track.bot.telegram_views import LIVE_LABEL, PICTURE_LABEL
 from nvr_track.core.paths import PROJECT_ROOT as ROOT
+from nvr_track.core.spreadsheet import csv_safe
 
 LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
 SCHEMA = 2                   # 2: several sections per saved report; 1 (one table) is still read.
@@ -901,8 +902,7 @@ def to_csv(section: dict) -> bytes:
     writer.writerow([c["label"] for c in section["columns"]])
     for row in section["rows"]:
         cells = [_cell(v, k) for v, k in zip(row, kinds)]
-        writer.writerow(["'" + c if c[:1] in "=+-@" and not re.fullmatch(r"-?\d+(\.\d+)?", c) else c
-                         for c in cells])
+        writer.writerow([csv_safe(c) for c in cells])
     return ("\ufeff" + out.getvalue()).encode("utf-8")
 
 

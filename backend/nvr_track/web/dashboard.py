@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import hmac
+import io
 import json
 import os
 import re
@@ -48,6 +49,11 @@ DASHBOARD_TLS_KEY = Path(os.environ.get("DASHBOARD_TLS_KEY") or PROJECT_ROOT / "
 # An idle or slow connection is closed after this; without it every open
 # connection kept a server thread forever, before any password check.
 REQUEST_TIMEOUT_SECONDS = 30
+# The timeout above applies to each read, so a client sending one byte every
+# few seconds never hit it. Reading the whole request must also finish within
+# this, and at most MAX_CONNECTIONS requests are handled at once (review, Nov 2026).
+REQUEST_DEADLINE_SECONDS = 60
+MAX_CONNECTIONS = 64
 # Password guessing: this many DIFFERENT wrong logins from one address within
 # the window lock that address out (correct logins too). A stale password
 # repeated by an open tab counts once.
@@ -1132,11 +1138,67 @@ def custom_report_action(body: dict) -> tuple[int, dict]:
     return 200, {"ok": True, "item": item, "saved": custom_reports.list_saved()}
 
 
+class DeadlineReader(io.RawIOBase):
+    """Socket reads that share one deadline for the whole request.
+
+    Each read waits at most ``per_read`` seconds and never past ``deadline``;
+    after it, reading raises TimeoutError, which BaseHTTPRequestHandler answers
+    by closing the connection. Writing the answer is not limited.
+    """
+
+    def __init__(self, sock: socket.socket, deadline: float, per_read: float) -> None:
+        super().__init__()
+        self.sock, self.deadline, self.per_read = sock, deadline, per_read
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer) -> int:
+        remaining = self.deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("request deadline passed")
+        self.sock.settimeout(min(remaining, self.per_read))
+        return self.sock.recv_into(buffer)
+
+
+class DashboardServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with a cap: past ``max_connections`` requests at
+    once, a new connection is closed straight away instead of getting a thread."""
+
+    daemon_threads = True
+
+    def __init__(self, *args, max_connections: int = MAX_CONNECTIONS, **kwargs) -> None:
+        self.slots = threading.BoundedSemaphore(max_connections)
+        super().__init__(*args, **kwargs)
+
+    def process_request(self, request, client_address) -> None:
+        if not self.slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.slots.release()           # The thread never started.
+            raise
+
+    def process_request_thread(self, request, client_address) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "NVRDashboard"
     sys_version = ""
     timeout = REQUEST_TIMEOUT_SECONDS
     scheme = "http"
+
+    def setup(self) -> None:
+        super().setup()
+        deadline = getattr(self, "deadline", None) or time.monotonic() + REQUEST_DEADLINE_SECONDS
+        self.rfile.close()  # Replaced: release its hold on the socket.
+        self.rfile = io.BufferedReader(DeadlineReader(self.connection, deadline, self.timeout))
 
     def log_message(self, fmt: str, *args: object) -> None:
         # Do not log request headers or credentials.
@@ -1441,6 +1503,7 @@ class TLSDashboardHandler(DashboardHandler):
 
     def setup(self) -> None:
         self.plain_http = self.dropped = False
+        self.deadline = time.monotonic() + REQUEST_DEADLINE_SECONDS
         self.request.settimeout(self.timeout)
         try:
             first = self.request.recv(1, socket.MSG_PEEK)
@@ -1519,7 +1582,7 @@ def main() -> int:
                   f"({DASHBOARD_TLS_CERT.name}, {DASHBOARD_TLS_KEY.name}: {type(exc).__name__}). {fix}", flush=True)
             return 2
         handler = TLSDashboardHandler
-    server = ThreadingHTTPServer((HOST, PORT), handler)
+    server = DashboardServer((HOST, PORT), handler)
 
     print(f"NVR dashboard listening on {handler.scheme}://{HOST}:{PORT}")
     print(f"Reading reports from {REPORTS_DIR}")
