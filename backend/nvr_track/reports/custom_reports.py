@@ -464,8 +464,13 @@ def _summarize(report: object, nvr_id: str) -> dict | None:
                              str(ch.get("reported_status") or "UNKNOWN"),
                              str((ch.get("recording_result") or {}).get("status") or "NOT_CHECKED")])
 
+    # Camera states not read in this scan (NVR unreachable...): unknown, never 0.
+    read = status.get("status") in {None, "CHANNEL_STATUS_RETRIEVED", "CHANNEL_STATUS_INCOMPLETE"}
+
     def count(key, state):
         value = status.get(key)
+        if not read:
+            return len(channels) if state == "UNKNOWN" else None
         return value if type(value) is int else sum(c[2] == state for c in channels)
     changes = [{"type": c.get("type"), "channel": str(c.get("channel_id") or ""), "old": str(c.get("old") or "")[:80],
                 "new": str(c.get("new") or "")[:80]}
@@ -648,7 +653,7 @@ def _nvr_health(spec: dict, reports_dir: Path, today: date) -> tuple[list[dict],
         groups.setdefault(s["nvr"], []).append(s)
     rows = []
     for nvr_id, items in groups.items():
-        offline = [s["offline"] for s in items]
+        offline = [s["offline"] for s in items if s["offline"] is not None]  # Scans that read camera states.
         known = online = checked = recorded = 0
         for s in items:
             for _, _, live, rec in s["channels"]:
@@ -664,7 +669,8 @@ def _nvr_health(spec: dict, reports_dir: Path, today: date) -> tuple[list[dict],
             "critical": sum(s["overall"] == "CRITICAL" for s in items),
             "restarts": sum(s["restart"] for s in items),
             "cameras": len(items[-1]["channels"]),
-            "avg_offline": round(sum(offline) / len(offline), 1), "max_offline": max(offline),
+            "avg_offline": round(sum(offline) / len(offline), 1) if offline else None,
+            "max_offline": max(offline) if offline else None,
             "online_pct": _pct(online, known), "recording_pct": _pct(recorded, checked),
             "last_status": HEALTH.get(items[-1]["overall"], items[-1]["overall"].title()),
             "last_storage": HEALTH.get(items[-1]["storage"], items[-1]["storage"].title()),
@@ -678,8 +684,10 @@ def _scans(spec: dict, reports_dir: Path, today: date) -> tuple[list[dict], dict
     return [{"time": _local(s["at"]), "nvr": s["nvr"], "nvr_name": s["name"],
              "status": HEALTH.get(s["overall"], s["overall"].title()),
              "online": s["online"], "offline": s["offline"], "unknown": s["unknown"],
-             "recorded": sum(c[3] in EVIDENCE for c in s["channels"]),
-             "no_footage": sum(c[3] == "NO_RECENT_RECORDING_EVIDENCE" for c in s["channels"]),
+             # No camera list in this scan: unknown, not 0.
+             "recorded": sum(c[3] in EVIDENCE for c in s["channels"]) if s["channels"] else None,
+             "no_footage": (sum(c[3] == "NO_RECENT_RECORDING_EVIDENCE" for c in s["channels"])
+                            if s["channels"] else None),
              "storage": HEALTH.get(s["storage"], s["storage"].title()),
              "restart": "Yes" if s["restart"] else "No", "findings": "; ".join(s["findings"]) or None}
             for s in summaries], meta

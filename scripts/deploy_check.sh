@@ -277,7 +277,13 @@ echo "$DASH" | grep -v '^CHECK '
 TOTAL=$(echo "$DASH" | sed -n 's/^CHECK total_nvrs=//p')
 INCOMPLETE=$(echo "$DASH" | sed -n 's/^CHECK incomplete_nvrs=//p')
 UNVERIFIED=$(echo "$DASH" | sed -n 's/^CHECK unverified=//p')
-[ "${TOTAL:-0}" = "12" ] && pass "All 12 NVRs are on the dashboard" || fail "Dashboard shows ${TOTAL:-0} NVRs, expected 12"
+# The inventory's NVR count (section 5), not a fixed number: adding or removing an NVR is not a failure.
+if [ "${COUNT:-0}" -gt 0 ]; then
+    [ "${TOTAL:-0}" = "$COUNT" ] && pass "All $COUNT NVRs in the inventory are on the dashboard" \
+        || fail "Dashboard shows ${TOTAL:-0} NVRs, the inventory has $COUNT"
+else
+    fail "Could not read the NVR inventory (section 5); the dashboard shows ${TOTAL:-0} NVRs"
+fi
 if [ "${INCOMPLETE:-1}" = "0" ]; then
     pass "Every NVR has a row for every expected camera"
 else

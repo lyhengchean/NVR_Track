@@ -465,7 +465,9 @@ def main() -> int:
     restart = restart_info(device_status.uptime_seconds if device_status else None,
                            datetime.now(timezone.utc),
                            previous_reports[0].get("check_completed_at") if previous_reports else None)
-    if configured_nvr.id.lower() in id_setting("NVR_SMART_NVR_IDS"):
+    if configured_nvr.id.lower() in id_setting("NVR_SMART_NVR_IDS") and not storage.disks:
+        smart = smart_check.disks_not_read()  # Unreachable or refused: not "no SATA disks".
+    elif configured_nvr.id.lower() in id_setting("NVR_SMART_NVR_IDS"):
         disk_ids = sata_disk_ids(storage)
         previous_smart = ((previous_reports[0].get("storage") or {}).get("smart")
                           if previous_reports else None)

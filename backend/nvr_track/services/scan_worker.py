@@ -42,6 +42,7 @@ POLL_SECONDS = 2
 HEARTBEAT_SECONDS = 10
 RUN_TIMEOUT_MARGIN_SECONDS = 300
 CATCH_UP_MINUTES = 30        # run a slot missed by a short restart, never older ones
+MONTHLY_CATCH_UP_DAYS = 7    # last month's uptime report: on the 1st, or by the 7th if missed
 REQUEST_MAX_AGE_MINUTES = 60  # a request left while the service was down is dropped
 DEVICE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
 STARTING = re.compile(r"^Starting (\S+) at ", re.M)
@@ -331,24 +332,31 @@ class Service:
             print(f"Report archive failed: {type(exc).__name__}", flush=True)
 
     def maybe_uptime_report(self) -> None:
-        """On the 1st, after a scheduled scan: last month's uptime report and email."""
+        """After a scheduled scan early in the month: last month's uptime report and email.
+
+        Done once per month, on the 1st or (scanner down then) by the 7th. A run
+        that fails (exit code not 0, e.g. the email could not be sent) is tried
+        again after the next scheduled scan instead of being lost for the month.
+        """
         if os.environ.get("NVR_UPTIME_MONTHLY", "true").strip().lower() != "true":
             return
         today = datetime.now(TZ)
-        if today.day != 1:
+        if today.day > MONTHLY_CATCH_UP_DAYS:
             return
         marker = STATE_DIR / "uptime.json"
         if (read_json(marker) or {}).get("month") == today.strftime("%Y-%m"):
             return
-        write_json(marker, {"month": today.strftime("%Y-%m")})
         try:
             result = subprocess.run([sys.executable, "-m", "nvr_track.cli.uptime_report", "--previous-month", "--email", "--pdf"],
                                     cwd=ROOT, env=child_env(), capture_output=True, text=True, timeout=1800, check=False)
-            email = re.search(r"^Email report: (\w+)", result.stdout, re.M)
-            print(f"Monthly uptime report: exit {result.returncode}; email {email[1] if email else 'unknown'}",
-                  flush=True)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            print(f"Monthly uptime report failed: {type(exc).__name__}", flush=True)
+            print(f"Monthly uptime report failed: {type(exc).__name__}; retried after the next scan", flush=True)
+            return
+        email = re.search(r"^Email report: (\w+)", result.stdout, re.M)
+        print(f"Monthly uptime report: exit {result.returncode}; email {email[1] if email else 'unknown'}"
+              + ("" if result.returncode == 0 else "; retried after the next scan"), flush=True)
+        if result.returncode == 0:
+            write_json(marker, {"month": today.strftime("%Y-%m")})
 
     def loop(self) -> None:
         STATE_DIR.mkdir(parents=True, exist_ok=True)

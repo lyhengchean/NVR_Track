@@ -15,6 +15,7 @@ from nvr_track.monitoring.camera_condition import (CONDITIONS, EVIDENCE, kept_te
 from nvr_track.nvr.events import reason_text
 from nvr_track.monitoring.live import DOWN_AFTER_FAILURES, DOWN_REASON
 from nvr_track.monitoring.notes import age_days
+from nvr_track.monitoring import uptime as uptime_calc
 from nvr_track.reports.reporting import STORAGE_CRITICAL
 from nvr_track.nvr.storage import ABSENT_DISK_STATES, CRITICAL_DISK_STATES, NORMAL_DISK_STATES
 
@@ -173,7 +174,8 @@ def fleet_status(data: dict, pictures: bool = True) -> str:
         f"🟢 {s.get('healthy', 0)} · 🟡 {s.get('warning', 0)} · 🔴 {s.get('critical', 0)}"
         + (f" · ⛔ {s['latest_run_failed']} failed" if s.get("latest_run_failed") else ""),
         f"<b>Cameras</b> {s.get('cameras_online', 0)} online · {s.get('cameras_offline', 0)} offline"
-        + (f" · {s['cameras_unknown']} unknown" if s.get("cameras_unknown") else ""),
+        + (f" · {s['cameras_unknown']} unknown" if s.get("cameras_unknown") else "")
+        + (f" · ⛔ {s['cameras_not_listed']} no result (NVR unreachable)" if s.get("cameras_not_listed") else ""),
         f"<b>Recording</b> {s.get('recording_evidence', 0)} found · "
         f"{s.get('recording_no_evidence', 0)} none in the window · "
         f"{max(0, s.get('recording_unverified', 0) - s.get('recording_not_checked', 0))} failed",
@@ -275,7 +277,8 @@ def nvr_list(data: dict) -> str:
         problems = sum(counts.get(code, 0) for code in PROBLEMS)
         lines.append(
             f"{HEALTH_ICON.get(nvr['overall_status'], '⚪')} {nvr_title(nvr)} — "
-            f"{nvr.get('online_channels', 0)}/{nvr.get('expected_channels') or len(nvr['channels'])} online"
+            + (f"{nvr['online_channels']}" if nvr.get("online_channels") is not None else "?")
+            + f"/{nvr.get('expected_channels') or len(nvr['channels'])} online"
             + (f" · {plural(problems, 'problem')}" if problems else "")
             + (" · out of date" if nvr.get("stale") and not nvr.get("last_run_failed") else ""))
     if len(lines) == 1:
@@ -306,7 +309,9 @@ def nvr_detail(data: dict, nvr: dict, show_ips: bool) -> str:
     if nvr.get("last_run_failed"):
         lines.append(f"⛔ Latest scan failed ({esc(nvr.get('last_run_failure_code'))}); "
                      "results below are the last known ones.")
-    lines.append(f"Cameras {nvr.get('online_channels', 0)} online · {nvr.get('offline_channels', 0)} offline"
+    states = (f"{nvr['online_channels']} online · {nvr.get('offline_channels') or 0} offline"
+              if nvr.get("online_channels") is not None else "online/offline unknown (not read in this report)")
+    lines.append(f"Cameras {states}"
                  + (f" · {nvr['unknown_channels']} unknown" if nvr.get("unknown_channels") else "")
                  + f" · {nvr.get('configured_channels') if nvr.get('configured_channels') is not None else '—'}"
                  f" of {nvr.get('expected_channels') if nvr.get('expected_channels') is not None else '—'} channels")
@@ -1050,7 +1055,9 @@ def uptime_text(result: dict, title: str) -> str:
     fleet = result["fleet"]
     lines = [f"<b>{esc(title)}</b>",
              f"{fleet['cameras']} cameras on {fleet['nvrs']} NVRs · online {pct(fleet['online_pct'])} · "
-             f"recording {pct(fleet['recording_pct'])}", ""]
+             f"recording {pct(fleet['recording_pct'])}"]
+    note = uptime_calc.coverage_note(result)
+    lines += ([f"<i>{esc(note)}</i>"] if note else []) + [""]
     for n in result["nvrs"]:
         lines.append(f"{esc(n['nvr'])}{' ' + esc(n['name']) if n['name'] else ''}: online {pct(n['online_pct'])}, "
                      f"recording {pct(n['recording_pct'])}, reachable {pct(n['reachable_pct'])}")

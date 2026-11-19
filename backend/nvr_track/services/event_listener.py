@@ -97,6 +97,11 @@ class Listener:
                     print(f"events: {self.nvr.id} cannot connect ({code}); retrying", flush=True)
                 self.mark(connected=False, since=now(), last_error=code[:40],
                           down_since=self.state.get("down_since") or now())  # Start of this outage.
+            except Exception as exc:  # Anything else (an odd reply, a parser bug): keep listening.
+                code = type(exc).__name__[:40]
+                print(f"events: {self.nvr.id} stream error ({code}); reconnecting", flush=True)
+                self.mark(connected=False, since=now(), last_error=code,
+                          down_since=self.state.get("down_since") or now())
             wait = BACKOFF[min(failures, len(BACKOFF) - 1)]
             failures += 1
             time.sleep(wait)

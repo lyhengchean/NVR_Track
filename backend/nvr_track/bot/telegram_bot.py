@@ -48,6 +48,7 @@ DATA_CACHE_SECONDS = 15              # Reports are re-read at most this often.
 MAX_SUBSCRIBERS = 300                # /alerts on, per bot (open mode guard).
 VIEWER_UPTIME_DAYS = 31              # Longer /uptime ranges are for admins (each reads every report).
 UPTIME_CACHE_ENTRIES = 8
+MONTHLY_CATCH_UP_DAYS = 7            # Last month's uptime post: on the 1st, or by the 7th if missed.
 
 COMMANDS = [
     ("status", "Fleet summary"),
@@ -740,12 +741,14 @@ class Bot:
         path = self.state_dir / "digest.json"
         if read_state(path, {}).get("date") == now.date().isoformat():
             return
-        write_state(path, {"date": now.date().isoformat()})
         data = self.fresh_data()
-        for chat_id in self.recipients():
-            self.send(chat_id, "☀️ <b>Daily summary</b> (if this stops arriving, the monitor itself is down)\n\n"
-                      + views.fleet_status(data, pictures=self.settings.get("picture_alerts", False)),
-                      menu_keyboard(False))
+        targets = self.recipients()
+        sent = [self.send(chat_id, "☀️ <b>Daily summary</b> (if this stops arriving, the monitor itself is down)\n\n"
+                          + views.fleet_status(data, pictures=self.settings.get("picture_alerts", False)),
+                          menu_keyboard(False)) for chat_id in targets]
+        if not targets or any(sent):
+            # Telegram unreachable: tried again next minute, within DIGEST_LATEST_HOURS.
+            write_state(path, {"date": now.date().isoformat()})
 
     def check_known_reminder(self) -> None:
         """Once a week, list the known issues that are still open (none open: no message)."""
@@ -759,13 +762,12 @@ class Bot:
         path = self.state_dir / "known_reminder.json"
         if read_state(path, {}).get("date") == now.date().isoformat():
             return
-        write_state(path, {"date": now.date().isoformat()})
         text = views.known_reminder(self.fresh_data(), notes_store.active_issues(notes_store.load(), now.date()),
                                     self.settings["known_stale_days"], now.date())
-        if text is None:
-            return
-        for chat_id in self.recipients():
-            self.send(chat_id, text, menu_keyboard(False))
+        targets = self.recipients() if text is not None else set()
+        sent = [self.send(chat_id, text, menu_keyboard(False)) for chat_id in targets]
+        if not targets or any(sent):
+            write_state(path, {"date": now.date().isoformat()})  # Else Telegram down: try again later.
 
     # ----- add-ons: known issues, notes, events, uptime, snapshots -----
 
@@ -913,23 +915,22 @@ class Bot:
         return result
 
     def send_uptime(self, chat_id: int, args: str, title: str | None = None,
-                    result: dict | None = None, period: str | None = None, admin: bool = True) -> None:
+                    result: dict | None = None, period: str | None = None, admin: bool = True) -> bool:
+        """True when the uptime text reached the chat."""
         now = datetime.now(views.LOCAL_TZ)
         if result is None:
             text = args.strip()
             if re.fullmatch(r"\d{4}-\d{2}", text):
                 if not (2000 <= int(text[:4]) <= 2100 and 1 <= int(text[5:]) <= 12):
-                    self.send(chat_id, "Use /uptime 30 (last 30 days) or /uptime 2026-10 (a month).")
-                    return
+                    return self.send(chat_id, "Use /uptime 30 (last 30 days) or /uptime 2026-10 (a month).")
                 start = datetime(int(text[:4]), int(text[5:]), 1, tzinfo=views.LOCAL_TZ)
                 end = (start + timedelta(days=32)).replace(day=1)
                 period = text
             else:
                 days = int(text) if text.isdigit() and 1 <= int(text) <= 366 else 30
                 if days > VIEWER_UPTIME_DAYS and not admin:
-                    self.send(chat_id, f"Ranges over {VIEWER_UPTIME_DAYS} days are for administrators. "
-                              "Use /uptime 30 or a month, e.g. /uptime 2026-10.")
-                    return
+                    return self.send(chat_id, f"Ranges over {VIEWER_UPTIME_DAYS} days are for administrators. "
+                                     "Use /uptime 30 or a month, e.g. /uptime 2026-10.")
                 # Hour-aligned start: repeated requests within the hour reuse the cached result
                 # instead of re-reading every saved report (review, Nov 2026).
                 start, end = (now - timedelta(days=days)).replace(minute=0, second=0, microsecond=0), now
@@ -938,9 +939,9 @@ class Bot:
             result = self.uptime_result(start, end)
             title = f"Uptime {period}"
         if not result["cameras"]:
-            self.send(chat_id, f"No saved reports for {views.esc(period)}.")
-            return
-        self.send(chat_id, views.uptime_text(result, title or f"Uptime {period}"))
+            return self.send(chat_id, f"No saved reports for {views.esc(period)}.")
+        if not self.send(chat_id, views.uptime_text(result, title or f"Uptime {period}")):
+            return False                    # Telegram unreachable: no CSV or PDF either.
         try:
             self.api.upload("sendDocument", "document", f"uptime-{period.replace(' ', '-')}.csv",
                             uptime_calc.to_csv(result).encode("utf-8-sig"), "text/csv", chat_id=chat_id)
@@ -948,6 +949,7 @@ class Bot:
             print(f"telegram: CSV to {chat_id} failed: {exc}", flush=True)
         if re.fullmatch(r"\d{4}-\d{2}", period or ""):
             self.send_monthly_pdf(chat_id, result, period)
+        return True
 
     def send_monthly_pdf(self, chat_id: int, result: dict, period: str) -> None:
         """The monthly PDF: the one the scanner saved for a finished month, else built now."""
@@ -1018,20 +1020,24 @@ class Bot:
         write_state(path, new_position)
 
     def check_monthly_uptime(self) -> None:
-        """On the 1st (after the digest time), post last month's uptime once."""
+        """On the 1st (after the digest time), post last month's uptime once; if the
+        bot was down or Telegram could not be reached, by the 7th."""
         now = datetime.now(views.LOCAL_TZ)
         hour, minute = (int(x) for x in (self.settings["digest"] or ("09", "00")))
-        if now.day != 1 or now < now.replace(hour=hour, minute=minute, second=0, microsecond=0):
+        if now.day > MONTHLY_CATCH_UP_DAYS or (
+                now.day == 1 and now < now.replace(hour=hour, minute=minute, second=0, microsecond=0)):
             return
         path = self.state_dir / "uptime_post.json"
         if read_state(path, {}).get("month") == now.strftime("%Y-%m"):
             return
-        write_state(path, {"month": now.strftime("%Y-%m")})
         month = (now.replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
         start = datetime(int(month[:4]), int(month[5:]), 1, tzinfo=views.LOCAL_TZ)
         result = self.uptime_result(start, now.replace(day=1, hour=0, minute=0, second=0, microsecond=0))
-        for chat_id in self.recipients():
-            self.send_uptime(chat_id, "", title=f"Monthly uptime {month}", result=result, period=month)
+        targets = self.recipients()
+        sent = [self.send_uptime(chat_id, "", title=f"Monthly uptime {month}", result=result, period=month)
+                for chat_id in targets]
+        if not targets or any(sent):
+            write_state(path, {"month": now.strftime("%Y-%m")})  # Otherwise: Telegram down, try again later.
 
     def periodic(self) -> None:
         for task in (self.check_alerts, self.check_events, self.check_pending_scans, self.check_digest,

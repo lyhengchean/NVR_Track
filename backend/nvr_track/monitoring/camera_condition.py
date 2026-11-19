@@ -144,7 +144,8 @@ def classify(channel: dict) -> dict:
             code, detail = "OFFLINE_RECORDING", f"Reported offline, but video was recorded in {window}."
         elif picture in BAD_PICTURES:
             code, detail = "BAD_PICTURE", "Recording, but " + BAD_PICTURES[picture][0].lower() + BAD_PICTURES[picture][1:]
-        elif cal["known"] and cal["missing_days"]:
+        elif cal["known"] and cal["missing_days"] and channel.get("recording_expectation") != "event":
+            # Event recording: a day without motion has no video; that is not a gap.
             code = "GAPS"
             detail = f"{cal['missing_days']} of the last {cal['history_days']} days have no video."
         elif cal["known"] and cal["history_days"] < cal["window"]:
