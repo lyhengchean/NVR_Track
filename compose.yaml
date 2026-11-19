@@ -24,6 +24,7 @@ services:
       - ./state/notes:/app/state/notes:ro
       - ./state/events:/app/state/events:ro
       - ./state/snapshots:/app/state/snapshots
+      - ./state/live:/app/state/live:ro
 
     stdin_open: true
     tty: true
@@ -53,6 +54,7 @@ services:
       - ./state/notes:/app/state/notes:ro
       - ./state/events:/app/state/events:ro
       - ./state/snapshots:/app/state/snapshots
+      - ./state/live:/app/state/live:ro
   nvr-dashboard:
     build:
       context: .
@@ -140,6 +142,7 @@ services:
       - ./state/notes:/app/state/notes:ro
       - ./state/events:/app/state/events:ro
       - ./state/snapshots:/app/state/snapshots
+      - ./state/live:/app/state/live:ro
 
     restart: unless-stopped
 

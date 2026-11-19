@@ -21,7 +21,7 @@ from nvr_track.nvr.isapi import (
 from nvr_track.monitoring import notes as notes_store
 from nvr_track.nvr import smart as smart_check
 from nvr_track.nvr import snapshots as snapshot_check
-from nvr_track.monitoring import flapping
+from nvr_track.monitoring import flapping, live
 from nvr_track.monitoring.duplicates import find_duplicates
 from nvr_track.monitoring.inventory_changes import inventory_changes, recent_reports, restart_info
 from nvr_track.nvr.recording import check_recording_evidence
@@ -454,11 +454,18 @@ def main() -> int:
     previous_reports = list(recent_reports(report_dir, configured_nvr.id, limit=6))
     changes = inventory_changes(previous_reports, channel_rows if inventory_ok else None)
     duplicates = find_duplicates(channel_rows if inventory_ok else None)
-    # Cameras that keep going offline and online (from live states at each scan).
+    # Cameras that keep going offline and online (states at each scan, plus live checks).
     flap_settings = flapping.settings()
     if inventory_ok:
         flapping.track(channel_rows, previous_reports, datetime.now(timezone.utc), flap_settings["hours"])
     flap = flapping.summary(channel_rows if inventory_ok else None, flap_settings["changes"], flap_settings["hours"])
+    live_entry = live.read_entry(configured_nvr.id, Path(os.environ.get("LIVE_DIR", str(ROOT / "state" / "live")))) \
+        if inventory_ok else None
+    if live_entry is not None:
+        # Drop-outs the live checker (nvr-live, every 60 s, state/live read-only)
+        # saw between scans count too, so this report and the email name the
+        # same unstable cameras as the dashboard and Telegram.
+        flap = live.merge_flapping(flap, live_entry, {"channel_inventory": {"channels": channel_rows}})
     device_status = None
     if os.environ.get("NVR_DEVICE_STATUS", "true").strip().lower() == "true":
         device_status = get_device_status(configured_nvr.ip, username, password, http_port)

@@ -7,6 +7,8 @@ state (``live_last``); the next report extends that list. When the previous
 report has no such list (older version, or a failed run), the list is rebuilt
 from the saved reports at hand. A drop-out between two scans is not seen, so
 the count is a lower bound: it never claims more changes than were observed.
+With nvr-live, run_nvr_report adds the changes the live checks saw
+(monitoring.live.merge_flapping), still only observed changes.
 """
 from __future__ import annotations
 

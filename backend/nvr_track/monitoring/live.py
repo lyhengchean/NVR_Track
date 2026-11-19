@@ -280,7 +280,7 @@ def overlay(report: dict, entry: dict, now: datetime | None = None) -> dict:
         # newer than the scan: right after a scan it is not, and dropping it then
         # gave a false "no longer going offline and online" until the next check.
         old_flap = flap_warning(report["flapping"])
-        report["flapping"] = _merge_flapping(report["flapping"], entry, report, now)
+        report["flapping"] = merge_flapping(report["flapping"], entry, report, now)
         new_flap = flap_warning(report["flapping"])
         if old_flap != new_flap:
             warnings = [w for w in warnings if w != old_flap] + ([new_flap] if new_flap else [])
@@ -331,8 +331,12 @@ def _status_since(report: dict, entry: dict, report_time: datetime | None) -> No
             row["status_since"] = report_time.isoformat()  # The newer scan saw a change the live check had not.
 
 
-def _merge_flapping(flapping: object, entry: dict, report: dict, now: datetime | None = None) -> dict:
-    """Cameras over the flapping threshold by scans or by live checks (the higher count)."""
+def merge_flapping(flapping: object, entry: dict, report: dict, now: datetime | None = None) -> dict:
+    """Cameras over the flapping threshold by scans or by live checks (the higher count).
+
+    Used by each scan (so its report and the email count what the live checks
+    saw) and by the overlay. It only adds cameras or raises counts: one the
+    report lists stays until the next scan finds it below the limit."""
     flapping = dict(flapping) if isinstance(flapping, dict) else {}
     needed = flapping.get("changes_needed")
     changes = entry.get("changes") if isinstance(entry.get("changes"), dict) else {}
