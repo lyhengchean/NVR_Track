@@ -100,6 +100,14 @@ def run_report_with_lock_retry(command: list[str], nvr_id: str,
     raise AssertionError("Lock retry loop exhausted without result")
 
 
+STATUS_READ = {None, "CHANNEL_STATUS_RETRIEVED", "CHANNEL_STATUS_INCOMPLETE"}
+
+
+def _cell(value: object) -> object:
+    """None (not known for this NVR) as a dash, never as 0."""
+    return "—" if value is None else value
+
+
 def save_fleet_run_status(started_at: str, rows: list[dict]) -> None:
     """Record each fleet attempt, including failures without JSON snapshots.
 
@@ -129,6 +137,33 @@ def save_fleet_run_status(started_at: str, rows: list[dict]) -> None:
     finally:
         if temporary is not None:
             temporary.unlink(missing_ok=True)
+
+def report_row(nvr, report: dict, notes: dict | None = None) -> dict:
+    """One NVR's row of the consolidated summary and email, from its saved report."""
+    channel_status = report.get("channel_status", {})
+    inventory = report.get("channel_inventory") or {}
+    rows = inventory.get("channels") or []
+    expected = inventory.get("expected_count")
+    # Camera states not read (NVR unreachable, login refused): unknown, never 0 online / 0 offline.
+    states_read = channel_status.get("status") in STATUS_READ
+    return {
+        "id": nvr.id,
+        "name": getattr(nvr, "name", ""),
+        "ip": nvr.ip,
+        "overall": report.get("overall", {}).get("status", "UNKNOWN"),
+        "storage": report.get("storage", {}).get("status", "UNKNOWN"),
+        "recording": report.get("recording", {}).get("status", "UNKNOWN"),
+        "online": channel_status.get("online_count", 0) if states_read else None,
+        "offline": channel_status.get("offline_count", 0) if states_read else None,
+        "cameras_listed": bool(rows),
+        "cameras_unread": expected if type(expected) is int and expected > 0 and not rows else 0,
+        "recording_evidence": report.get("per_camera_recording", {}).get("evidence", 0),
+        "recording_missing": report.get("per_camera_recording", {}).get("no_recent_evidence", 0),
+        "recording_errors": report.get("per_camera_recording", {}).get("search_errors", 0),
+        "online_missing_expected": report.get("per_camera_recording", {}).get("online_missing_expected", 0),
+        **camera_conditions(report, notes),
+    }
+
 
 def camera_conditions(report: dict, notes: dict | None = None) -> dict:
     """Condition counts, cameras that need action and add-on findings, from one saved report.
@@ -239,6 +274,8 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
     }
     online = sum(int(row.get("online", 0) or 0) for row in summary)
     offline = sum(int(row.get("offline", 0) or 0) for row in summary)
+    # Expected cameras on NVRs whose camera list could not be read in a saved report.
+    unread = sum(int(row.get("cameras_unread", 0) or 0) for row in summary if row.get("overall") != "ERROR")
     evidence = sum(int(row.get("recording_evidence", 0) or 0) for row in summary)
     missing_evidence = sum(int(row.get("recording_missing", 0) or 0) for row in summary)
     online_missing_expected = sum(int(row.get("online_missing_expected", 0) or 0) for row in summary)
@@ -279,19 +316,20 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         }
         color = colors.get(status, "#475569")
 
+        listed = status != "ERROR" and item.get("cameras_listed", True)
         cells = [
             " - ".join(str(v) for v in (item.get("id", "—"), item.get("name")) if v),
             item.get("ip", "—"),
             status,
             item.get("storage", "UNKNOWN"),
-            item.get("online", 0) if status != "ERROR" else "—",
-            item.get("offline", 0) if status != "ERROR" else "—",
-            item.get("recording_evidence", 0) if status != "ERROR" else "—",
-            item.get("stopped_recording", 0) if status != "ERROR" else "—",
-            item.get("no_footage_30", 0) if status != "ERROR" else "—",
-            item.get("gaps", 0) if status != "ERROR" else "—",
-            item.get("online_missing_expected", 0) if status != "ERROR" else "—",
-            item.get("check_failed", 0) if status != "ERROR" else "—",
+            _cell(item.get("online", 0)) if status != "ERROR" else "—",
+            _cell(item.get("offline", 0)) if status != "ERROR" else "—",
+            item.get("recording_evidence", 0) if listed else "—",
+            item.get("stopped_recording", 0) if listed else "—",
+            item.get("no_footage_30", 0) if listed else "—",
+            item.get("gaps", 0) if listed else "—",
+            item.get("online_missing_expected", 0) if listed else "—",
+            item.get("check_failed", 0) if listed else "—",
             kept_text(item.get("kept_days")) if status != "ERROR" else "—",
         ]
         escaped = [escape(str(value)) for value in cells]
@@ -378,6 +416,7 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         <td>Critical</td><td>{counts['CRITICAL']}</td></tr>
     <tr><td>Cameras online</td><td>{online}</td>
         <td>Cameras offline</td><td>{offline}</td></tr>
+    {f'<tr><td>No result (camera list not read)</td><td><strong>{unread}</strong></td><td></td><td></td></tr>' if unread else ''}
     <tr><td>Recent recording evidence</td><td>{evidence}</td>
         <td>No recent evidence</td><td>{missing_evidence}</td></tr>
     <tr><td>Stopped recording</td><td>{stopped_recording}</td>
@@ -412,7 +451,8 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         f"Total NVRs: {len(summary)}; fresh reports: {successful}; report errors: {failures}",
         f"Healthy: {counts['HEALTHY']}; Warnings: {counts['WARNING']}; "
         f"Critical: {counts['CRITICAL']}; Errors: {counts['ERROR']}",
-        f"Cameras online: {online}; Cameras offline: {offline}",
+        f"Cameras online: {online}; Cameras offline: {offline}"
+        + (f"; no result (camera list not read): {unread}" if unread else ""),
         f"Recording evidence: {evidence}; no recent evidence: {missing_evidence}; "
         f"online missing expected: {online_missing_expected}; search errors: {recording_errors}",
         f"Stopped recording: {stopped_recording}; no footage 30+ days: {no_footage_30}; "
@@ -427,12 +467,14 @@ def send_email_report(summary: list[dict]) -> tuple[bool, str]:
         plain_lines.append(
             f"{' - '.join(str(v) for v in (item.get('id'), item.get('name')) if v)} ({item.get('ip')}): "
             f"{item.get('overall')} | storage={item.get('storage')} | "
-            f"online={item.get('online')} | offline={item.get('offline')} | "
-            f"recording_now={item.get('recording_evidence', 0)} | "
-            f"stopped={item.get('stopped_recording', 0)} | "
-            f"no_footage_30d={item.get('no_footage_30', 0)} | gaps={item.get('gaps', 0)}"
-            f" | check_failed={item.get('check_failed', 0)}"
-            f" | online_missing_expected={item.get('online_missing_expected', 0)}"
+            f"online={_cell(item.get('online'))} | offline={_cell(item.get('offline'))} | "
+            + (f"recording_now={item.get('recording_evidence', 0)} | "
+               f"stopped={item.get('stopped_recording', 0)} | "
+               f"no_footage_30d={item.get('no_footage_30', 0)} | gaps={item.get('gaps', 0)}"
+               f" | check_failed={item.get('check_failed', 0)}"
+               f" | online_missing_expected={item.get('online_missing_expected', 0)}"
+               if item.get("cameras_listed", True) or item.get("overall") == "ERROR"
+               else f"cameras: camera list not read ({item.get('cameras_unread') or '?'} expected)")
             + (f" | footage_kept={kept_text(item.get('kept_days'))}" if item.get("overall") != "ERROR" else "")
         )
     if attention_text:
@@ -586,25 +628,7 @@ def main(argv: list[str] | None = None) -> int:
             })
             continue
 
-        channel_status = report.get("channel_status", {})
-
-        summary.append({
-            "id": nvr.id,
-            "name": getattr(nvr, "name", ""),
-            "ip": nvr.ip,
-            "overall": report.get("overall", {}).get("status", "UNKNOWN"),
-            "storage": report.get("storage", {}).get("status", "UNKNOWN"),
-            "recording": report.get("recording", {}).get(
-                "status", "UNKNOWN"
-            ),
-            "online": channel_status.get("online_count", 0),
-            "offline": channel_status.get("offline_count", 0),
-            "recording_evidence": report.get("per_camera_recording", {}).get("evidence", 0),
-            "recording_missing": report.get("per_camera_recording", {}).get("no_recent_evidence", 0),
-            "recording_errors": report.get("per_camera_recording", {}).get("search_errors", 0),
-            "online_missing_expected": report.get("per_camera_recording", {}).get("online_missing_expected", 0),
-            **camera_conditions(report, notes_store.load()),
-        })
+        summary.append(report_row(nvr, report, notes_store.load()))
         fleet_channels.append((nvr.id, (report.get("channel_inventory") or {}).get("channels") or []))
 
     # Cameras recorded by more than one NVR (information in each NVR's findings).
@@ -636,8 +660,8 @@ def main(argv: list[str] | None = None) -> int:
             f"{item['overall']:<12} "
             f"{item['storage']:<10} "
             f"{item['recording'][:42]:<43} "
-            f"{item['online']:>7} "
-            f"{item['offline']:>8}"
+            f"{_cell(item['online'])!s:>7} "
+            f"{_cell(item['offline'])!s:>8}"
         )
 
     healthy = sum(item["overall"] == "HEALTHY" for item in summary)

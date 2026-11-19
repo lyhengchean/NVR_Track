@@ -374,6 +374,9 @@ def _public_changes(value: object) -> dict:
             "compared_with": str(raw.get("compared_with") or "")[:40], "changes": changes[:100]}
 
 
+STATUS_READ = {None, "CHANNEL_STATUS_RETRIEVED", "CHANNEL_STATUS_INCOMPLETE"}
+
+
 def _public_report(report: dict, path: Path, notes: dict | None = None) -> dict:
     """Expose only dashboard fields; never expose arbitrary report contents."""
     nvr = _as_dict(report.get("nvr"))
@@ -384,6 +387,8 @@ def _public_report(report: dict, path: Path, notes: dict | None = None) -> dict:
     recording = _as_dict(report.get("recording"))
     overall = _as_dict(report.get("overall"))
 
+    # Reports without a status field (older ones) keep their counts.
+    status_read = channel_status.get("status") in STATUS_READ
     channels = []
     raw_channels = channel_inventory.get("channels", [])
     if isinstance(raw_channels, list):
@@ -479,9 +484,10 @@ def _public_report(report: dict, path: Path, notes: dict | None = None) -> dict:
         "info": _list_of_text(overall.get("info")),
         "expected_channels": channel_inventory.get("expected_count"),
         "configured_channels": channel_inventory.get("configured_count"),
-        "online_channels": _safe_count(channel_status.get("online_count")),
-        "offline_channels": _safe_count(channel_status.get("offline_count")),
-        "unknown_channels": _safe_count(channel_status.get("unknown_count")),
+        # Not read (NVR unreachable, login refused...): unknown, never 0 online / 0 offline.
+        "online_channels": _safe_count(channel_status.get("online_count")) if status_read else None,
+        "offline_channels": _safe_count(channel_status.get("offline_count")) if status_read else None,
+        "unknown_channels": _safe_count(channel_status.get("unknown_count")) if status_read else len(channels),
         "storage_status": str(storage.get("status", "UNKNOWN")),
         "storage_message": str(storage.get("message", "")),
         "recording_status": str(recording.get("status", "UNKNOWN")),
@@ -550,6 +556,20 @@ def _stale_cutoff(now: datetime, scan_times: list[str]) -> tuple[datetime, datet
 
 
 EVENT_SERVICE_STALE = timedelta(minutes=2)
+# A connected stream gets data (a heartbeat) every ~10 s and reconnects after
+# 90 s without any; "connected" with nothing for longer is a stuck listener.
+EVENT_STREAM_SILENT = timedelta(minutes=3)
+
+
+def _stream_receiving(state: dict, now: datetime) -> bool:
+    for key in ("last_seen", "since"):
+        try:
+            moment = datetime.fromisoformat(str(state.get(key) or ""))
+        except ValueError:
+            continue
+        if moment.tzinfo:
+            return now - moment < EVENT_STREAM_SILENT
+    return False
 
 
 def _attach_events(nvrs: list[dict]) -> list[dict]:
@@ -562,16 +582,25 @@ def _attach_events(nvrs: list[dict]) -> list[dict]:
     except (KeyError, TypeError, ValueError):
         service_alive = False
     recent = event_store.recent_events(hours=24)
+    now = datetime.now(timezone.utc)
     for nvr in nvrs:
         state = streams.get(nvr["id"])
-        nvr["event_stream"] = None if not isinstance(state, dict) else {
-            "connected": service_alive and state.get("connected") is True,
+        if not isinstance(state, dict):
+            nvr["event_stream"] = None
+            nvr["events"] = [e for e in recent if e["nvr"] == nvr["id"]][:20]
+            continue
+        silent = (service_alive and state.get("connected") is True and not _stream_receiving(state, now))
+        error = ("SERVICE_STOPPED" if not service_alive else "NO_DATA_TIMEOUT" if silent
+                 else str(state.get("last_error") or "")[:40])
+        nvr["event_stream"] = {
+            "connected": service_alive and state.get("connected") is True and not silent,
             "since": str(state.get("since") or "")[:40],
-            "down_since": str(state.get("down_since") or state.get("since") or "")[:40],
+            # A silent "connected" stream is down since its last data.
+            "down_since": str((state.get("last_seen") or state.get("since")) if silent
+                              else state.get("down_since") or state.get("since") or "")[:40],
             "last_seen": str(state.get("last_seen") or "")[:40],
-            "last_error": "SERVICE_STOPPED" if not service_alive else str(state.get("last_error") or "")[:40],
-            "last_error_text": (event_store.reason_text("SERVICE_STOPPED") if not service_alive
-                                else event_store.reason_text(state.get("last_error")) if state.get("last_error") else ""),
+            "last_error": error,
+            "last_error_text": event_store.reason_text(error) if error else "",
         }
         nvr["events"] = [e for e in recent if e["nvr"] == nvr["id"]][:20]
     return recent

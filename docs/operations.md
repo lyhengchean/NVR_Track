@@ -427,7 +427,7 @@ Each camera gets one **Condition**, built from results already in the report
 | Stopped recording | No video in the search window, but older video exists (calendar or the `NVR_HISTORICAL_LOOKBACK_DAYS` history). |
 | No recent events | An **online** camera marked `event` in `recording_expectations` had no segment in the search window. Normal for a quiet area, so it is not counted as stopped. An offline event camera, or one with no footage on any of the 30 calendar days, still shows as a problem. |
 | Check failed | The recording check could not be completed (network, track or permission). Never counted as recording. |
-| Gaps (N days) | Recording now, but N days since its oldest footage have no video. |
+| Gaps (N days) | Recording now, but N days since its oldest footage have no video. Not for cameras marked `event`: a day without events has no video. |
 | Picture problem | Recording, but the latest snapshot is black, flat (covered), frozen or the view moved (needs snapshot checks). |
 | Known issue | Someone marked the problem as being handled; alerts are paused until the date or until marked fixed. |
 | Below required days (N days) | Recording now, but footage reaches back only N days, fewer than `NVR_REQUIRED_RETENTION_DAYS`. |
@@ -748,8 +748,10 @@ docker compose run --rm -T --entrypoint python nvr-report -m nvr_track.cli.archi
 ```
 
 Each archive is re-read and checked before the originals are removed. The
-newest 200 reports of every NVR (at least 30) are always kept, so calendar and
-history caches and the dashboard are unaffected. To run it automatically once a
+newest 200 reports of every NVR (at least 30), and every report of this and
+last calendar month, are always kept, so calendar and history caches, the
+dashboard and the monthly uptime report are unaffected. Uptime results say so
+when the saved reports start later than the period asked for. To run it automatically once a
 day after a scheduled scan, set `NVR_REPORT_ARCHIVE_DAYS=60` and recreate
 `nvr-scanner`. To look inside an archive:
 `tar -tzf reports/archive/reports-2026-08-<run>.tar.gz | head`.
@@ -815,7 +817,10 @@ Failed or disabled checks are left out, never counted either way.
   a month (`/uptime 2026-10`) also gets the monthly PDF report. More than 31 days
   (up to `/uptime 366`) is for admins only: each one reads every saved report in the range.
 - On the 1st, after the first scheduled scan, last month's report is emailed
-  (CSV and PDF attached) and posted to the alert chats. `NVR_UPTIME_MONTHLY=false` turns it off.
+  (CSV and PDF attached) and posted to the alert chats. If the email or the post
+  fails (or the server was down on the 1st), it is tried again after the next
+  scan, up to the 7th. If saved reports start later than the period, the report
+  says so. `NVR_UPTIME_MONTHLY=false` turns it off.
 - By hand: `docker compose run --rm -T --entrypoint python nvr-report -m nvr_track.cli.uptime_report --month 2026-10 --pdf`
   (saves `reports/uptime/uptime-2026-10.csv` and `NVR-Track-2026-10.pdf`; the
   current month gives a month-to-date report).

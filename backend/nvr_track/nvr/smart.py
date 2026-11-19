@@ -198,6 +198,12 @@ def cached(previous: dict | None, disk_ids: list[str], hours: int) -> dict | Non
     return {**previous, "from_cache": True}
 
 
+def disks_not_read() -> dict:
+    """SMART not checked because the NVR's disk list could not be read (not "no disks")."""
+    return {"status": UNVERIFIED, "checked_at": datetime.now(timezone.utc).isoformat(), "from_cache": False,
+            "disks": [], "message": "Not checked: the NVR's disk list could not be read.", "rules": RULES_VERSION}
+
+
 def not_configured() -> dict:
     return {"status": NOT_CONFIGURED, "checked_at": None, "from_cache": False, "disks": [],
             "message": "SMART checks are not enabled for this NVR (NVR_SMART_NVR_IDS)."}

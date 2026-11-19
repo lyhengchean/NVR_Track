@@ -13,10 +13,13 @@ import csv
 import io
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from nvr_track.core.spreadsheet import csv_safe
+
+LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
 
 REPORT_NAME = re.compile(r"^(?P<id>[A-Za-z0-9][A-Za-z0-9_-]{0,63}?)_"
                          r"(?P<stamp>\d{8}T\d{6}(?:\d{1,6})?[+-]\d{4})\.json$")
@@ -46,6 +49,7 @@ def compute(report_dir: Path, start: datetime, end: datetime) -> dict:
         if moment is not None and start <= moment < end:
             files.setdefault(match["id"], []).append((moment, path))
     nvrs, cameras = [], []
+    moments = [moment for items in files.values() for moment, _ in items]
     for nvr_id in sorted(files):
         reports = reachable = restarts = 0
         name = ""
@@ -102,7 +106,10 @@ def compute(report_dir: Path, start: datetime, end: datetime) -> dict:
             "generated_at": datetime.now(timezone.utc).isoformat(),
             "fleet": {"nvrs": len(nvrs), "cameras": len(cameras),
                       "online_pct": _pct(sum(c["online"] for c in cameras), live),
-                      "recording_pct": _pct(sum(c["recording"] for c in cameras), checked)},
+                      "recording_pct": _pct(sum(c["recording"] for c in cameras), checked),
+                      # The saved reports actually found in the period.
+                      "first_report": min(moments).isoformat() if moments else None,
+                      "last_report": max(moments).isoformat() if moments else None},
             "nvrs": nvrs, "cameras": cameras}
 
 
@@ -129,6 +136,24 @@ def flapping(result: dict, minimum: int = 3, limit: int = 10) -> list[dict]:
     return sorted(rows, key=lambda c: -c["flaps"])[:limit]
 
 
+def coverage_note(result: dict) -> str | None:
+    """A sentence when saved reports start more than a day after the period does
+    (older ones archived, or not collected yet), so a percentage is never read
+    as covering days it did not see."""
+    fleet = result.get("fleet") or {}
+    try:
+        start = datetime.fromisoformat(result["start"])
+        first = datetime.fromisoformat(fleet["first_report"]) if fleet.get("first_report") else None
+    except (KeyError, TypeError, ValueError):
+        return None
+    if first is None:
+        return "No saved reports in this period."
+    if first - start <= timedelta(days=1):
+        return None
+    return (f"Saved reports cover only from {first.astimezone(LOCAL_TZ):%d %b %Y %H:%M} "
+            f"(the period starts {start.astimezone(LOCAL_TZ):%d %b %Y}); older reports are archived or were not collected.")
+
+
 def summary_lines(result: dict, title: str) -> list[str]:
     fleet = result["fleet"]
 
@@ -136,7 +161,9 @@ def summary_lines(result: dict, title: str) -> list[str]:
         return "—" if v is None else f"{v:.1f}%"
     lines = [title,
              f"Cameras {fleet['cameras']} on {fleet['nvrs']} NVRs · online {pct(fleet['online_pct'])}"
-             f" · recording {pct(fleet['recording_pct'])}", ""]
+             f" · recording {pct(fleet['recording_pct'])}"]
+    note = coverage_note(result)
+    lines += ([note] if note else []) + [""]
     lines += [f"{n['nvr']}{' ' + n['name'] if n['name'] else ''}: online {pct(n['online_pct'])}, "
               f"recording {pct(n['recording_pct'])}, NVR reachable {pct(n['reachable_pct'])} "
               f"({n['reports']} reports)" for n in result["nvrs"]]

@@ -7,8 +7,9 @@ changes (dry run). Contacts no NVR.
 
 Kept in place always: the newest --keep-per-nvr reports of every NVR (the
 reporter reuses calendars and history from recent reports), every report
-newer than --older-than-days, and every non-report file (fleet_latest_run.json,
-track-verification-*.json, locks).
+newer than --older-than-days, every report of this and last calendar month
+(the monthly uptime report reads them), and every non-report file
+(fleet_latest_run.json, track-verification-*.json, locks).
 
   docker compose run --rm -T --entrypoint python nvr-report -m nvr_track.cli.archive_reports
   docker compose run --rm -T --entrypoint python nvr-report -m nvr_track.cli.archive_reports --apply
@@ -21,6 +22,7 @@ import re
 import tarfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from nvr_track.core.paths import PROJECT_ROOT as ROOT
 
@@ -29,6 +31,13 @@ REPORTS_DIR = ROOT / "reports"
 REPORT_NAME = re.compile(r"^(?P<id>[A-Za-z0-9][A-Za-z0-9_-]{0,63}?)_"
                          r"(?P<stamp>\d{8}T\d{6}(?:\d{1,6})?[+-]\d{4})\.json$")
 MIN_KEEP_PER_NVR = 30
+LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
+
+
+def previous_month_start(now: datetime) -> datetime:
+    """00:00 on the 1st of last month (local): the monthly uptime report reads from there."""
+    first = now.astimezone(LOCAL_TZ).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return (first - timedelta(days=1)).replace(day=1)
 
 
 def _stamp(text: str) -> datetime | None:
@@ -44,7 +53,9 @@ def select(report_dir: Path, older_than_days: int, keep_per_nvr: int,
            now: datetime | None = None) -> dict[str, list[Path]]:
     """{'YYYY-MM': [paths]} of reports that may be archived."""
     now = now or datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=older_than_days)
+    # Reports of this month and last month always stay: the monthly uptime
+    # report on the 1st (and /uptime for last month) read them from reports/.
+    cutoff = min(now - timedelta(days=older_than_days), previous_month_start(now))
     by_nvr: dict[str, list[tuple[datetime, Path]]] = {}
     for path in report_dir.glob("*_*.json"):
         match = REPORT_NAME.match(path.name)

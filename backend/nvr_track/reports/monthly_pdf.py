@@ -24,6 +24,7 @@ from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from nvr_track.monitoring.uptime import coverage_note
 from nvr_track.nvr.storage import ABSENT_DISK_STATES, NORMAL_DISK_STATES
 
 LOCAL_TZ = ZoneInfo("Asia/Phnom_Penh")
@@ -164,8 +165,11 @@ def build(result: dict, *, period: str, period_label: str, current: dict | None 
 
     story += [Paragraph("NVR Track · Monthly report", TITLE),
               Paragraph(f"{clean(period_label)} · generated {generated:%d %b %Y %H:%M} · "
-                        f"from {scans} saved scans of {len(nvrs)} NVRs · read-only monitoring", SUB),
-              Spacer(1, 7)]
+                        f"from {scans} saved scans of {len(nvrs)} NVRs · read-only monitoring", SUB)]
+    note = coverage_note(result)
+    if note:                                # Saved reports start later than the month.
+        story.append(Paragraph(clean(note, 240), SMALL))
+    story.append(Spacer(1, 7))
 
     reachable = [n["reachable_pct"] for n in nvrs if isinstance(n.get("reachable_pct"), (int, float))]
     kpis = [(str(fleet.get("cameras", 0)), "cameras"), (str(fleet.get("nvrs", 0)), "NVRs"),

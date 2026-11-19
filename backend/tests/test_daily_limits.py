@@ -102,7 +102,7 @@ class StreamLimitTests(LimitFixture):
             "schema_version": 1, "updated_at": datetime.now(timezone.utc).isoformat(), "nvrs": nvrs}))
 
     def test_short_drops_are_not_posted_and_long_ones_once_a_day(self):
-        up = {"connected": True, "since": ago(60)}
+        up = {"connected": True, "since": ago(60), "last_seen": ago(0.1)}   # Heartbeats keep arriving.
         self.status(**{"nvr-01": up, "nvr-12": up})
         self.bot.check_alerts()                                               # First start.
         self.status(**{"nvr-01": {"connected": False, "since": ago(0.5), "down_since": ago(2),
@@ -128,7 +128,7 @@ class StreamLimitTests(LimitFixture):
         self.assertIn("nvr-01", self.sent(self.bot.check_alerts)[0])          # Next day: alerted again.
 
     def test_older_status_without_down_since(self):
-        self.status(**{"nvr-01": {"connected": True, "since": ago(60)}})
+        self.status(**{"nvr-01": {"connected": True, "since": ago(60), "last_seen": ago(0.1)}})
         self.bot.check_alerts()
         self.status(**{"nvr-01": {"connected": False, "since": ago(1), "last_error": "STREAM_CLOSED"}})
         self.assertEqual(self.sent(self.bot.check_alerts), [])                # Uses "since": 1 min.

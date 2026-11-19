@@ -382,7 +382,8 @@ function card(row) {
   }
   const live = el("span", "livecounts");
   const lv = (n, t) => { const s = el("span"); s.append(el("b", "", n), " " + t); return s; };
-  live.append(lv(num(nvr.online_channels), "online"), lv(num(nvr.offline_channels), "offline"));
+  const known = v => v === null || v === undefined ? "—" : num(v);  // null: the NVR's camera states could not be read.
+  live.append(lv(known(nvr.online_channels), "online"), lv(known(nvr.offline_channels), "offline"));
   if (num(nvr.unknown_channels)) live.append(lv(num(nvr.unknown_channels), "unknown"));
   const chans = el("span", "", (nvr.configured_channels ?? "—") + " of " + (nvr.expected_channels ?? "—") + " channels");
   const kept = el("span", "kept", "Footage kept " + keptText(nvr.kept_days, true));
