@@ -808,7 +808,10 @@ Telegram `/problems`, and one Telegram alert. While it lasts, that camera's
 "Went offline" / "Back online" alerts are paused; "No longer going offline
 and online" follows when the changes drop below the limit. Drop-outs between
 two scans are not seen, so the count never overstates. With live checks the
-changes they saw count too, also right after a scan.
+changes they saw count too, also right after a scan, and in each scan's
+report and the email (the scanner reads `state/live` read-only), so the
+email names the same unstable cameras as the dashboard. A camera stays
+listed until the next scan finds it below the limit.
 
 **Uptime report** (on by default). Online % and recording % per camera and
 NVR, plus cameras that keep dropping on and off, from saved reports only.
